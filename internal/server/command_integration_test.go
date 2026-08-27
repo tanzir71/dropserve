@@ -321,7 +321,10 @@ func TestShutdownLeavesNoCommandChild(t *testing.T) {
 		t.Fatalf("close shutdown-test server: %v", err)
 	}
 	serverClosed = true
-	deadline := time.Now().Add(5 * time.Second)
+	// npm process-exit delivery is occasionally delayed on race-enabled hosted
+	// Windows runners. Keep this below the supervisor's 30-second health limit
+	// while leaving enough headroom to test the restart instead of runner load.
+	deadline := time.Now().Add(15 * time.Second)
 	for {
 		alive, err = processAlive(childPID)
 		if err != nil {

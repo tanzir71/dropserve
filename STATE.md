@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T22:52:26Z
+**Last updated:** 2026-08-27T22:57:00Z
 **Gate status:** green
-**Iterations completed:** 80
+**Iterations completed:** 81
 
 ## Milestone progress
 
@@ -175,6 +175,7 @@
   ```
 - The first hosted M5 run [33123512219](https://github.com/tanzir71/dropserve/actions/runs/33123512219) passed the Windows gate and full PowerShell demo but exposed silent POSIX smoke assertions. Named file-based checks and a raw RFC 6455 client now make failures portable and actionable. The diagnostic restart also revealed that the executable did not translate `SIGTERM`/Ctrl+C into context cancellation, so real Unix shutdown skipped deferred command-tree cleanup. `serve` now uses a signal-aware context; its signal-set regression test failed first, then passed, as did the real Windows M5 demo and the full 39.3-second local gate.
 - Final hosted CI [run 33124023875](https://github.com/tanzir71/dropserve/actions/runs/33124023875) passed the Ubuntu and Windows gates, lint, secret scan, both platform-native M2 smokes, and both platform-native M5 smokes. The Unix demo specifically proved the real executable handles `SIGTERM`, releases its command processes and stable ports, restarts, and reclaims the persisted own port.
+- The M5 closure push launched duplicate branch and tag workflows for the same commit: the tag run [33124226268](https://github.com/tanzir71/dropserve/actions/runs/33124226268) passed every job while the simultaneous branch run [33124223818](https://github.com/tanzir71/dropserve/actions/runs/33124223818) hit the five-second Windows/npm restart-test deadline. Ten consecutive local race-enabled repetitions passed. CI now runs on branches and pull requests but not duplicate tag pushes, and the asynchronous restart acceptance window is 15 seconds—still below the supervisor's 30-second health limit—with no production timing change.
 
 ## Decisions made this build (beyond the spec)
 

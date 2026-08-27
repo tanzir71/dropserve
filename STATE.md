@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:21:08Z
+**Last updated:** 2026-08-27T20:22:12Z
 **Gate status:** green
-**Iterations completed:** 30
+**Iterations completed:** 31
 
 ## Milestone progress
 
@@ -30,7 +30,7 @@
 - [x] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
 - [x] The QR endpoint returns a valid PNG for the requested URL.
 - [x] Dashboard assets remain under 100 KB.
-- [ ] The dashboard handles both zero apps and 200 apps.
+- [x] The dashboard handles both zero apps and 200 apps.
 - [ ] `/_dropserve/*` cannot be shadowed by an app slug.
 
 ### M0 completion evidence
@@ -80,6 +80,7 @@
 - `TestEveryAdvertisedURLWorks` (**I3**): the URLs API advertises the exact origin through which the client reached Dropserve; every returned URL is fetched through a real random-port HTTP server and returns below 400.
 - `TestQREndpointReturnsPNG`: validated HTTP(S) input is passed to the handover-approved pure-Go QR encoder; the response independently decodes as a substantial 256×256 PNG and distinct URLs produce distinct images. The test does not decode the QR symbols back to text, avoiding a second decoder dependency; this is the explicit acceptance-criterion fallback limitation.
 - `TestEmbeddedAssetsStayUnderBudget`: the exact embedded files total 13,409 of the strict 100,000-byte budget (CSS 7,187; JavaScript 3,444; HTML 2,778), enforced on every gate run.
+- `TestDashboardHandlesZeroAndTwoHundredApps`: an empty scan serializes as a real empty list that activates the designed invitation state; a generated 200-app scan returns all 200 unique cards in one unpaginated snapshot. The client filters once and maps that snapshot once per render (linear work, no nested app scan).
 
 ## Decisions made this build (beyond the spec)
 

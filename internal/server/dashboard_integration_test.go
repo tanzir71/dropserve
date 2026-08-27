@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image/png"
 	"io"
 	"net/http"
@@ -48,6 +49,68 @@ func TestDashboardAtRoot(t *testing.T) {
 			t.Fatalf("dashboard body does not contain %q: %s", expected, body)
 		}
 	}
+}
+
+func TestDashboardHandlesZeroAndTwoHundredApps(t *testing.T) {
+	t.Parallel()
+
+	emptyServer, err := dropserver.New(scanner.Options{Roots: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("create empty dashboard: %v", err)
+	}
+	emptyEntries := fetchAppSlugs(t, emptyServer.Handler())
+	if emptyEntries == nil || len(emptyEntries) != 0 {
+		t.Fatalf("empty dashboard entries = %#v, want non-nil empty list", emptyEntries)
+	}
+
+	root := t.TempDir()
+	for index := range 200 {
+		name := fmt.Sprintf("app-%03d", index)
+		writeDashboardFixture(t, root, name, name, "Scale fixture.")
+	}
+	largeServer, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create 200-app dashboard: %v", err)
+	}
+	largeEntries := fetchAppSlugs(t, largeServer.Handler())
+	if len(largeEntries) != 200 {
+		t.Fatalf("large dashboard returned %d apps, want 200", len(largeEntries))
+	}
+	unique := make(map[string]struct{}, len(largeEntries))
+	for _, slug := range largeEntries {
+		unique[slug] = struct{}{}
+	}
+	if len(unique) != 200 {
+		t.Fatalf("large dashboard returned %d unique slugs, want 200", len(unique))
+	}
+}
+
+func fetchAppSlugs(t *testing.T, handler http.Handler) []string {
+	t.Helper()
+
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"http://dropserve.test/_dropserve/api/apps",
+		nil,
+	)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	result := response.Result()
+	defer func() {
+		_ = result.Body.Close()
+	}()
+	var entries []struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(result.Body).Decode(&entries); err != nil {
+		t.Fatalf("decode dashboard entries: %v", err)
+	}
+	slugs := make([]string, len(entries))
+	for index, entry := range entries {
+		slugs[index] = entry.Slug
+	}
+	return slugs
 }
 
 func TestQREndpointReturnsPNG(t *testing.T) {

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:40:47Z
+**Last updated:** 2026-08-27T21:46:04Z
 **Gate status:** green
-**Iterations completed:** 62
+**Iterations completed:** 63
 
 ## Milestone progress
 
@@ -36,7 +36,7 @@
 
 - [x] Deliverable: detection rules 2–4, 6, and 8 are implemented and tested.
 - [x] Deliverable: the bounded log API is surfaced in a designed dashboard log viewer for command apps and crashed cards expose their error output.
-- [ ] Deliverable: restart policy also covers a command that exits after becoming healthy, not only failures during initial health checking.
+- [x] Deliverable: restart policy also covers a command that exits after becoming healthy, not only failures during initial health checking.
 - [ ] Completion: run the M4 demo, paste its output below, rerun the full gate, commit, and tag `m4-complete`.
 
 ### M0 completion evidence
@@ -141,6 +141,7 @@
 - The first full gate after lazy start caught an existing atomic-removal edge: an in-flight request could retain the deleted app's old static handler and receive Go's plain 404 after the new empty scan published. All static misses now use Dropserve's friendly designed 404; the exact race test passed 10 consecutive `-race` runs and the full gate is green.
 - `TestCommandDetectionRulesTwoFourAndEight` completes the explicit M4 detection deliverable: it covers `Procfile` `web:` commands (rule 2), package `main` plus `index.js`/`server.js` fallbacks when no start script exists (rule 4), and a sole `.exe`/Unix-executable file (rule 8). Each result records its command, runtime, and friendly detection reason; the pre-implementation run classified all four fixtures as static, and the full gate is now green alongside the rule 3 and 6 integration tests.
 - `TestDashboardCommandLogSurfaceIsWired` locks an accessible app-log dialog, command-card action, crashed preview, and status styling while the dashboard asset budget remains 28,823/100,000 bytes. A real browser check against all fixtures showed the amber crashed card with the last five failure outputs, opened “broken logs” with `crashed · 5 starts`, refreshed the bounded tail, and produced zero console warnings/errors; the temporary demo shutdown left no fixture processes.
+- `TestHealthyCommandIsRestartedAfterLaterExit` runs a Node app that becomes healthy, exits only on run 1, and records its run count. The failing run returned 502 for the full five-second window; a stable managed route now switches to a friendly status-200 starting page during backoff and serves run 2 through the same URL in about two seconds. Post-health exits share the same five-failure/ten-minute budget with failed restart attempts. The restart, initial-crash, shutdown, and Windows process-tree tests passed twice together under `-race`; the full gate is green and no restart fixture process survived.
 
 ## Decisions made this build (beyond the spec)
 

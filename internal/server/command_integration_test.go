@@ -431,6 +431,71 @@ http.createServer((_request, response) => response.end("lazy fixture ready"))
 	}
 }
 
+func TestHealthyCommandIsRestartedAfterLaterExit(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the restart fixture requires it")
+	}
+	appRoot := filepath.Join(t.TempDir(), "restartable")
+	if err := os.Mkdir(appRoot, 0o750); err != nil {
+		t.Fatalf("create restart fixture: %v", err)
+	}
+	files := map[string]string{
+		"package.json": `{"name":"restartable","private":true,"scripts":{"start":"node server.js"}}`,
+		"server.js": `const fs = require("node:fs");
+const http = require("node:http");
+const path = require("node:path");
+const countPath = path.join(__dirname, "run-count");
+let run = 1;
+try { run = Number(fs.readFileSync(countPath, "utf8")) + 1; } catch {}
+fs.writeFileSync(countPath, String(run));
+console.error("run " + run + " started");
+http.createServer((_request, response) => response.end("run " + run))
+  .listen(Number(process.env.PORT), process.env.HOST);
+if (run === 1) setTimeout(() => {
+  console.error("run 1 exiting after health");
+  process.exit(1);
+}, 500);`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(appRoot, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write restart fixture %s: %v", name, err)
+		}
+	}
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{Registered: []string{appRoot}},
+		Supervisor: supervisor.Options{
+			RestartDelays: []time.Duration{10 * time.Millisecond},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create restart-test server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close restart-test server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status, body := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/restartable/")
+		if status == http.StatusOK && body == "run 2" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restarted app never returned run 2; last response = %d %q", status, body)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func requestCommandApp(t *testing.T, client *http.Client, target string) (int, string) {
 	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)

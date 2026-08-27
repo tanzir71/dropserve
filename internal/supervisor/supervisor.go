@@ -26,6 +26,8 @@ const healthDeadline = 30 * time.Second
 
 const maximumStartAttempts = 5
 
+const restartFailureWindow = 10 * time.Minute
+
 // Options controls restart timing and durable log placement. Empty timing uses the production policy.
 type Options struct {
 	RestartDelays []time.Duration
@@ -44,6 +46,7 @@ type Manager struct {
 	mu        sync.Mutex
 	processes map[string]*Process
 	options   Options
+	closed    bool
 }
 
 // NewManager creates an empty process manager.
@@ -67,21 +70,23 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 		stopped.status = "stopped"
 		lazy := &lazyHandler{manager: manager, application: application, placeholder: stopped}
 		stopped.proxy = lazy
-		manager.processes[key] = stopped
-		return stopped.Handler(), nil
+		return manager.publishLocked(key, stopped, nil), nil
 	}
-	return manager.startLocked(application)
+	return manager.startLocked(application, nil, nil)
 }
 
-func (manager *Manager) startLocked(application app.App) (http.Handler, error) {
+func (manager *Manager) startLocked(
+	application app.App,
+	mount *managedHandler,
+	failureTimes []time.Time,
+) (http.Handler, error) {
 	key := filepath.Clean(application.Path)
 	if len(application.Command) != 0 {
 		if _, err := exec.LookPath(application.Command[0]); err != nil {
 			missing := newProcess(application)
 			missing.status = "needs-runtime"
 			missing.proxy = needsRuntimeHandler(application)
-			manager.processes[key] = missing
-			return missing.Handler(), nil
+			return manager.publishLocked(key, missing, mount), nil
 		}
 	}
 	logs, err := newLogSink(manager.options.LogDirectory, application.Slug)
@@ -89,20 +94,23 @@ func (manager *Manager) startLocked(application app.App) (http.Handler, error) {
 		return nil, fmt.Errorf("prepare logs for %s: %w", application.Slug, err)
 	}
 	var lastError error
-	for attempt := 1; attempt <= maximumStartAttempts; attempt++ {
+	attemptLimit := maximumStartAttempts - len(failureTimes)
+	for attempt := 1; attempt <= attemptLimit; attempt++ {
 		process := newProcess(application)
 		process.logs = logs.ring
 		process.output = logs
-		process.attempts = attempt
+		process.attempts = len(failureTimes) + attempt
+		process.failureTimes = append([]time.Time(nil), failureTimes...)
 		err = process.Start()
 		if err == nil {
 			process.status = "ready"
 			process.logCloser = logs
-			manager.processes[key] = process
-			return process.Handler(), nil
+			handler := manager.publishLocked(key, process, mount)
+			go manager.monitor(process)
+			return handler, nil
 		}
 		lastError = err
-		if attempt < maximumStartAttempts {
+		if attempt < attemptLimit {
 			delayIndex := attempt - 1
 			if delayIndex >= len(manager.options.RestartDelays) {
 				delayIndex = len(manager.options.RestartDelays) - 1
@@ -115,11 +123,11 @@ func (manager *Manager) startLocked(application app.App) (http.Handler, error) {
 	crashed.logs = logs.ring
 	crashed.output = logs
 	crashed.logCloser = logs
-	crashed.attempts = maximumStartAttempts
+	crashed.attempts = len(failureTimes) + attemptLimit
+	crashed.failureTimes = append([]time.Time(nil), failureTimes...)
 	crashed.status = "crashed"
 	crashed.proxy = crashedHandler(application, lastError)
-	manager.processes[key] = crashed
-	return crashed.Handler(), nil
+	return manager.publishLocked(key, crashed, mount), nil
 }
 
 func (manager *Manager) startLazy(application app.App, placeholder *Process) (http.Handler, error) {
@@ -130,11 +138,73 @@ func (manager *Manager) startLazy(application app.App, placeholder *Process) (ht
 		return current.Handler(), nil
 	}
 	delete(manager.processes, key)
-	handler, err := manager.startLocked(application)
+	handler, err := manager.startLocked(application, placeholder.mount, nil)
 	if err != nil {
 		manager.processes[key] = placeholder
+		placeholder.mount.Set(placeholder.proxy)
 	}
 	return handler, err
+}
+
+func (manager *Manager) publishLocked(key string, process *Process, mount *managedHandler) http.Handler {
+	if mount == nil {
+		mount = newManagedHandler(process.proxy)
+	} else {
+		mount.Set(process.proxy)
+	}
+	process.mount = mount
+	manager.processes[key] = process
+	return mount
+}
+
+func (manager *Manager) monitor(process *Process) {
+	exitError, received := <-process.done
+	if !received {
+		return
+	}
+	key := filepath.Clean(process.application.Path)
+	now := time.Now()
+	manager.mu.Lock()
+	if manager.closed || manager.processes[key] != process {
+		manager.mu.Unlock()
+		return
+	}
+	failureTimes := process.failureTimes[:0]
+	for _, failedAt := range process.failureTimes {
+		if now.Sub(failedAt) <= restartFailureWindow {
+			failureTimes = append(failureTimes, failedAt)
+		}
+	}
+	failureTimes = append(failureTimes, now)
+	process.failureTimes = failureTimes
+	if len(failureTimes) >= maximumStartAttempts {
+		process.status = "crashed"
+		process.attempts = len(failureTimes)
+		process.proxy = crashedHandler(process.application, fmt.Errorf("exited after becoming healthy: %w", exitError))
+		process.mount.Set(process.proxy)
+		_ = process.Close()
+		manager.mu.Unlock()
+		return
+	}
+	process.status = "starting"
+	process.mount.Set(startingHandler(process.application))
+	delay := manager.options.RestartDelays[0]
+	manager.mu.Unlock()
+
+	timer := time.NewTimer(delay)
+	<-timer.C
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.closed || manager.processes[key] != process {
+		return
+	}
+	_ = process.Close()
+	delete(manager.processes, key)
+	if _, err := manager.startLocked(process.application, process.mount, failureTimes); err != nil {
+		process.status = "crashed"
+		process.proxy = crashedHandler(process.application, err)
+		manager.publishLocked(key, process, process.mount)
+	}
 }
 
 type lazyHandler struct {
@@ -150,6 +220,32 @@ func (handler *lazyHandler) ServeHTTP(response http.ResponseWriter, request *htt
 		return
 	}
 	proxy.ServeHTTP(response, request)
+}
+
+type managedHandler struct {
+	mu     sync.RWMutex
+	target http.Handler
+}
+
+func newManagedHandler(target http.Handler) *managedHandler {
+	return &managedHandler{target: target}
+}
+
+func (handler *managedHandler) Set(target http.Handler) {
+	handler.mu.Lock()
+	defer handler.mu.Unlock()
+	handler.target = target
+}
+
+func (handler *managedHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	handler.mu.RLock()
+	target := handler.target
+	handler.mu.RUnlock()
+	if target == nil {
+		http.Error(response, "Dropserve is preparing this app.", http.StatusServiceUnavailable)
+		return
+	}
+	target.ServeHTTP(response, request)
 }
 
 // Snapshot returns one command app's current state and bounded logs.
@@ -191,6 +287,7 @@ func (manager *Manager) Reconcile(applications []app.App) error {
 func (manager *Manager) Close() error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	manager.closed = true
 	var stopErrors []error
 	for key, process := range manager.processes {
 		if err := process.Close(); err != nil {
@@ -203,19 +300,21 @@ func (manager *Manager) Close() error {
 
 // Process is one healthy command app and its reverse proxy.
 type Process struct {
-	application app.App
-	command     *exec.Cmd
-	port        int
-	proxy       http.Handler
-	done        chan error
-	logs        *ringBuffer
-	output      io.Writer
-	logCloser   io.Closer
-	closeOnce   sync.Once
-	closeErr    error
-	control     *processControl
-	status      string
-	attempts    int
+	application  app.App
+	command      *exec.Cmd
+	port         int
+	proxy        http.Handler
+	done         chan error
+	logs         *ringBuffer
+	output       io.Writer
+	logCloser    io.Closer
+	closeOnce    sync.Once
+	closeErr     error
+	control      *processControl
+	mount        *managedHandler
+	status       string
+	attempts     int
+	failureTimes []time.Time
 }
 
 func newProcess(application app.App) *Process {
@@ -278,6 +377,9 @@ func (process *Process) Start() error {
 
 // Handler returns the healthy loopback reverse proxy.
 func (process *Process) Handler() http.Handler {
+	if process.mount != nil {
+		return process.mount
+	}
 	return process.proxy
 }
 
@@ -461,6 +563,24 @@ func needsRuntimeHandler(application app.App) http.Handler {
 			name,
 			runtimeName,
 			runtimeName,
+		)
+	})
+}
+
+func startingHandler(application app.App) http.Handler {
+	name := html.EscapeString(application.Name)
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.Header().Set("Retry-After", "1")
+		response.WriteHeader(http.StatusOK)
+		if request.Method == http.MethodHead {
+			return
+		}
+		_, _ = fmt.Fprintf(
+			response,
+			"<!doctype html><meta http-equiv=\"refresh\" content=\"1\"><title>%s is starting · Dropserve</title><h1>%s is starting…</h1><p>This page will try again in a moment.</p>",
+			name,
+			name,
 		)
 	})
 }

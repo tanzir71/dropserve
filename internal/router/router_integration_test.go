@@ -18,26 +18,7 @@ import (
 func TestStaticFixtureMounted(t *testing.T) {
 	t.Parallel()
 
-	_, sourceFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller could not locate the fixture root")
-	}
-	fixturesRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "testdata", "fixtures"))
-
-	result, err := scanner.Scan(scanner.Options{Roots: []string{fixturesRoot}})
-	if err != nil {
-		t.Fatalf("scan fixtures: %v", err)
-	}
-
-	mounts := make([]router.Mount, 0, len(result.Apps))
-	for _, application := range result.Apps {
-		mounts = append(mounts, router.Mount{
-			App:     application,
-			Handler: staticserver.New(application),
-		})
-	}
-	handler := router.New(mounts)
-
+	handler := fixtureRouter(t)
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/static/", nil)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
@@ -59,4 +40,49 @@ func TestStaticFixtureMounted(t *testing.T) {
 	if got := string(body); !strings.Contains(got, "<h1>Static fixture</h1>") {
 		t.Fatalf("body does not contain fixture heading: %s", got)
 	}
+}
+
+func TestMissingTrailingSlashRedirects(t *testing.T) {
+	t.Parallel()
+
+	handler := fixtureRouter(t)
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"http://dropserve.test/static?from=dashboard",
+		nil,
+	)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusMovedPermanently {
+		t.Fatalf("GET /static returned %d, want 301", response.Code)
+	}
+	if got, want := response.Header().Get("Location"), "/static/?from=dashboard"; got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func fixtureRouter(t *testing.T) http.Handler {
+	t.Helper()
+
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller could not locate the fixture root")
+	}
+	fixturesRoot := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "testdata", "fixtures"))
+
+	result, err := scanner.Scan(scanner.Options{Roots: []string{fixturesRoot}})
+	if err != nil {
+		t.Fatalf("scan fixtures: %v", err)
+	}
+
+	mounts := make([]router.Mount, 0, len(result.Apps))
+	for _, application := range result.Apps {
+		mounts = append(mounts, router.Mount{
+			App:     application,
+			Handler: staticserver.New(application),
+		})
+	}
+	return router.New(mounts)
 }

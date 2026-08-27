@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T12:48:16Z
+**Last updated:** 2026-08-27T12:49:31Z
 **Gate status:** green
-**Iterations completed:** 7
+**Iterations completed:** 8
 
 ## Milestone progress
 
@@ -23,7 +23,7 @@
 ## Current milestone criteria
 
 - [x] Static fixture mounted at `/static/` returns the expected body and content type.
-- [ ] `GET /static` redirects permanently to `/static/`.
+- [x] `GET /static` redirects permanently to `/static/`.
 - [ ] Slug sanitisation handles spaces, Unicode, unsafe prefixes, and ignored names.
 - [ ] Path traversal is refused for encoded, absolute, UNC, and escaping-symlink paths.
 - [ ] Slug collisions across roots produce stable suffixes and both apps remain reachable.
@@ -50,6 +50,7 @@
 ### M1 evidence
 
 - `TestStaticFixtureMounted`: the read-only scanner discovers `testdata/fixtures/static/`, the immutable router mounts it at `/static/`, and the response is 200 HTML containing the fixture heading.
+- `TestMissingTrailingSlashRedirects`: `GET /static` returns 301 with `Location: /static/` and preserves the query string.
 
 ## Decisions made this build (beyond the spec)
 
@@ -61,7 +62,7 @@
 
 ## Deviations from the spec
 
-- None.
+- Build-loop process only: the minimal trailing-slash dispatch branch landed with the first router slice, so its dedicated acceptance test passed when added in the following iteration instead of failing first. The product behavior and gate match the criterion.
 
 ## Verify on real hardware
 

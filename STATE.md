@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T22:09:53Z
+**Last updated:** 2026-08-27T22:12:43Z
 **Gate status:** green
-**Iterations completed:** 71
+**Iterations completed:** 72
 
 ## Milestone progress
 
@@ -29,7 +29,7 @@
 - [x] Assert: a 5 MB HTML response is **not** rewritten (over the 2 MB cap) and passes through unmodified.
 - [x] Assert: `testdata/fixtures/absolute-paths/` is flagged `prefers_own_port`, its dashboard card links to `http://127.0.0.1:<port>/`, and that URL serves the app correctly at its root.
 - [x] Assert: assigned per-app ports are stable across a restart of Dropserve (persisted in state).
-- [ ] Assert: `X-Forwarded-Prefix`, `X-Forwarded-Host`, `X-Forwarded-Proto` arrive at a command app with the right values.
+- [x] Assert: `X-Forwarded-Prefix`, `X-Forwarded-Host`, `X-Forwarded-Proto` arrive at a command app with the right values.
 - [ ] Assert: WebSocket upgrade through the proxy works for a command app (a fixture echo server).
 
 ### M4 completion audit (closed)
@@ -157,6 +157,7 @@
 - `TestFiveMegabyteHTMLResponseIsNotRewritten` streams a truly chunked 5 MB `text/html` document with an injectable `<head>`. The proxy reads only the 2 MB cap plus one byte to decide, reconstructs the stream, and the client still receives chunked transfer, exactly 5,242,880 bytes, and the source SHA-256. The focused test and full gate are green.
 - `TestAbsolutePathsFixturePrefersAndServesOwnPort` starts the real root-absolute asset fixture, whose healthy index probe flags `src="/app.js"`. The supervisor's live loopback port and `prefers_own_port` state now flow through scan and dashboard JSON; card logic selects `http://127.0.0.1:<port>/`, and a direct request to that root returns the exact source HTML without proxy rewriting. The focused test and full gate are green.
 - `TestAssignedCommandPortPersistsAcrossDropserveRestart` first observed two different ephemeral ports. Command apps now receive the first real-bindable port in 7400–7999, atomically persist the slug mapping to `ports.json` beside machine state, and reclaim it when free. The test fully closes and recreates Dropserve with one state directory, gets the same port, and serves the exact Node root body; in-process reservations close the probe/start race across parallel test servers. The full race gate is green.
+- `TestCommandReceivesForwardedSubpathHeaders` first saw all public context fields empty. The proxy director now overwrites `X-Forwarded-Prefix` and `X-Script-Name` with `/subpath`, `X-Forwarded-Host` with the inbound public host, and `X-Forwarded-Proto` from the actual request transport. The real child echoes the exact expected values and the full gate is green.
 
 ## Decisions made this build (beyond the spec)
 

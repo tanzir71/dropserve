@@ -48,5 +48,15 @@ http.createServer((request, response) => {
     response.end(suffix);
     return;
   }
+  if (request.url === "/headers") {
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({
+      prefix: request.headers["x-forwarded-prefix"] || "",
+      scriptName: request.headers["x-script-name"] || "",
+      host: request.headers["x-forwarded-host"] || "",
+      proto: request.headers["x-forwarded-proto"] || "",
+    }));
+    return;
+  }
   response.end("subpath fixture");
 }).listen(Number(process.env.PORT), process.env.HOST);

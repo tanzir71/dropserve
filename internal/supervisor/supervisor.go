@@ -392,6 +392,20 @@ func (process *Process) Start() error {
 		return fmt.Errorf("create proxy target: %w", err)
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	director := proxy.Director
+	proxy.Director = func(request *http.Request) {
+		publicHost := request.Host
+		publicProtocol := "http"
+		if request.TLS != nil {
+			publicProtocol = "https"
+		}
+		director(request)
+		prefix := "/" + process.application.Slug
+		request.Header.Set("X-Forwarded-Prefix", prefix)
+		request.Header.Set("X-Script-Name", prefix)
+		request.Header.Set("X-Forwarded-Host", publicHost)
+		request.Header.Set("X-Forwarded-Proto", publicProtocol)
+	}
 	proxy.ModifyResponse = func(response *http.Response) error {
 		prefix := "/" + process.application.Slug
 		if cookies := response.Header.Values("Set-Cookie"); len(cookies) != 0 {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -268,5 +269,62 @@ func TestFiveMegabyteHTMLResponseIsNotRewritten(t *testing.T) {
 	}
 	if got, want := sha256.Sum256(body), sha256.Sum256(source); got != want {
 		t.Fatalf("large HTML hash = %x, want unchanged %x", got, want)
+	}
+}
+
+func TestCommandReceivesForwardedSubpathHeaders(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the subpath fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "subpath"))
+	if err != nil {
+		t.Fatalf("resolve subpath fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create subpath server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close subpath server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		httpServer.URL+"/subpath/headers",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create forwarded-header request: %v", err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("request forwarded headers: %v", err)
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	var headers struct {
+		Prefix     string `json:"prefix"`
+		ScriptName string `json:"scriptName"`
+		Host       string `json:"host"`
+		Proto      string `json:"proto"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&headers); err != nil {
+		t.Fatalf("decode forwarded headers: %v", err)
+	}
+	if headers.Prefix != "/subpath" || headers.ScriptName != "/subpath" {
+		t.Fatalf("forwarded prefix headers = %#v", headers)
+	}
+	if headers.Host != request.URL.Host || headers.Proto != "http" {
+		t.Fatalf("forwarded public origin = %#v, want host %q and http", headers, request.URL.Host)
 	}
 }

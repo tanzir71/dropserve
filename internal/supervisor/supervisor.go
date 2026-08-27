@@ -467,16 +467,14 @@ func (process *Process) Close() error {
 		if process.command == nil || process.command.Process == nil {
 			return
 		}
-		if process.command.ProcessState == nil || !process.command.ProcessState.Exited() {
-			var err error
-			if process.control != nil {
-				err = process.control.stop(process.command)
-			} else {
-				err = process.command.Process.Kill()
-			}
-			if err != nil && !errors.Is(err, os.ErrProcessDone) {
-				process.closeErr = err
-			}
+		var err error
+		if process.control != nil {
+			err = process.control.stop(process.command)
+		} else {
+			err = process.command.Process.Kill()
+		}
+		if err != nil && !errors.Is(err, os.ErrProcessDone) {
+			process.closeErr = err
 		}
 		if process.done != nil {
 			select {

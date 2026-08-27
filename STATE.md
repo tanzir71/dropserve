@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T22:28:04Z
+**Last updated:** 2026-08-27T22:33:30Z
 **Gate status:** green
-**Iterations completed:** 76
+**Iterations completed:** 77
 
 ## Milestone progress
 
@@ -169,6 +169,7 @@
 - `TestCommandEnvironmentIncludesFrameworkBasePathConventions` first found `BASE_PATH`, `VITE_BASE`, and `NEXT_PUBLIC_BASE_PATH` absent while preserving an inherited `PUBLIC_URL`. The startup environment now supplies all four conventions only when missing. `TestCommandManifestEnvironmentOverridesFrameworkDefault` then exposed that manifest `env` had never reached a child; the read-only manifest settings now flow through detection and scanning, merge over the OS environment, preserve `/manifest-owned/` in a real Node child, and cannot replace Dropserve's reserved port/host variables. The full gate is green.
 - `TestCommandManifestBaseHrefModes` runs three real Node children and first showed that every manifest behaved as `auto`. Manifest `base_href` now flows through detection into response rewriting: `auto` injects only when no base exists, `always` places Dropserve's base first without deleting upstream markup, and `never` bypasses buffering and leaves the response byte-identical. The original small/large HTML acceptance tests and full gate are green.
 - `TestDashboardOwnPortRescueSurfaceIsWired` first found only a silent card-target switch. Preferred-own-port cards now visibly explain the root-path incompatibility, label their primary own-port action, and offer “Use the short URL anyway”; every other command card with a stable port exposes “Open on its own port”. The embedded bundle remains 29,948/100,000 bytes and `node --check` plus the full gate are green. A real-binary dark-mode browser check rendered the explanation and both menu routes; selecting the short URL navigated successfully to `/absolute-paths/` with no visible page error.
+- Hosted CI failures since late M4 had two platform-only causes hidden by the local Windows gate: Ubuntu's race detector caught `Process.Close` reading `exec.Cmd.ProcessState` while the wait goroutine wrote it, and the Windows M2 smoke started overlapping `ReadLineAsync` operations while later command fixtures delayed readiness. Shutdown now requests an idempotent native stop without reading `ProcessState`; the server package passed three race-enabled runs locally. M1/M2 PowerShell readiness uses one pending read, both M2 scripts allow the expanded fixture set and 45-second supervised startup, the exact Windows smoke passes, and the full local gate is green.
 
 ## Decisions made this build (beyond the spec)
 

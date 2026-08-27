@@ -26,25 +26,19 @@ $start.ArgumentList.Add($fixturesRoot)
 
 $process = [System.Diagnostics.Process]::Start($start)
 try {
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    $address = ""
-    while ([DateTime]::UtcNow -lt $deadline -and $address -eq "") {
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    $lineTask = $process.StandardOutput.ReadLineAsync()
+    while (-not $lineTask.IsCompleted -and [DateTime]::UtcNow -lt $deadline) {
         if ($process.HasExited) {
             $failure = $process.StandardError.ReadToEnd()
             throw "Dropserve exited before becoming ready: $failure"
         }
-        $lineTask = $process.StandardOutput.ReadLineAsync()
-        if (-not $lineTask.Wait(250)) {
-            continue
-        }
-        $line = $lineTask.Result
-        if ($line -match '^Dropserve is ready at (http://\S+)$') {
-            $address = $Matches[1]
-        }
+        $null = $lineTask.Wait(250)
     }
-    if ($address -eq "") {
-        throw "Dropserve did not print a ready address within 10 seconds"
+    if (-not $lineTask.IsCompleted -or $lineTask.Result -notmatch '^Dropserve is ready at (http://\S+)$') {
+        throw "Dropserve did not print a ready address within 45 seconds"
     }
+    $address = $Matches[1]
 
     $response = Invoke-WebRequest -Uri "$address/static/" -UseBasicParsing
     if ($response.StatusCode -ne 200 -or $response.Content -notmatch '<h1>Static fixture</h1>') {
@@ -59,4 +53,3 @@ finally {
     }
     $process.Dispose()
 }
-

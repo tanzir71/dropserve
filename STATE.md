@@ -1,13 +1,13 @@
 # Build State
 
-**Current milestone:** M0 — Repository, CI, and the gate
-**Last updated:** 2026-08-27T12:40:58Z
+**Current milestone:** M1 — Scan, mount, serve
+**Last updated:** 2026-08-27T12:43:52Z
 **Gate status:** green
-**Iterations completed:** 5
+**Iterations completed:** 6
 
 ## Milestone progress
 
-- [ ] M0 — Repository, CI, and the gate
+- [x] M0 — Repository, CI, and the gate (tag: `m0-complete`)
 - [ ] M1 — Scan, mount, serve
 - [ ] M2 — The index
 - [ ] M3 — Live
@@ -22,45 +22,30 @@
 
 ## Current milestone criteria
 
-- [x] `make check` exits 0 on a clean checkout.
-- [x] Zero-CGO cross-builds pass for Windows amd64, Linux amd64, and Darwin arm64.
-- [x] `dropserve version` prints a semver and injected Git SHA.
-- [ ] CI is green on Ubuntu and Windows runners — first hosted run failed; fixes are in progress.
-- [x] The module dependency baseline is recorded.
-- [x] The shipped-file scan returns no unfinished text.
-- [x] The module path and MIT licence are correct.
+- [ ] Static fixture mounted at `/static/` returns the expected body and content type.
+- [ ] `GET /static` redirects permanently to `/static/`.
+- [ ] Slug sanitisation handles spaces, Unicode, unsafe prefixes, and ignored names.
+- [ ] Path traversal is refused for encoded, absolute, UNC, and escaping-symlink paths.
+- [ ] Slug collisions across roots produce stable suffixes and both apps remain reachable.
+- [ ] Case-insensitive collisions and case-only renames behave correctly.
+- [ ] Scanner walks a path deeper than 260 characters.
+- [ ] Reserved slugs are refused with a warning.
+- [ ] A full scan-and-serve cycle leaves every app file and directory mtime unchanged (I2).
+- [ ] `dropserve add <path>` writes only a registered-path config entry and serves it.
+- [ ] M1 smoke script starts the server on a random port and fetches a mounted fixture.
+- [ ] Port fallback skips occupied 80 and 8080, binds 8000, and reports the warning.
 
-### Latest gate evidence
+### M0 completion evidence
 
-Command: `make check`
+- Local `make check`: green with race tests, version injection, three zero-CGO cross-builds, full golangci-lint, and the shipped-file scan.
+- Hosted CI [run 33073059871](https://github.com/tanzir71/dropserve/actions/runs/33073059871): Ubuntu gate, Windows gate, golangci-lint, and secret scan all passed.
+- Demo:
 
-```text
-==> format
-==> lint
-==> test
-ok github.com/tanzir71/dropserve/cmd/dropserve
-==> version injection
-==> zero-CGO cross-build
-    windows/amd64
-    linux/amd64
-    darwin/arm64
-==> shipped-file scan
-gate: green
-```
-
-### Local CI readiness evidence
-
-The workflow cannot run remotely until the repository exists, but each locally reproducible job is green:
-
-```text
-actionlint v1.7.12: no findings
-golangci-lint v2.13.1: 0 issues
-gitleaks v8.30.1: 2 commits scanned, no leaks found
-```
-
-### Hosted CI attempts
-
-- Run [33072921815](https://github.com/tanzir71/dropserve/actions/runs/33072921815): Ubuntu gate and golangci-lint passed. Windows failed because checkout converted Go files to CRLF before the format check. The secret-scan action failed while constructing a range before the root commit on the repository's first push. Added a repository-wide LF policy; the next push supplies a normal Git range.
+  ```text
+  make build
+  dropserve 0.0.0-dev (b5c2d9f)
+  ```
+- The first hosted attempt exposed Windows CRLF conversion and a first-push secret-scan range edge case. Repository-wide LF attributes fixed the platform gate; the next normal push fixed the Git range and passed.
 
 ## Decisions made this build (beyond the spec)
 
@@ -76,7 +61,7 @@ gitleaks v8.30.1: 2 commits scanned, no leaks found
 
 ## Verify on real hardware
 
-- None for M0.
+- None currently listed for M1.
 
 ## Dependency count
 

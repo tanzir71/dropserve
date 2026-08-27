@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T13:11:07Z
+**Last updated:** 2026-08-27T13:14:59Z
 **Gate status:** green
-**Iterations completed:** 18
+**Iterations completed:** 19
 
 ## Milestone progress
 
@@ -61,6 +61,8 @@
 - `TestAddRegistersPathWithoutChangingApp`: the CLI atomically writes one `registered_apps` TOML entry, leaves no temp/symlink/copy/marker files, preserves the app snapshot, and the registered path serves at its slug.
 - `scripts/smoke/m1.ps1`: built and launched the real binary on `127.0.0.1:0`; `http://127.0.0.1:60348/static/` returned 200 with the fixture heading. A matching POSIX smoke script is included.
 - `TestPortFallbackAndStatus`: real Windows listeners occupied `127.0.0.1:80` and `:8080`; Dropserve probed and bound `:8000`, served the fixture, atomically persisted the port, exposed a `port_fallback` warning through `dropserve status`, and stopped cleanly on cancellation.
+- `TestStaticFileValidatorsAndRange` and `TestDirectoryListingWhenNoIndexExists`: the M1 deliverables audit proves ETag/`If-None-Match`, byte ranges, MIME detection, safe URL-encoded directory listings, and index resolution. The existing I2 fixture now uses deterministic mtimes so delayed Windows directory metadata cannot create a false write report.
+- `TestPersistedPortIsPreferredOnRestart`: a random previously selected port is atomically loaded and rebound before the fallback ladder is retried, preserving the original warning rather than inventing a new port-80 diagnosis.
 
 ## Decisions made this build (beyond the spec)
 

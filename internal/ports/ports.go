@@ -55,10 +55,19 @@ func Acquire(ctx context.Context, bind string, preferred int) (net.Listener, Sel
 			failures = append(failures, fmt.Errorf("read selected port %q: %w", portText, err))
 			continue
 		}
-		selection := Selection{Port: port, Attempted: attempts, Fallback: port != 80}
-		if selection.Fallback {
+		selection := Selection{Port: port, Attempted: attempts}
+		switch {
+		case preferred == 0 && port != 80:
+			selection.Fallback = true
 			selection.Message = fmt.Sprintf(
 				"Port 80 is being used by another program, so Dropserve is using port %d instead.",
+				port,
+			)
+		case preferred > 0 && port != preferred:
+			selection.Fallback = true
+			selection.Message = fmt.Sprintf(
+				"Port %d is unavailable, so Dropserve is using port %d instead.",
+				preferred,
 				port,
 			)
 		}

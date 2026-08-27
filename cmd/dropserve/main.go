@@ -263,6 +263,8 @@ func acquireMainListener(
 	snapshot := state.State{HTTPPort: selection.Port}
 	if selection.Fallback {
 		snapshot.Warnings = []state.Warning{{Code: "port_fallback", Message: selection.Message}}
+	} else if configuration.Server.HTTPPort == 0 && selection.Port == persisted.HTTPPort {
+		snapshot.Warnings = persisted.Warnings
 	}
 	if err := state.Save(statePath, snapshot); err != nil {
 		_ = listener.Close()

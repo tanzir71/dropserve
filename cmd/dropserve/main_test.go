@@ -6,17 +6,20 @@ import (
 	"crypto/sha256"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/tanzir71/dropserve/internal/config"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
+	"github.com/tanzir71/dropserve/internal/state"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
 )
 
@@ -124,6 +127,75 @@ func TestAddRegistersPathWithoutChangingApp(t *testing.T) {
 	}
 	if result.StatusCode != http.StatusOK || !bytes.Contains(body, []byte("Invoice Tool")) {
 		t.Fatalf("registered app response = %d %q, want 200 with Invoice Tool", result.StatusCode, body)
+	}
+}
+
+func TestPersistedPortIsPreferredOnRestart(t *testing.T) {
+	t.Parallel()
+
+	var listenConfig net.ListenConfig
+	probe, err := listenConfig.Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("probe available port: %v", err)
+	}
+	_, portText, err := net.SplitHostPort(probe.Addr().String())
+	if err != nil {
+		_ = probe.Close()
+		t.Fatalf("read probed port: %v", err)
+	}
+	preferredPort, err := strconv.Atoi(portText)
+	if err != nil {
+		_ = probe.Close()
+		t.Fatalf("parse probed port: %v", err)
+	}
+	if err := probe.Close(); err != nil {
+		t.Fatalf("release probed port: %v", err)
+	}
+
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	originalWarning := state.Warning{
+		Code:    "port_fallback",
+		Message: "Dropserve selected this fallback on the first start.",
+	}
+	if err := state.Save(statePath, state.State{
+		HTTPPort: preferredPort,
+		Warnings: []state.Warning{originalWarning},
+	}); err != nil {
+		t.Fatalf("save prior state: %v", err)
+	}
+	configuration := config.Default()
+	configuration.Server.HTTPPort = 0
+	listener, err := acquireMainListener(
+		context.Background(),
+		"",
+		"127.0.0.1",
+		statePath,
+		configuration,
+	)
+	if err != nil {
+		t.Fatalf("acquire persisted port: %v", err)
+	}
+	defer func() {
+		_ = listener.Close()
+	}()
+	_, selectedPortText, err := net.SplitHostPort(listener.Addr().String())
+	if err != nil {
+		t.Fatalf("read selected port: %v", err)
+	}
+	selectedPort, err := strconv.Atoi(selectedPortText)
+	if err != nil {
+		t.Fatalf("parse selected port: %v", err)
+	}
+	if selectedPort != preferredPort {
+		t.Fatalf("selected port = %d, want persisted %d", selectedPort, preferredPort)
+	}
+
+	persisted, err := state.Load(statePath)
+	if err != nil {
+		t.Fatalf("load updated state: %v", err)
+	}
+	if !reflect.DeepEqual(persisted.Warnings, []state.Warning{originalWarning}) {
+		t.Fatalf("warnings = %#v, want original warning %#v", persisted.Warnings, originalWarning)
 	}
 }
 

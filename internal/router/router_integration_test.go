@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
@@ -123,6 +124,7 @@ func TestAppFolderIsReadOnlyToUs(t *testing.T) {
 		t.Fatalf("write asset: %v", err)
 	}
 	appRoot := filepath.Join(root, "immutable")
+	stabilizeTreeTimestamps(t, appRoot)
 	before := snapshotTree(t, appRoot)
 
 	result, err := scanner.Scan(scanner.Options{Roots: []string{root}})
@@ -140,6 +142,22 @@ func TestAppFolderIsReadOnlyToUs(t *testing.T) {
 	after := snapshotTree(t, appRoot)
 	if !reflect.DeepEqual(before, after) {
 		t.Fatalf("app tree changed during scan and serve\nbefore: %#v\nafter:  %#v", before, after)
+	}
+}
+
+func stabilizeTreeTimestamps(t *testing.T, root string) {
+	t.Helper()
+
+	stableTime := time.Unix(1_700_000_000, 0)
+	err := filepath.WalkDir(root, func(path string, _ fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		// #nosec G122 -- WalkDir stays inside this test's private temporary fixture.
+		return os.Chtimes(path, stableTime, stableTime)
+	})
+	if err != nil {
+		t.Fatalf("stabilize fixture timestamps: %v", err)
 	}
 }
 

@@ -4,11 +4,14 @@ package static
 import (
 	"errors"
 	"fmt"
+	"html"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/tanzir71/dropserve/internal/app"
@@ -96,11 +99,18 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 		return
 	}
 	if info.IsDir() {
-		_ = file.Close()
 		if server.application.Index == "" {
-			http.NotFound(response, request)
+			defer func() {
+				_ = file.Close()
+			}()
+			if !server.application.DirectoryListing {
+				http.NotFound(response, request)
+				return
+			}
+			serveDirectory(response, request, file)
 			return
 		}
+		_ = file.Close()
 		resolved, err = Resolve(server.application.Path, path.Join(relativePath, server.application.Index))
 		if err != nil {
 			http.NotFound(response, request)
@@ -118,7 +128,7 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 	defer func() {
 		_ = file.Close()
 	}()
-	http.ServeContent(response, request, info.Name(), info.ModTime(), file)
+	serveFile(response, request, info, file)
 }
 
 func (server *handler) serveLooseFile(response http.ResponseWriter, request *http.Request) {
@@ -140,7 +150,63 @@ func (server *handler) serveLooseFile(response http.ResponseWriter, request *htt
 		http.NotFound(response, request)
 		return
 	}
+	serveFile(response, request, info, file)
+}
+
+func serveFile(response http.ResponseWriter, request *http.Request, info os.FileInfo, file *os.File) {
+	etag := fmt.Sprintf(`"%x-%x"`, info.ModTime().UnixNano(), info.Size())
+	response.Header().Set("ETag", etag)
+	if matchesETag(request.Header.Get("If-None-Match"), etag) {
+		if request.Method == http.MethodGet || request.Method == http.MethodHead {
+			response.WriteHeader(http.StatusNotModified)
+		} else {
+			response.WriteHeader(http.StatusPreconditionFailed)
+		}
+		return
+	}
 	http.ServeContent(response, request, info.Name(), info.ModTime(), file)
+}
+
+func matchesETag(condition, etag string) bool {
+	for _, candidate := range strings.Split(condition, ",") {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "*" || strings.TrimPrefix(candidate, "W/") == etag {
+			return true
+		}
+	}
+	return false
+}
+
+func serveDirectory(response http.ResponseWriter, request *http.Request, directory *os.File) {
+	entries, err := directory.ReadDir(-1)
+	if err != nil {
+		http.Error(response, "Dropserve could not read this directory.", http.StatusInternalServerError)
+		return
+	}
+	sort.Slice(entries, func(first, second int) bool {
+		return strings.ToLower(entries[first].Name()) < strings.ToLower(entries[second].Name())
+	})
+
+	var body strings.Builder
+	body.WriteString("<!doctype html><meta charset=\"utf-8\"><title>Directory listing</title>")
+	body.WriteString("<h1>Directory listing</h1><ul>")
+	for _, entry := range entries {
+		name := entry.Name()
+		href := url.PathEscape(name)
+		if entry.IsDir() {
+			name += "/"
+			href += "/"
+		}
+		_, _ = fmt.Fprintf(&body, `<li><a href="%s">%s</a></li>`, href, html.EscapeString(name))
+	}
+	body.WriteString("</ul>")
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	response.Header().Set("X-Content-Type-Options", "nosniff")
+	if request.Method == http.MethodHead {
+		response.WriteHeader(http.StatusOK)
+		return
+	}
+	_, _ = io.WriteString(response, body.String())
 }
 
 func openRegularFile(resolved string) (*os.File, os.FileInfo, bool) {

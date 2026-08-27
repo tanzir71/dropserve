@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M0 — Repository, CI, and the gate
-**Last updated:** 2026-08-27T12:34:15Z
+**Last updated:** 2026-08-27T12:40:58Z
 **Gate status:** green
-**Iterations completed:** 4
+**Iterations completed:** 5
 
 ## Milestone progress
 
@@ -25,7 +25,7 @@
 - [x] `make check` exits 0 on a clean checkout.
 - [x] Zero-CGO cross-builds pass for Windows amd64, Linux amd64, and Darwin arm64.
 - [x] `dropserve version` prints a semver and injected Git SHA.
-- [ ] CI is green on Ubuntu and Windows runners — **BLOCKED:** see `BLOCKED-m0-hosted-ci.md`.
+- [ ] CI is green on Ubuntu and Windows runners — first hosted run failed; fixes are in progress.
 - [x] The module dependency baseline is recorded.
 - [x] The shipped-file scan returns no unfinished text.
 - [x] The module path and MIT licence are correct.
@@ -58,13 +58,17 @@ golangci-lint v2.13.1: 0 issues
 gitleaks v8.30.1: 2 commits scanned, no leaks found
 ```
 
+### Hosted CI attempts
+
+- Run [33072921815](https://github.com/tanzir71/dropserve/actions/runs/33072921815): Ubuntu gate and golangci-lint passed. Windows failed because checkout converted Go files to CRLF before the format check. The secret-scan action failed while constructing a range before the root commit on the repository's first push. Added a repository-wide LF policy; the next push supplies a normal Git range.
+
 ## Decisions made this build (beyond the spec)
 
 - None.
 
 ## Open questions for the human
 
-- The required `github.com/tanzir71/dropserve` repository does not exist. Creating it as a public repository is the external publication step needed to run and verify Ubuntu and Windows CI. Awaiting explicit approval; no remote repository was created.
+- None.
 
 ## Deviations from the spec
 

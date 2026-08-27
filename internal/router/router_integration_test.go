@@ -2,11 +2,14 @@ package router_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -107,6 +110,39 @@ func TestSlugCollisionsRemainReachable(t *testing.T) {
 	assertBodyContains(t, handler, "/notes-2/", "second root")
 }
 
+func TestAppFolderIsReadOnlyToUs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeStaticApp(t, root, "immutable", "read only")
+	assets := filepath.Join(root, "immutable", "assets")
+	if err := os.Mkdir(assets, 0o750); err != nil {
+		t.Fatalf("create assets: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assets, "data.txt"), []byte("unchanged payload"), 0o600); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+	appRoot := filepath.Join(root, "immutable")
+	before := snapshotTree(t, appRoot)
+
+	result, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("scan immutable fixture: %v", err)
+	}
+	if len(result.Apps) != 1 {
+		t.Fatalf("scan returned %d apps, want 1", len(result.Apps))
+	}
+	application := result.Apps[0]
+	handler := router.New([]router.Mount{{App: application, Handler: staticserver.New(application)}})
+	assertBodyContains(t, handler, "/immutable/", "read only")
+	assertBodyContains(t, handler, "/immutable/assets/data.txt", "unchanged payload")
+
+	after := snapshotTree(t, appRoot)
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("app tree changed during scan and serve\nbefore: %#v\nafter:  %#v", before, after)
+	}
+}
+
 func fixtureRouter(t *testing.T) http.Handler {
 	t.Helper()
 
@@ -164,4 +200,49 @@ func assertBodyContains(t *testing.T, handler http.Handler, requestPath, want st
 	if !strings.Contains(string(body), want) {
 		t.Fatalf("GET %s body %q does not contain %q", requestPath, body, want)
 	}
+}
+
+type treeSnapshotEntry struct {
+	Mode             fs.FileMode
+	Size             int64
+	ModifiedUnixNano int64
+	Hash             [sha256.Size]byte
+}
+
+func snapshotTree(t *testing.T, root string) map[string]treeSnapshotEntry {
+	t.Helper()
+
+	snapshot := make(map[string]treeSnapshotEntry)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		item := treeSnapshotEntry{
+			Mode:             info.Mode(),
+			Size:             info.Size(),
+			ModifiedUnixNano: info.ModTime().UnixNano(),
+		}
+		if !entry.IsDir() {
+			// #nosec G304,G122 -- path is produced by WalkDir below the test's private temporary root.
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			item.Hash = sha256.Sum256(data)
+		}
+		snapshot[relative] = item
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("snapshot %s: %v", root, err)
+	}
+	return snapshot
 }

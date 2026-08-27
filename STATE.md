@@ -1,15 +1,15 @@
 # Build State
 
-**Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:39:42Z
+**Current milestone:** M3 — Live
+**Last updated:** 2026-08-27T20:42:59Z
 **Gate status:** green
-**Iterations completed:** 39
+**Iterations completed:** 40
 
 ## Milestone progress
 
 - [x] M0 — Repository, CI, and the gate (tag: `m0-complete`)
 - [x] M1 — Scan, mount, serve (tag: `m1-complete`)
-- [ ] M2 — The index
+- [x] M2 — The index (tag: `m2-complete`)
 - [ ] M3 — Live
 - [ ] M4 — Running things
 - [ ] M5 — The subpath survival kit
@@ -22,24 +22,15 @@
 
 ## Current milestone criteria
 
-- [x] `GET /` returns the dashboard HTML with a 200 and `Content-Type: text/html`.
-- [x] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
-- [x] Search finds a fixture app by text that appears only in its `README.md`.
-- [x] Search finds a fixture app by text that appears only in a filename.
-- [x] A name match ranks above a filename-only match.
-- [x] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
-- [x] The QR endpoint returns a valid PNG for the requested URL.
-- [x] Dashboard assets remain under 100 KB.
-- [x] The dashboard handles both zero apps and 200 apps.
-- [x] `/_dropserve/*` cannot be shadowed by an app slug.
-
-### M2 deliverables audit
-
-- [x] Extract index `<title>`/first `<h1>`, byte size, mtime, favicon, and deterministic monogram metadata.
-- [x] Complete read-only app detail, status, and health API surfaces used by the dashboard.
-- [x] Persist the in-memory index atomically as `index.json` for fast cold starts.
-- [x] Wire sharing, QR, copy-link, and card action interactions into the vanilla dashboard.
-- [x] Run the real-binary M2 smoke and a browser-rendered launcher demo before tagging.
+- [ ] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
+- [ ] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
+- [ ] Assert: renaming an app changes the slug and the old slug 404s.
+- [ ] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
+- [ ] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
+- [ ] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
+- [ ] Assert: watching a root that does not exist yet does not crash; when the directory appears, it is picked up.
+- [ ] Assert (**hazard 5**): a file marked with the cloud-placeholder attribute (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, simulated in the test via an injected stat interface) is listed in the index by name but never opened by the indexer, so a cloud-only folder cannot stall the scan. On non-Windows this test asserts the interface is wired and skips the attribute check.
+- [ ] Assert (**hazard 5**): if a configured Apps root resolves inside a known sync folder (`OneDrive`, `Dropbox`, `Google Drive`, `iCloud Drive` in the path), a warning is recorded and surfaced in `doctor` and the dashboard, naming the root and recommending `%USERPROFILE%\Dropserve`.
 
 ### M0 completion evidence
 
@@ -97,6 +88,13 @@
 - `scripts/smoke/m2.ps1`: the real binary served four fixture apps at `http://127.0.0.1:53508/`; dashboard HTML, apps API, README-only search, and local QR PNG all passed. Matching PowerShell/POSIX smoke scripts are now run by hosted CI.
 - Browser-rendered demo: the in-app Browser fallback was used because the skill-prescribed standalone executable was not installed. Four cards rendered with the search box focused; typing `fie` left one result and Enter opened `/field-notes/`; verified sharing, card actions, and a loaded 256×256 QR worked with zero console errors or overlays. Visual review found an unreadable dark-mode app-count pill; its contrast was fixed and the corrected `4 apps` pill was re-verified in a fresh build.
 
+### M2 completion evidence
+
+- Final local `make check`: green with race tests, full golangci-lint, version injection, Windows/Linux/macOS zero-CGO cross-builds, and the shipped-file scan.
+- Shipped binary: `dropserve 0.0.0-dev (7cda9d6)`.
+- Final `scripts/smoke/m2.ps1`: the real binary rendered four apps; README-only search and local QR passed at `http://127.0.0.1:55855/`.
+- Hosted CI [run 33114496357](https://github.com/tanzir71/dropserve/actions/runs/33114496357): Ubuntu gate, Windows gate, golangci-lint, secret scan, and both platform-native M2 smoke scripts all passed.
+
 ## Decisions made this build (beyond the spec)
 
 - 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
@@ -114,7 +112,7 @@
 
 ## Verify on real hardware
 
-- None currently listed for M2.
+- None currently listed for M3.
 
 ## Dependency count
 

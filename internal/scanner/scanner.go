@@ -64,6 +64,14 @@ func Scan(options Options) (Result, error) {
 			return Result{}, fmt.Errorf("read Apps root %q: %w", root, err)
 		}
 		for _, entry := range entries {
+			if unsafeName(entry.Name()) {
+				result.Warnings = append(result.Warnings, Warning{
+					Code:    "unsafe_name",
+					Path:    filepath.Join(root, entry.Name()),
+					Message: fmt.Sprintf("Rename %q without a leading '..' before Dropserve can serve it", entry.Name()),
+				})
+				continue
+			}
 			if ignored(entry.Name()) {
 				continue
 			}
@@ -118,6 +126,9 @@ func Scan(options Options) (Result, error) {
 
 // Slug returns a stable lowercase ASCII URL segment derived from a file name.
 func Slug(name string) string {
+	if unsafeName(name) {
+		return ""
+	}
 	extension := filepath.Ext(name)
 	if strings.EqualFold(extension, ".html") || strings.EqualFold(extension, ".htm") {
 		name = strings.TrimSuffix(name, extension)
@@ -140,6 +151,10 @@ func Slug(name string) string {
 		}
 	}
 	return strings.Trim(builder.String(), "-")
+}
+
+func unsafeName(name string) bool {
+	return strings.HasPrefix(name, "..")
 }
 
 func ignored(name string) bool {

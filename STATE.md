@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:52:49Z
+**Last updated:** 2026-08-27T20:54:49Z
 **Gate status:** green
-**Iterations completed:** 47
+**Iterations completed:** 48
 
 ## Milestone progress
 
@@ -29,7 +29,7 @@
 - [x] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
 - [x] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
 - [x] Assert: watching a root that does not exist yet does not crash; when the directory appears, it is picked up.
-- [ ] Assert (**hazard 5**): a file marked with the cloud-placeholder attribute (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, simulated in the test via an injected stat interface) is listed in the index by name but never opened by the indexer, so a cloud-only folder cannot stall the scan. On non-Windows this test asserts the interface is wired and skips the attribute check.
+- [x] Assert (**hazard 5**): a file marked with the cloud-placeholder attribute (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, simulated in the test via an injected stat interface) is listed in the index by name but never opened by the indexer, so a cloud-only folder cannot stall the scan. On non-Windows this test asserts the interface is wired and skips the attribute check.
 - [ ] Assert (**hazard 5**): if a configured Apps root resolves inside a known sync folder (`OneDrive`, `Dropbox`, `Google Drive`, `iCloud Drive` in the path), a warning is recorded and surfaced in `doctor` and the dashboard, naming the root and recommending `%USERPROFILE%\Dropserve`.
 
 ### M0 completion evidence
@@ -105,6 +105,7 @@
 - `TestReconcileCatchesChangesWhileWatcherIsStopped` closes the native watcher, creates a new app, proves the snapshot remains unchanged, invokes the same full reconcile entry point used by the 30-second sweep, and immediately verifies the recovered route, body, and scan snapshot.
 - `TestSSEStreamSurvivesThreeAppChanges` holds one real `text/event-stream` request open while creating three apps one at a time and receives three `apps-changed` events on that same connection. The stream publishes only after successful immutable swaps, coalesces notifications for slow clients, and enforces a 64-client bound.
 - `TestMissingRootIsPickedUpWhenItAppears` starts with a nonexistent configured `Apps` path, then creates the root, app, and index. Startup records an actionable `root_missing` warning instead of failing; a temporary watch on the nearest existing ancestor detects the new root and serves the app in about 650 ms.
+- `TestCloudPlaceholderIsNamedButNeverOpened` injects the indexer's read-only file-access/stat boundary and marks the declared HTML index with simulated `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`. On Windows the filename remains searchable while any attempted `Open` fails the test; non-Windows runners assert the interface is consulted. The production Windows adapter reads the native attribute from `Win32FileAttributeData` without hydrating content.
 
 ## Decisions made this build (beyond the spec)
 

@@ -3,7 +3,6 @@ package indexer
 
 import (
 	"bufio"
-	"errors"
 	"hash/fnv"
 	"html"
 	"io"
@@ -41,18 +40,55 @@ type Entry struct {
 	fileNames   []string
 }
 
+// FileAccess is the read-only I/O boundary used while building an index.
+type FileAccess interface {
+	Open(path string) (io.ReadCloser, error)
+	Lstat(path string) (os.FileInfo, error)
+	IsCloudPlaceholder(path string, info os.FileInfo) (bool, error)
+}
+
+// BuildOptions supplies injectable read-only filesystem behavior.
+type BuildOptions struct {
+	Files FileAccess
+}
+
+type osFileAccess struct{}
+
+func (osFileAccess) Open(path string) (io.ReadCloser, error) {
+	// #nosec G304,G122 -- callers pass paths from the read-only scanner snapshot.
+	return os.Open(path)
+}
+
+func (osFileAccess) Lstat(path string) (os.FileInfo, error) {
+	// #nosec G304,G122 -- callers pass paths from the read-only scanner snapshot.
+	return os.Lstat(path)
+}
+
+func (osFileAccess) IsCloudPlaceholder(path string, info os.FileInfo) (bool, error) {
+	return isCloudPlaceholder(path, info)
+}
+
 // Build returns an immutable dashboard snapshot in scanner order.
 func Build(applications []app.App) []Entry {
+	return BuildWithOptions(applications, BuildOptions{})
+}
+
+// BuildWithOptions returns a snapshot through an injectable read-only filesystem boundary.
+func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
+	files := options.Files
+	if files == nil {
+		files = osFileAccess{}
+	}
 	entries := make([]Entry, 0, len(applications))
 	for _, application := range applications {
-		title, heading := readHTMLMetadata(application)
-		size, modified := fileMetadata(application.Path, application.LooseFile)
-		icon, iconKind, iconColor := appIcon(application)
+		title, heading := readHTMLMetadata(files, application)
+		size, modified := fileMetadata(files, application.Path, application.LooseFile)
+		icon, iconKind, iconColor := appIcon(files, application)
 		entry := Entry{
 			Slug:        application.Slug,
 			Name:        application.Name,
 			Path:        application.Path,
-			Description: readDescription(application.Path, application.LooseFile),
+			Description: readDescription(files, application.Path, application.LooseFile),
 			Title:       title,
 			Heading:     heading,
 			Type:        string(application.Kind),
@@ -123,7 +159,7 @@ func Search(entries []Entry, query string) []Entry {
 	return results
 }
 
-func readHTMLMetadata(application app.App) (string, string) {
+func readHTMLMetadata(files FileAccess, application app.App) (string, string) {
 	indexPath := application.Path
 	if !application.LooseFile {
 		if application.Index == "" {
@@ -131,8 +167,10 @@ func readHTMLMetadata(application app.App) (string, string) {
 		}
 		indexPath = filepath.Join(application.Path, application.Index)
 	}
-	// #nosec G304,G122 -- indexPath comes from the read-only scanner snapshot.
-	file, err := os.Open(indexPath)
+	if _, readable := readableFile(files, indexPath); !readable {
+		return "", ""
+	}
+	file, err := files.Open(indexPath)
 	if err != nil {
 		return "", ""
 	}
@@ -197,23 +235,22 @@ func cleanElementText(content string) string {
 	return strings.Join(strings.Fields(html.UnescapeString(text.String())), " ")
 }
 
-func fileMetadata(appPath string, looseFile bool) (int64, int64) {
+func fileMetadata(files FileAccess, appPath string, looseFile bool) (int64, int64) {
 	if looseFile {
-		// #nosec G304,G122 -- appPath is a read-only scanner result.
-		info, err := os.Lstat(appPath)
-		if err != nil || !info.Mode().IsRegular() {
+		info, readable := readableFile(files, appPath)
+		if !readable {
 			return 0, 0
 		}
 		return info.Size(), info.ModTime().UnixMilli()
 	}
 	var size int64
 	var modified int64
-	_ = filepath.WalkDir(appPath, func(_ string, entry os.DirEntry, walkErr error) error {
+	_ = filepath.WalkDir(appPath, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil || entry.IsDir() {
 			return nil
 		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() {
+		info, readable := readableFile(files, path)
+		if !readable {
 			return nil
 		}
 		size += info.Size()
@@ -225,13 +262,11 @@ func fileMetadata(appPath string, looseFile bool) (int64, int64) {
 	return size, modified
 }
 
-func appIcon(application app.App) (string, string, string) {
+func appIcon(files FileAccess, application app.App) (string, string, string) {
 	if !application.LooseFile {
 		for _, name := range []string{"favicon.ico", "icon.png"} {
 			candidate := filepath.Join(application.Path, name)
-			// #nosec G304,G122 -- application path is a scanner result and name is fixed.
-			info, err := os.Lstat(candidate)
-			if err == nil && info.Mode().IsRegular() {
+			if _, readable := readableFile(files, candidate); readable {
 				return "/" + application.Slug + "/" + name, "image", ""
 			}
 		}
@@ -326,17 +361,17 @@ func fieldMatches(value, query string) bool {
 	return len(queryTokens) != 0
 }
 
-func readDescription(appPath string, looseFile bool) string {
+func readDescription(files FileAccess, appPath string, looseFile bool) string {
 	if looseFile {
 		return ""
 	}
 	for _, name := range []string{"README.md", "README.txt"} {
 		candidate := filepath.Join(appPath, name)
-		// #nosec G304,G122 -- appPath is a read-only scanner result and names are fixed.
-		file, err := os.Open(candidate)
-		if errors.Is(err, os.ErrNotExist) {
+		_, readable := readableFile(files, candidate)
+		if !readable {
 			continue
 		}
+		file, err := files.Open(candidate)
 		if err != nil {
 			return ""
 		}
@@ -345,6 +380,18 @@ func readDescription(appPath string, looseFile bool) string {
 		return description
 	}
 	return ""
+}
+
+func readableFile(files FileAccess, path string) (os.FileInfo, bool) {
+	info, err := files.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	placeholder, err := files.IsCloudPlaceholder(path, info)
+	if err != nil || placeholder {
+		return nil, false
+	}
+	return info, true
 }
 
 func firstParagraph(reader io.Reader) string {

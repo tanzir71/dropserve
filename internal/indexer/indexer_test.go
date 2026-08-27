@@ -1,8 +1,11 @@
 package indexer
 
 import (
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -77,6 +80,63 @@ func TestBuildGeneratesDeterministicMonogram(t *testing.T) {
 	if first.IconColor == "" || !strings.HasPrefix(first.IconColor, "#") || first.IconColor != second.IconColor {
 		t.Fatalf("icon colour is not deterministic: first %q second %q", first.IconColor, second.IconColor)
 	}
+}
+
+func TestCloudPlaceholderIsNamedButNeverOpened(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	placeholder := filepath.Join(root, "cloud-only-blueprint.html")
+	writeIndexFixtureFile(t, placeholder, []byte("<h1>This content must not be hydrated</h1>"))
+	access := &recordingFileAccess{placeholder: filepath.Clean(placeholder)}
+	entries := BuildWithOptions([]app.App{{
+		Slug:  "cloud-plan",
+		Name:  "Cloud plan",
+		Path:  root,
+		Kind:  app.KindStatic,
+		Index: filepath.Base(placeholder),
+	}}, BuildOptions{Files: access})
+
+	if access.placeholderChecks == 0 {
+		t.Fatal("injected cloud-placeholder stat interface was not consulted")
+	}
+	if runtime.GOOS != "windows" {
+		return
+	}
+	if access.openedPlaceholder {
+		t.Fatal("indexer opened a cloud-only placeholder")
+	}
+	results := Search(entries, "cloud-only-blueprint")
+	if len(results) != 1 || results[0].Slug != "cloud-plan" {
+		t.Fatalf("placeholder filename search = %#v, want cloud-plan", results)
+	}
+	if entries[0].Title != "" || entries[0].Heading != "" {
+		t.Fatalf("placeholder HTML was read: title=%q heading=%q", entries[0].Title, entries[0].Heading)
+	}
+}
+
+type recordingFileAccess struct {
+	placeholder       string
+	placeholderChecks int
+	openedPlaceholder bool
+}
+
+func (access *recordingFileAccess) Open(path string) (io.ReadCloser, error) {
+	if filepath.Clean(path) == access.placeholder {
+		access.openedPlaceholder = true
+		return nil, errors.New("cloud placeholder must not be opened")
+	}
+	// #nosec G304 -- the test adapter receives paths created under t.TempDir.
+	return os.Open(path)
+}
+
+func (access *recordingFileAccess) Lstat(path string) (os.FileInfo, error) {
+	return os.Lstat(path)
+}
+
+func (access *recordingFileAccess) IsCloudPlaceholder(path string, _ os.FileInfo) (bool, error) {
+	access.placeholderChecks++
+	return runtime.GOOS == "windows" && filepath.Clean(path) == access.placeholder, nil
 }
 
 func writeIndexFixtureFile(t *testing.T, path string, content []byte) {

@@ -65,7 +65,16 @@ try {
         throw "autostart status reported $status instead of enabled"
     }
 
-    "M6 Windows autostart smoke passed: Dropserve is registered for current-user logon without elevation."
+    $deleteOutput = @(& schtasks.exe /Delete /TN Dropserve /F 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "external schtasks deletion failed: $($deleteOutput -join [Environment]::NewLine)"
+    }
+    $status = Invoke-Autostart -Action "status"
+    if ($status.Trim() -ne "disabled") {
+        throw "autostart status reported $status after external deletion instead of disabled"
+    }
+
+    "M6 Windows autostart smoke passed: safe current-user registration and OS-backed status were verified."
 }
 finally {
     $cleanupOutput = @(& $script:binaryPath autostart disable 2>&1)

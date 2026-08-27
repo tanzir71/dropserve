@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Welcome to Dropserve</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #eef2ff; color: #17203a; }
+    main { width: min(620px, calc(100% - 32px)); padding: 38px; border-radius: 24px; background: #fff; box-shadow: 0 24px 70px rgba(38, 59, 255, .14); }
+    .eyebrow { margin: 0; color: #4353d8; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; font-size: 12px; }
+    h1 { margin: 8px 0 8px; font-size: clamp(30px, 7vw, 46px); letter-spacing: -.05em; }
+    .intro { margin: 0 0 28px; color: #5f6b83; line-height: 1.55; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    label { font-size: 13px; color: #667188; }
+    input, select { width: 100%; margin-top: 7px; padding: 12px; border: 1px solid #ccd3e1; border-radius: 10px; background: transparent; color: inherit; font: inherit; }
+    output { display: block; margin-top: 24px; padding: 22px; border-radius: 14px; background: #eef1ff; color: #2434bd; font-size: 26px; font-weight: 750; }
+    .foot { margin: 20px 0 0; color: #7a8498; font-size: 13px; }
+    @media (max-width: 520px) { .grid { grid-template-columns: 1fr; } main { padding: 28px 22px; } }
+    @media (prefers-color-scheme: dark) {
+      body { background: #111624; color: #edf1fa; }
+      main { background: #1b2233; box-shadow: none; }
+      .intro, label, .foot { color: #aeb8cb; }
+      input, select { border-color: #46526b; }
+      output { background: #252d58; color: #cbd1ff; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">Your first local app</p>
+    <h1>Welcome to Dropserve</h1>
+    <p class="intro">This useful little length converter is one HTML file. Edit it, replace it, or delete the whole folder whenever you like.</p>
+    <div class="grid">
+      <label>Value
+        <input id="value" type="number" value="1" step="any" inputmode="decimal">
+      </label>
+      <label>From
+        <select id="from">
+          <option value="1">metres</option>
+          <option value="1000">kilometres</option>
+          <option value="0.01">centimetres</option>
+          <option value="0.0254">inches</option>
+          <option value="0.3048">feet</option>
+          <option value="0.9144">yards</option>
+          <option value="1609.344">miles</option>
+        </select>
+      </label>
+      <label>To
+        <select id="to">
+          <option value="1">metres</option>
+          <option value="1000">kilometres</option>
+          <option value="0.01">centimetres</option>
+          <option value="0.0254" selected>inches</option>
+          <option value="0.3048">feet</option>
+          <option value="0.9144">yards</option>
+          <option value="1609.344">miles</option>
+        </select>
+      </label>
+    </div>
+    <output id="result" aria-live="polite"></output>
+    <p class="foot">Your files stay on this computer. Dropserve only reads them to serve the site.</p>
+  </main>
+  <script>
+    const value = document.querySelector('#value');
+    const from = document.querySelector('#from');
+    const to = document.querySelector('#to');
+    const result = document.querySelector('#result');
+    function convert() {
+      const converted = Number(value.value) * Number(from.value) / Number(to.value);
+      const unit = to.options[to.selectedIndex].text;
+      result.textContent = `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 6 }).format(converted)} ${unit}`;
+    }
+    for (const control of [value, from, to]) control.addEventListener('input', convert);
+    convert();
+  </script>
+</body>
+</html>

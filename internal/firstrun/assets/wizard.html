@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set up Dropserve</title>
+  <style>
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #f4f6fb; color: #182033; }
+    main { width: min(560px, calc(100% - 32px)); padding: 40px; border: 1px solid #dbe1ec; border-radius: 24px; background: #fff; box-shadow: 0 24px 70px rgba(25, 36, 60, .12); }
+    .mark { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 14px; background: #263bff; color: #fff; font-weight: 800; letter-spacing: -.08em; }
+    h1 { margin: 24px 0 8px; font-size: 32px; letter-spacing: -.04em; }
+    .intro { margin: 0 0 28px; color: #59647a; line-height: 1.55; }
+    label { display: block; font-weight: 650; }
+    input[type="text"] { width: 100%; margin-top: 9px; padding: 13px 14px; border: 1px solid #c8d0df; border-radius: 11px; background: transparent; color: inherit; font: inherit; }
+    .check { display: flex; gap: 10px; align-items: center; margin: 22px 0; font-weight: 550; }
+    .check input { width: 18px; height: 18px; margin: 0; accent-color: #263bff; }
+    button { width: 100%; padding: 14px 18px; border: 0; border-radius: 11px; background: #263bff; color: #fff; font: 700 16px/1 inherit; cursor: pointer; }
+    .note { margin: 20px 0 0; color: #667188; font-size: 13px; line-height: 1.5; }
+    .error { margin: 0 0 18px; padding: 12px 14px; border-radius: 10px; background: #fff0ee; color: #9d261b; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #111624; color: #edf1fa; }
+      main { background: #1a2132; border-color: #303a50; box-shadow: none; }
+      .intro, .note { color: #aeb8cb; }
+      input[type="text"] { border-color: #46526b; }
+      .error { background: #421f22; color: #ffb8af; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark" aria-hidden="true">D</div>
+    <h1>Set up Dropserve</h1>
+    <p class="intro">Choose one folder, then Dropserve will turn every app inside it into a local website.</p>
+    {{if .Message}}<p class="error" role="alert">{{.Message}}</p>{{end}}
+    <form method="post" action="/start">
+      <label>Apps folder
+        <input type="text" name="apps_root" value="{{.AppsRoot}}" required autocomplete="off">
+      </label>
+      <label class="check">
+        <input type="checkbox" name="autostart" checked>
+        <span>Start Dropserve when I log in</span>
+      </label>
+      <button type="submit">Start</button>
+    </form>
+    <p class="note">Anyone on your Wi-Fi can reach these apps. Dropserve also checks once a day whether a new release is available; it never installs updates by itself.</p>
+  </main>
+</body>
+</html>

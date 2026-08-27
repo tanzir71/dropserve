@@ -20,6 +20,8 @@ import (
 	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
 	"github.com/tanzir71/dropserve/internal/doctor"
+	"github.com/tanzir71/dropserve/internal/firstrun"
+	"github.com/tanzir71/dropserve/internal/launch"
 	"github.com/tanzir71/dropserve/internal/ports"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
@@ -48,7 +50,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 }
 
 func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath string) int {
-	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+	if len(args) == 0 {
+		return defaultCommand(stdout, stderr, configPath)
+	}
+	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		if _, err := fmt.Fprint(stdout, usage); err != nil {
 			return 1
 		}
@@ -116,6 +121,74 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		}
 		return 2
 	}
+}
+
+func defaultCommand(stdout, stderr io.Writer, configPath string) int {
+	if configPath == "" {
+		var err error
+		configPath, err = config.DefaultPath()
+		if err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not find its config folder: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+	}
+	statePath, err := state.DefaultPath()
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not find its state folder: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	configuration, err := config.Load(configPath)
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not read its config: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	appsRoot := config.Default().Server.AppsRoots[0]
+	if len(configuration.Server.AppsRoots) != 0 {
+		appsRoot = configuration.Server.AppsRoots[0]
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not find its executable: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	executable = backgroundExecutable(executable)
+	ctx, stop := signal.NotifyContext(context.Background(), commandSignals()...)
+	defer stop()
+	_, err = firstrun.Run(ctx, firstrun.Options{
+		StatePath:       statePath,
+		ConfigPath:      configPath,
+		DefaultAppsRoot: appsRoot,
+		Executable:      executable,
+		OpenBrowser: func(address string) error {
+			if _, writeErr := fmt.Fprintf(stdout, "Dropserve setup is at %s\n", address); writeErr != nil {
+				return writeErr
+			}
+			if openErr := launch.OpenURL(address); openErr != nil {
+				_, _ = fmt.Fprintf(stderr, "Open %s in a browser to finish setup.\n", address)
+			}
+			return nil
+		},
+		EnableAutostart: autostart.Enable,
+	})
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not complete first-run setup: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	return serveCommandContext(ctx, []string{
+		"--config", configPath,
+		"--state", statePath,
+		"--open",
+	}, stdout, stderr, "")
 }
 
 func autostartCommand(arguments []string, stdout, stderr io.Writer) int {
@@ -214,6 +287,7 @@ func serveCommandContext(
 	bindAddress := flags.String("bind", "", "listener host or IP; defaults to the configured bind address")
 	configPath := flags.String("config", injectedConfigPath, "configuration file")
 	statePath := flags.String("state", "", "runtime state file")
+	openDashboard := flags.Bool("open", false, "open the dashboard after startup")
 	var roots rootFlags
 	flags.Var(&roots, "root", "Apps root; repeat to use more than one")
 	if err := flags.Parse(arguments); err != nil {
@@ -300,6 +374,13 @@ func serveCommandContext(
 	address := listenerURL(listener.Addr())
 	if _, err := fmt.Fprintf(stdout, "Dropserve is ready at %s\n", address); err != nil {
 		return 1
+	}
+	if *openDashboard {
+		if err := launch.OpenURL(address); err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not open the dashboard automatically: %v\n", err); writeErr != nil {
+				return 1
+			}
+		}
 	}
 	httpServer := &http.Server{
 		Handler:           handler.Handler(),

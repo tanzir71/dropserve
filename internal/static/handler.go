@@ -89,13 +89,13 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 	relativePath := strings.TrimPrefix(request.URL.Path, "/")
 	resolved, err := Resolve(server.application.Path, relativePath)
 	if err != nil {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 
 	file, info, ok := openRegularFile(resolved)
 	if !ok {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 	if info.IsDir() {
@@ -104,7 +104,7 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 				_ = file.Close()
 			}()
 			if !server.application.DirectoryListing {
-				http.NotFound(response, request)
+				serveNotFound(response, request)
 				return
 			}
 			serveDirectory(response, request, file)
@@ -113,7 +113,7 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 		_ = file.Close()
 		resolved, err = Resolve(server.application.Path, path.Join(relativePath, server.application.Index))
 		if err != nil {
-			http.NotFound(response, request)
+			serveNotFound(response, request)
 			return
 		}
 		file, info, ok = openRegularFile(resolved)
@@ -121,7 +121,7 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 			if ok {
 				_ = file.Close()
 			}
-			http.NotFound(response, request)
+			serveNotFound(response, request)
 			return
 		}
 	}
@@ -133,13 +133,13 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 
 func (server *handler) serveLooseFile(response http.ResponseWriter, request *http.Request) {
 	if strings.Trim(request.URL.Path, "/") != "" {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 	// #nosec G304,G122 -- the path is the read-only app file captured by the scanner, not request input.
 	file, err := os.Open(server.application.Path)
 	if err != nil {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 	defer func() {
@@ -147,10 +147,20 @@ func (server *handler) serveLooseFile(response http.ResponseWriter, request *htt
 	}()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 	serveFile(response, request, info, file)
+}
+
+func serveNotFound(response http.ResponseWriter, request *http.Request) {
+	const content = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>App not found · Dropserve</title><body><main><h1>Dropserve could not find that app or file.</h1><p>Check the address, or return to <a href="/">your apps</a>.</p></main></body></html>`
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	response.WriteHeader(http.StatusNotFound)
+	if request.Method == http.MethodHead {
+		return
+	}
+	_, _ = io.WriteString(response, content)
 }
 
 func serveFile(response http.ResponseWriter, request *http.Request, info os.FileInfo, file *os.File) {

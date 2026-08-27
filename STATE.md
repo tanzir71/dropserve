@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:50:22Z
+**Last updated:** 2026-08-27T20:51:42Z
 **Gate status:** green
-**Iterations completed:** 45
+**Iterations completed:** 46
 
 ## Milestone progress
 
@@ -27,7 +27,7 @@
 - [x] Assert: renaming an app changes the slug and the old slug 404s.
 - [x] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
 - [x] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
-- [ ] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
+- [x] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
 - [ ] Assert: watching a root that does not exist yet does not crash; when the directory appears, it is picked up.
 - [ ] Assert (**hazard 5**): a file marked with the cloud-placeholder attribute (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, simulated in the test via an injected stat interface) is listed in the index by name but never opened by the indexer, so a cloud-only folder cannot stall the scan. On non-Windows this test asserts the interface is wired and skips the attribute check.
 - [ ] Assert (**hazard 5**): if a configured Apps root resolves inside a known sync folder (`OneDrive`, `Dropbox`, `Google Drive`, `iCloud Drive` in the path), a warning is recorded and surfaced in `doctor` and the dashboard, naming the root and recommending `%USERPROFILE%\Dropserve`.
@@ -103,6 +103,7 @@
 - `TestRenamedFolderChangesSlugWithinTwoSeconds` renames a real mounted folder and polls both URLs plus the immutable scan snapshot. Within about 650 ms the old slug returned 404 while the new slug served the exact original body and was the sole indexed app.
 - `TestRapidChangesAreDebounced` creates 20 app folders and indexes in a tight loop, waits for a 600 ms quiescent window, verifies all 20 published routes return 200, and rejects more than three successful snapshot rebuilds after the initial scan. The race-enabled full gate passes with the monotonic rebuild counter.
 - `TestReconcileCatchesChangesWhileWatcherIsStopped` closes the native watcher, creates a new app, proves the snapshot remains unchanged, invokes the same full reconcile entry point used by the 30-second sweep, and immediately verifies the recovered route, body, and scan snapshot.
+- `TestSSEStreamSurvivesThreeAppChanges` holds one real `text/event-stream` request open while creating three apps one at a time and receives three `apps-changed` events on that same connection. The stream publishes only after successful immutable swaps, coalesces notifications for slow clients, and enforces a 64-client bound.
 
 ## Decisions made this build (beyond the spec)
 

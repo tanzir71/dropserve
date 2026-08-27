@@ -29,6 +29,7 @@ type Server struct {
 	options     Options
 	reconcileMu sync.Mutex
 	rebuilds    atomic.Uint64
+	events      *eventHub
 }
 
 // Options configures scanning and optional machine-state persistence.
@@ -44,8 +45,12 @@ func New(options scanner.Options) (*Server, error) {
 
 // NewWithOptions creates a server and atomically persists its dashboard index when requested.
 func NewWithOptions(options Options) (*Server, error) {
-	server := &Server{router: router.New(nil), options: options}
+	server := &Server{router: router.New(nil), options: options, events: newEventHub()}
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/_dropserve/api/events" {
+			server.events.serveHTTP(response, request)
+			return
+		}
 		if request.URL.Path == "/" || strings.HasPrefix(request.URL.Path, "/_dropserve/") {
 			current := server.snapshot.Load()
 			if current == nil || current.dashboard == nil {
@@ -132,5 +137,6 @@ func (server *Server) reconcile() error {
 	server.router.Swap(mounts)
 	server.snapshot.Store(&snapshot{scan: result, dashboard: dashboardHandler})
 	server.rebuilds.Add(1)
+	server.events.publish()
 	return nil
 }

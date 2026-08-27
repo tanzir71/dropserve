@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -270,6 +271,79 @@ func TestReconcileCatchesChangesWhileWatcherIsStopped(t *testing.T) {
 	current := server.Scan()
 	if len(current.Apps) != 1 || current.Apps[0].Slug != "recovered-notes" {
 		t.Fatalf("reconciled snapshot = %#v", current.Apps)
+	}
+}
+
+func TestSSEStreamSurvivesThreeAppChanges(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create live server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close live server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	streamContext, cancelStream := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancelStream()
+	request, err := http.NewRequestWithContext(
+		streamContext,
+		http.MethodGet,
+		httpServer.URL+"/_dropserve/api/events",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create event-stream request: %v", err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("open event stream: %v", err)
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("event stream returned %d; body=%q", response.StatusCode, body)
+	}
+	if contentType := response.Header.Get("Content-Type"); !strings.HasPrefix(contentType, "text/event-stream") {
+		t.Fatalf("event stream Content-Type = %q", contentType)
+	}
+
+	events := make(chan struct{})
+	streamErrors := make(chan error, 1)
+	go func() {
+		scanner := bufio.NewScanner(response.Body)
+		for scanner.Scan() {
+			if scanner.Text() == "event: apps-changed" {
+				events <- struct{}{}
+			}
+		}
+		streamErrors <- scanner.Err()
+	}()
+
+	for index := range 3 {
+		name := fmt.Sprintf("stream-%d", index)
+		appRoot := filepath.Join(root, name)
+		if err := os.Mkdir(appRoot, 0o750); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(appRoot, "index.html"), []byte(name), 0o600); err != nil {
+			t.Fatalf("write %s index: %v", name, err)
+		}
+		select {
+		case <-events:
+		case streamErr := <-streamErrors:
+			t.Fatalf("event stream ended after %d events: %v", index, streamErr)
+		case <-time.After(2 * time.Second):
+			t.Fatalf("no apps-changed event for change %d", index+1)
+		}
 	}
 }
 

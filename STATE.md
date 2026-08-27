@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:21:46Z
+**Last updated:** 2026-08-27T21:24:29Z
 **Gate status:** green
-**Iterations completed:** 56
+**Iterations completed:** 57
 
 ## Milestone progress
 
@@ -27,7 +27,7 @@
 - [x] Assert: a fixture that exits immediately with code 1 is restarted with backoff, gives up after 5 attempts inside the window, ends in `crashed`, and its logs contain the error output.
 - [x] Assert (**I4**): with a crashed app and a healthy app both present, the healthy app still returns 200 and the dashboard still renders.
 - [x] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
-- [ ] Assert: on Dropserve shutdown, no child processes survive.
+- [x] Assert: on Dropserve shutdown, no child processes survive.
 - [ ] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
 - [ ] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
 - [ ] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
@@ -127,6 +127,7 @@
 - `TestImmediateFailureRestartsFiveTimesThenCrashes` drives a real package whose start script prints `intentional fixture failure` and exits 1. The supervisor shares its 256 KB log ring across five isolated attempts, waits the production `1s, 2s, 4s, 8s` backoff sequence (with short injected delays in tests), then mounts a friendly status-200 stopped page and reports `crashed`, five attempts, and the captured error through both app metadata and the log endpoint. The full gate is green and a post-gate process inspection found no fixture descendants.
 - `TestCrashedAppDoesNotBlockHealthyApp` registers only the broken and healthy Node packages, drives the broken app through all five attempts, then proves the dashboard still renders with status 200 and `/node/` still proxies the exact healthy fixture body. This locks invariant I4 at the HTTP boundary.
 - Windows-only `TestProcessTreeIsKilled` runs a real `npm start` package whose Node server spawns a long-lived Node grandchild. It verifies the reported grandchild PID is live, closes Dropserve, and observes that exact PID exit in about 820 ms—well inside the mandatory five-second window. The full gate and a separate process inventory both found no surviving process-tree fixture descendants.
+- Cross-platform `TestShutdownLeavesNoCommandChild` reads the healthy Node process's real PID through its fixture endpoint, proves it is live, closes Dropserve, and observes it exit in about 810 ms within the five-second deadline. The test failed first when the endpoint did not exist, the full gate is green, the Unix test variant cross-compiles, and a separate Windows process inventory found no surviving Node fixture process.
 
 ## Decisions made this build (beyond the spec)
 

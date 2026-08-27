@@ -4,21 +4,18 @@ package server_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
-	"golang.org/x/sys/windows"
 )
 
 func TestProcessTreeIsKilled(t *testing.T) {
@@ -67,7 +64,7 @@ func TestProcessTreeIsKilled(t *testing.T) {
 	if _, err := fmt.Sscanf(strings.TrimSpace(string(body)), "%d", &grandchildPID); err != nil {
 		t.Fatalf("parse grandchild PID from %q: %v", body, err)
 	}
-	alive, err := windowsProcessAlive(grandchildPID)
+	alive, err := processAlive(grandchildPID)
 	if err != nil {
 		t.Fatalf("inspect grandchild PID %d before shutdown: %v", grandchildPID, err)
 	}
@@ -81,7 +78,7 @@ func TestProcessTreeIsKilled(t *testing.T) {
 	serverClosed = true
 	deadline := time.Now().Add(5 * time.Second)
 	for {
-		alive, err = windowsProcessAlive(grandchildPID)
+		alive, err = processAlive(grandchildPID)
 		if err != nil {
 			t.Fatalf("inspect grandchild PID %d after shutdown: %v", grandchildPID, err)
 		}
@@ -92,30 +89,5 @@ func TestProcessTreeIsKilled(t *testing.T) {
 			t.Fatalf("grandchild PID %d survived Dropserve shutdown for five seconds", grandchildPID)
 		}
 		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-func windowsProcessAlive(processID uint32) (bool, error) {
-	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, processID)
-	if err != nil {
-		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			return false, nil
-		}
-		return false, err
-	}
-	defer func() {
-		_ = windows.CloseHandle(handle)
-	}()
-	event, err := windows.WaitForSingleObject(handle, 0)
-	if err != nil {
-		return false, err
-	}
-	switch event {
-	case windows.WAIT_OBJECT_0:
-		return false, nil
-	case uint32(windows.WAIT_TIMEOUT):
-		return true, nil
-	default:
-		return false, errors.New("unexpected process wait result: " + strconv.FormatUint(uint64(event), 10))
 	}
 }

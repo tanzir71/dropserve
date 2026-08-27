@@ -3,6 +3,7 @@ package server_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -270,6 +271,68 @@ func TestCrashedAppDoesNotBlockHealthyApp(t *testing.T) {
 	healthyStatus, healthyBody := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/node/")
 	if healthyStatus != http.StatusOK || healthyBody != "Dropserve Node fixture" {
 		t.Fatalf("healthy app beside crashed app = %d %q", healthyStatus, healthyBody)
+	}
+}
+
+func TestShutdownLeavesNoCommandChild(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the Node fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "node"))
+	if err != nil {
+		t.Fatalf("resolve Node fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create shutdown-test server: %v", err)
+	}
+	serverClosed := false
+	defer func() {
+		if !serverClosed {
+			_ = server.Close()
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	status, body := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/node/pid")
+	if status != http.StatusOK {
+		t.Fatalf("PID endpoint status = %d, want 200", status)
+	}
+	var childPID uint32
+	if _, err := fmt.Sscanf(strings.TrimSpace(body), "%d", &childPID); err != nil {
+		t.Fatalf("parse child PID from %q: %v", body, err)
+	}
+	alive, err := processAlive(childPID)
+	if err != nil {
+		t.Fatalf("inspect child PID %d before shutdown: %v", childPID, err)
+	}
+	if !alive {
+		t.Fatalf("child PID %d was not alive before shutdown", childPID)
+	}
+
+	if err := server.Close(); err != nil {
+		t.Fatalf("close shutdown-test server: %v", err)
+	}
+	serverClosed = true
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		alive, err = processAlive(childPID)
+		if err != nil {
+			t.Fatalf("inspect child PID %d after shutdown: %v", childPID, err)
+		}
+		if !alive {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("child PID %d survived Dropserve shutdown for five seconds", childPID)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

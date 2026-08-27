@@ -18,4 +18,5 @@ type App struct {
 	Index            string
 	LooseFile        bool
 	DirectoryListing bool
+	FileCount        int64
 }

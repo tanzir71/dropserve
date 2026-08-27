@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/tanzir71/dropserve/internal/scanner"
@@ -135,4 +136,36 @@ func TestCaseInsensitiveCollisionAndRename(t *testing.T) {
 			t.Fatalf("rename = %q -> %q, want notes -> Notes", rename.Before.Path, rename.After.Path)
 		}
 	})
+}
+
+func TestScannerWalksLongPaths(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "deep-tree")
+	deepDirectory := appRoot
+	for len(filepath.Join(deepDirectory, "payload.txt")) <= 280 {
+		deepDirectory = filepath.Join(deepDirectory, "segment-"+strings.Repeat("x", 24))
+	}
+	if err := os.MkdirAll(deepDirectory, 0o750); err != nil {
+		t.Fatalf("create deep fixture tree: %v", err)
+	}
+	deepFile := filepath.Join(deepDirectory, "payload.txt")
+	if len(deepFile) <= 260 {
+		t.Fatalf("fixture path length = %d, want > 260", len(deepFile))
+	}
+	if err := os.WriteFile(deepFile, []byte("deep path"), 0o600); err != nil {
+		t.Fatalf("write deep fixture: %v", err)
+	}
+
+	result, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("scan deep fixture: %v", err)
+	}
+	if len(result.Apps) != 1 {
+		t.Fatalf("scan returned %d apps, want 1", len(result.Apps))
+	}
+	if got, want := result.Apps[0].FileCount, int64(1); got != want {
+		t.Fatalf("deep-tree file count = %d, want %d", got, want)
+	}
 }

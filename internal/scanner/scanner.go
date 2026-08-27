@@ -125,6 +125,7 @@ func Scan(options Options) (Result, error) {
 				Path:      fullPath,
 				Kind:      app.KindStatic,
 				LooseFile: !entry.IsDir(),
+				FileCount: 1,
 			}
 			if entry.IsDir() {
 				application.Index, err = findIndex(fullPath)
@@ -132,6 +133,10 @@ func Scan(options Options) (Result, error) {
 					return Result{}, err
 				}
 				application.DirectoryListing = application.Index == ""
+				application.FileCount, err = countFiles(fullPath)
+				if err != nil {
+					return Result{}, fmt.Errorf("walk app %q: %w", fullPath, err)
+				}
 			}
 			result.Apps = append(result.Apps, application)
 		}
@@ -211,4 +216,22 @@ func displayName(name string) string {
 	name = strings.ReplaceAll(name, "_", " ")
 	name = strings.ReplaceAll(name, "-", " ")
 	return strings.Join(strings.Fields(name), " ")
+}
+
+func countFiles(root string) (int64, error) {
+	walkPath, err := pathForWalk(root)
+	if err != nil {
+		return 0, err
+	}
+	var count int64
+	err = filepath.WalkDir(walkPath, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			count++
+		}
+		return nil
+	})
+	return count, err
 }

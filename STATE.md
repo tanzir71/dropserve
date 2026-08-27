@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T12:56:16Z
+**Last updated:** 2026-08-27T12:57:38Z
 **Gate status:** green
-**Iterations completed:** 12
+**Iterations completed:** 13
 
 ## Milestone progress
 
@@ -28,7 +28,7 @@
 - [x] Path traversal is refused for encoded, absolute, UNC, and escaping-symlink paths.
 - [x] Slug collisions across roots produce stable suffixes and both apps remain reachable.
 - [x] Case-insensitive collisions and case-only renames behave correctly.
-- [ ] Scanner walks a path deeper than 260 characters.
+- [x] Scanner walks a path deeper than 260 characters.
 - [ ] Reserved slugs are refused with a warning.
 - [ ] A full scan-and-serve cycle leaves every app file and directory mtime unchanged (I2).
 - [ ] `dropserve add <path>` writes only a registered-path config entry and serves it.
@@ -55,6 +55,7 @@
 - `TestPathTraversalIsRefused`: raw and encoded parent traversal, Windows backslashes, absolute paths, UNC paths, and an escaping symlink all return `ErrUnsafePath`. The symlink assertion passed on this Windows machine without a platform skip.
 - `TestSlugCollisionsRemainReachable`: ordered roots produce `notes` and `notes-2`; each URL serves the correct source, and the warning names both full paths.
 - `TestCaseInsensitiveCollisionAndRename`: `Notes` and `notes` collide across roots, while a `notes` → `Notes` change is one rename with zero added or removed apps.
+- `TestScannerWalksLongPaths`: the scanner counts a generated payload whose Windows path exceeds 280 characters, using extended-length walk roots on Windows.
 
 ## Decisions made this build (beyond the spec)
 

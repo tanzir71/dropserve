@@ -369,11 +369,17 @@ func (process *Process) Start() error {
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
 	proxy.ModifyResponse = func(response *http.Response) error {
+		prefix := "/" + process.application.Slug
+		if cookies := response.Header.Values("Set-Cookie"); len(cookies) != 0 {
+			response.Header.Del("Set-Cookie")
+			for _, cookie := range cookies {
+				response.Header.Add("Set-Cookie", rewriteRootCookiePath(cookie, prefix))
+			}
+		}
 		if response.StatusCode < http.StatusMultipleChoices || response.StatusCode >= http.StatusBadRequest {
 			return nil
 		}
 		location := response.Header.Get("Location")
-		prefix := "/" + process.application.Slug
 		if strings.HasPrefix(location, "/") &&
 			!strings.HasPrefix(location, "//") &&
 			location != prefix &&
@@ -540,6 +546,20 @@ func commandEnvironment(application app.App, port int) []string {
 		environment = append(environment, name+"="+value)
 	}
 	return environment
+}
+
+func rewriteRootCookiePath(cookie, prefix string) string {
+	attributes := strings.Split(cookie, ";")
+	for index, attribute := range attributes {
+		trimmed := strings.TrimSpace(attribute)
+		name, value, found := strings.Cut(trimmed, "=")
+		if !found || !strings.EqualFold(name, "Path") || value != "/" {
+			continue
+		}
+		leadingSpace := attribute[:len(attribute)-len(strings.TrimLeft(attribute, " \t"))]
+		attributes[index] = leadingSpace + "Path=" + prefix + "/"
+	}
+	return strings.Join(attributes, ";")
 }
 
 func crashedHandler(application app.App, startError error) http.Handler {

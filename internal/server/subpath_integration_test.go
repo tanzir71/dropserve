@@ -63,3 +63,52 @@ func TestCommandRedirectIsRewrittenUnderSlug(t *testing.T) {
 		t.Fatalf("redirect Location = %q, want /subpath/login", location)
 	}
 }
+
+func TestCommandCookiePathIsRewrittenUnderSlug(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the subpath fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "subpath"))
+	if err != nil {
+		t.Fatalf("resolve subpath fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create subpath server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close subpath server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		httpServer.URL+"/subpath/cookie",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create cookie request: %v", err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("request cookie fixture: %v", err)
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	cookies := response.Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "s" || cookies[0].Value != "1" {
+		t.Fatalf("proxied cookies = %#v", cookies)
+	}
+	if cookies[0].Path != "/subpath/" {
+		t.Fatalf("cookie Path = %q, want /subpath/", cookies[0].Path)
+	}
+}

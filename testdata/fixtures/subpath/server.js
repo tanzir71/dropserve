@@ -10,5 +10,10 @@ http.createServer((request, response) => {
     response.end("subpath login");
     return;
   }
+  if (request.url === "/cookie") {
+    response.writeHead(200, { "set-cookie": "s=1; Path=/; HttpOnly" });
+    response.end("cookie set");
+    return;
+  }
   response.end("subpath fixture");
 }).listen(Number(process.env.PORT), process.env.HOST);

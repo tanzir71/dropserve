@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T13:15:42Z
+**Last updated:** 2026-08-27T13:19:16Z
 **Gate status:** green
-**Iterations completed:** 20
+**Iterations completed:** 21
 
 ## Milestone progress
 
@@ -67,6 +67,7 @@
 - Final `make check`: green with race tests, full golangci-lint, version injection, Windows/Linux/macOS zero-CGO cross-builds, and the shipped-file scan.
 - Shipped binary: `dropserve 0.0.0-dev (8263b2a)`.
 - Final `scripts/smoke/m1.ps1`: `http://127.0.0.1:54826/static/` returned 200 with the fixture heading.
+- Hosted Windows CI revealed that its image reserves port 80 with `WSAEACCES` before the test can own it. The acceptance test now treats that failed real bind as proof the port is unavailable, while still using its own listener wherever Windows permits; local Windows continues to exercise owned listeners on both 80 and 8080.
 
 ## Decisions made this build (beyond the spec)
 

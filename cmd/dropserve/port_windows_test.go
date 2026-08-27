@@ -20,13 +20,17 @@ import (
 
 func TestPortFallbackAndStatus(t *testing.T) {
 	port80 := occupyPort(t, 80)
-	defer func() {
-		_ = port80.Close()
-	}()
+	if port80 != nil {
+		defer func() {
+			_ = port80.Close()
+		}()
+	}
 	port8080 := occupyPort(t, 8080)
-	defer func() {
-		_ = port8080.Close()
-	}()
+	if port8080 != nil {
+		defer func() {
+			_ = port8080.Close()
+		}()
+	}
 
 	root := t.TempDir()
 	appRoot := filepath.Join(root, "fixture")
@@ -139,7 +143,11 @@ func occupyPort(t *testing.T, port int) net.Listener {
 		fmt.Sprintf("127.0.0.1:%d", port),
 	)
 	if err != nil {
-		t.Fatalf("occupy port %d: %v", port, err)
+		// Windows CI images can reserve port 80 through http.sys or an excluded
+		// range. The failed real bind proves Dropserve will have to skip it just
+		// as surely as a listener owned by this test would.
+		t.Logf("port %d was already unavailable: %v", port, err)
+		return nil
 	}
 	return listener
 }

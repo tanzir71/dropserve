@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/tanzir71/dropserve/internal/config"
@@ -22,6 +23,23 @@ import (
 	"github.com/tanzir71/dropserve/internal/state"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
 )
+
+func TestCommandSignalsIncludeInterruptAndTerminate(t *testing.T) {
+	signals := commandSignals()
+	wants := []os.Signal{os.Interrupt, syscall.SIGTERM}
+	for _, want := range wants {
+		found := false
+		for _, got := range signals {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("commandSignals() = %v, want %v", signals, want)
+		}
+	}
+}
 
 func TestVersionCommand(t *testing.T) {
 	var stdout bytes.Buffer

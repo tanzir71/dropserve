@@ -11,8 +11,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/tanzir71/dropserve/internal/config"
@@ -117,7 +119,13 @@ func (roots *rootFlags) Set(value string) error {
 }
 
 func serveCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPath string) int {
-	return serveCommandContext(context.Background(), arguments, stdout, stderr, injectedConfigPath)
+	ctx, stop := signal.NotifyContext(context.Background(), commandSignals()...)
+	defer stop()
+	return serveCommandContext(ctx, arguments, stdout, stderr, injectedConfigPath)
+}
+
+func commandSignals() []os.Signal {
+	return []os.Signal{os.Interrupt, syscall.SIGTERM}
 }
 
 func serveCommandContext(

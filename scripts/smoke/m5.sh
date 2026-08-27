@@ -11,6 +11,11 @@ output_path="$work_directory/dropserve.out"
 error_path="$work_directory/dropserve.err"
 process_id=""
 
+fail() {
+    printf 'M5 smoke failed: %s\n' "$1" >&2
+    exit 1
+}
+
 cleanup() {
     if [ -n "$process_id" ] && kill -0 "$process_id" 2>/dev/null; then
         kill "$process_id" 2>/dev/null || true
@@ -59,54 +64,147 @@ stop_dropserve() {
 
 start_dropserve
 
-headers=$(curl -fsS -D - -o /dev/null "$address/subpath/redirect")
-printf '%s' "$headers" | grep -qi '^location: /subpath/login'
-headers=$(curl -fsS -D - -o /dev/null "$address/subpath/cookie")
-printf '%s' "$headers" | grep -qi '^set-cookie: .*Path=/subpath/'
-curl -fsS "$address/subpath/html-no-base" | grep -q '<head><base href="/subpath/">'
-[ "$(curl -fsS "$address/subpath/asset.json")" = '{"markup":"<head>json</head>"}' ]
-curl -fsS "$address/subpath/headers" | grep -q '"prefix":"/subpath"'
+redirect_headers="$work_directory/redirect.headers"
+redirect_status=$(curl -sS -D "$redirect_headers" -o "$work_directory/redirect.body" -w '%{http_code}' "$address/subpath/redirect")
+[ "$redirect_status" = "302" ] || fail "redirect returned HTTP $redirect_status instead of 302"
+grep -Fqi 'location: /subpath/login' "$redirect_headers" || fail "redirect Location was not /subpath/login"
+
+cookie_headers="$work_directory/cookie.headers"
+curl -fsS -D "$cookie_headers" -o "$work_directory/cookie.body" "$address/subpath/cookie"
+grep -Eqi '^set-cookie: .*Path=/subpath/' "$cookie_headers" || fail "cookie Path was not rewritten under /subpath/"
+
+html_path="$work_directory/response.html"
+curl -fsS -o "$html_path" "$address/subpath/html-no-base"
+grep -Fq '<head><base href="/subpath/">' "$html_path" || fail "HTML base element was not injected"
+
+asset_body=$(curl -fsS "$address/subpath/asset.json")
+[ "$asset_body" = '{"markup":"<head>json</head>"}' ] || fail "non-HTML response changed through the proxy"
+
+forwarded_headers="$work_directory/forwarded.json"
+curl -fsS -o "$forwarded_headers" "$address/subpath/headers"
+grep -Fq '"prefix":"/subpath"' "$forwarded_headers" || fail "X-Forwarded-Prefix was incorrect"
+grep -Fq '"scriptName":"/subpath"' "$forwarded_headers" || fail "X-Script-Name was incorrect"
+grep -Fq '"proto":"http"' "$forwarded_headers" || fail "X-Forwarded-Proto was incorrect"
 
 node - "$address" <<'NODE'
-const address = process.argv[2].replace(/^http/, "ws") + "/subpath/ws";
-const socket = new WebSocket(address);
+const crypto = require("node:crypto");
+const net = require("node:net");
+const target = new URL(process.argv[2]);
+const key = crypto.randomBytes(16).toString("base64");
+const expectedAccept = crypto
+  .createHash("sha1")
+  .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+  .digest("base64");
+const socket = net.createConnection(Number(target.port), target.hostname);
+let buffered = Buffer.alloc(0);
+let upgraded = false;
+let complete = false;
 const timeout = setTimeout(() => {
   console.error("WebSocket smoke timed out");
-  process.exit(1);
+  socket.destroy();
+  process.exitCode = 1;
 }, 5000);
-socket.addEventListener("open", () => socket.send("m5 smoke echo"));
-socket.addEventListener("message", event => {
+
+function fail(message) {
+  if (complete) return;
+  complete = true;
   clearTimeout(timeout);
-  if (event.data !== "m5 smoke echo") process.exit(1);
-  socket.close();
+  console.error(message);
+  socket.destroy();
+  process.exitCode = 1;
+}
+
+function sendText(message) {
+  const payload = Buffer.from(message);
+  const mask = crypto.randomBytes(4);
+  const frame = Buffer.alloc(6 + payload.length);
+  frame[0] = 0x81;
+  frame[1] = 0x80 | payload.length;
+  mask.copy(frame, 2);
+  for (let index = 0; index < payload.length; index++) {
+    frame[6 + index] = payload[index] ^ mask[index % 4];
+  }
+  socket.write(frame);
+}
+
+function readEcho() {
+  if (buffered.length < 2) return;
+  const length = buffered[1] & 0x7f;
+  if ((buffered[0] & 0x0f) !== 1 || length > 125 || buffered.length < 2 + length) return;
+  const echoed = buffered.subarray(2, 2 + length).toString("utf8");
+  if (echoed !== "m5 smoke echo") {
+    fail(`WebSocket echoed ${JSON.stringify(echoed)} instead of the expected text`);
+    return;
+  }
+  complete = true;
+  clearTimeout(timeout);
+  socket.destroy();
+}
+
+socket.on("connect", () => {
+  socket.write(
+    "GET /subpath/ws HTTP/1.1\r\n" +
+    `Host: ${target.host}\r\n` +
+    "Upgrade: websocket\r\n" +
+    "Connection: Upgrade\r\n" +
+    `Sec-WebSocket-Key: ${key}\r\n` +
+    "Sec-WebSocket-Version: 13\r\n\r\n"
+  );
 });
-socket.addEventListener("error", () => process.exit(1));
+socket.on("data", chunk => {
+  buffered = Buffer.concat([buffered, chunk]);
+  if (!upgraded) {
+    const boundary = buffered.indexOf("\r\n\r\n");
+    if (boundary < 0) return;
+    const headers = buffered.subarray(0, boundary).toString("latin1");
+    buffered = buffered.subarray(boundary + 4);
+    if (!headers.startsWith("HTTP/1.1 101") || !headers.toLowerCase().includes(`sec-websocket-accept: ${expectedAccept.toLowerCase()}`)) {
+      fail(`WebSocket handshake was invalid: ${headers.split("\r\n")[0]}`);
+      return;
+    }
+    upgraded = true;
+    sendText("m5 smoke echo");
+  }
+  readEcho();
+});
+socket.on("error", error => fail(`WebSocket smoke failed: ${error.message}`));
+socket.on("close", () => {
+  if (!complete) fail("WebSocket closed before echoing the test frame");
+});
 NODE
 
-apps_json=$(curl -fsS "$address/_dropserve/api/apps")
-first_port=$(printf '%s' "$apps_json" | node -e '
+apps_path="$work_directory/apps.json"
+curl -fsS -o "$apps_path" "$address/_dropserve/api/apps"
+first_port=$(node -e '
 let data = "";
 process.stdin.on("data", chunk => data += chunk);
 process.stdin.on("end", () => {
   const app = JSON.parse(data).find(item => item.slug === "absolute-paths");
-  if (!app || !app.prefers_own_port || !app.urls.own) process.exit(1);
+  if (!app || !app.prefers_own_port || !app.urls.own) {
+    console.error("Absolute-path fixture did not prefer its own port");
+    process.exit(1);
+  }
   process.stdout.write(String(app.port));
-});')
-own_url=$(printf '%s' "$apps_json" | node -e '
+});' <"$apps_path")
+own_url=$(node -e '
 let data = "";
 process.stdin.on("data", chunk => data += chunk);
-process.stdin.on("end", () => process.stdout.write(JSON.parse(data).find(item => item.slug === "absolute-paths").urls.own));')
-curl -fsS "$own_url" | grep -q 'Absolute paths fixture'
-dashboard_script=$(curl -fsS "$address/_dropserve/app.js")
-printf '%s' "$dashboard_script" | grep -q 'This app expects to live at the root'
-printf '%s' "$dashboard_script" | grep -q 'Use the short URL anyway'
+process.stdin.on("end", () => process.stdout.write(JSON.parse(data).find(item => item.slug === "absolute-paths").urls.own));' <"$apps_path")
+own_body="$work_directory/own.html"
+curl -fsS -o "$own_body" "$own_url"
+grep -Fq 'Absolute paths fixture' "$own_body" || fail "own-port URL did not serve the fixture at its root"
+dashboard_script="$work_directory/dashboard.js"
+curl -fsS -o "$dashboard_script" "$address/_dropserve/app.js"
+grep -Fq 'This app expects to live at the root' "$dashboard_script" || fail "dashboard omitted the own-port explanation"
+grep -Fq 'Use the short URL anyway' "$dashboard_script" || fail "dashboard omitted the short-URL rescue action"
 
 stop_dropserve
 start_dropserve
-second_port=$(curl -fsS "$address/_dropserve/api/apps" | node -e '
+curl -fsS -o "$apps_path" "$address/_dropserve/api/apps"
+second_port=$(node -e '
 let data = "";
 process.stdin.on("data", chunk => data += chunk);
-process.stdin.on("end", () => process.stdout.write(String(JSON.parse(data).find(item => item.slug === "absolute-paths").port)));')
-[ "$second_port" = "$first_port" ]
+process.stdin.on("end", () => process.stdout.write(String(JSON.parse(data).find(item => item.slug === "absolute-paths").port)));' <"$apps_path")
+[ "$second_port" = "$first_port" ] || fail "own-port assignment changed after restart"
 
 printf 'M5 smoke passed: rewrites, headers, WebSocket echo, own-port rescue, and stable port %s worked at %s/\n' "$first_port" "$address"

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T22:41:04Z
+**Last updated:** 2026-08-27T22:49:25Z
 **Gate status:** green
-**Iterations completed:** 78
+**Iterations completed:** 79
 
 ## Milestone progress
 
@@ -175,6 +175,7 @@
   ```text
   M5 smoke passed: rewrites, headers, WebSocket echo, own-port rescue, and stable port 7400 worked at http://127.0.0.1:50777/
   ```
+- The first hosted M5 run [33123512219](https://github.com/tanzir71/dropserve/actions/runs/33123512219) passed the Windows gate and full PowerShell demo but exposed silent POSIX smoke assertions. Named file-based checks and a raw RFC 6455 client now make failures portable and actionable. The diagnostic restart also revealed that the executable did not translate `SIGTERM`/Ctrl+C into context cancellation, so real Unix shutdown skipped deferred command-tree cleanup. `serve` now uses a signal-aware context; its signal-set regression test failed first, then passed, as did the real Windows M5 demo and the full 39.3-second local gate.
 
 ## Decisions made this build (beyond the spec)
 

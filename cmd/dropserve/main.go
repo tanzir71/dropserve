@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
 	"github.com/tanzir71/dropserve/internal/ports"
 	"github.com/tanzir71/dropserve/internal/scanner"
@@ -31,6 +32,7 @@ Usage:
   dropserve serve      run in the foreground
   dropserve status     print the current runtime state as JSON
   dropserve doctor     check this computer's Dropserve setup
+  dropserve autostart  manage starting Dropserve when you log in
   dropserve version    print the version and build commit
   dropserve add PATH   register an app folder without moving it
   dropserve help       show this help
@@ -51,6 +53,9 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		}
 		return 0
 	}
+	if args[0] == "--background" {
+		return serveCommand(args[1:], stdout, stderr, configPath)
+	}
 
 	switch args[0] {
 	case "serve":
@@ -59,6 +64,8 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return statusCommand(args[1:], stdout, stderr)
 	case "doctor":
 		return doctorCommand(args[1:], stdout, stderr, configPath)
+	case "autostart":
+		return autostartCommand(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		if _, err := fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit); err != nil {
 			return 1
@@ -98,6 +105,65 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return 0
 	default:
 		if _, err := fmt.Fprintf(stderr, "Unknown command %q. Run 'dropserve help' to see the available commands.\n", args[0]); err != nil {
+			return 1
+		}
+		return 2
+	}
+}
+
+func autostartCommand(arguments []string, stdout, stderr io.Writer) int {
+	if len(arguments) != 1 {
+		if _, err := fmt.Fprintln(stderr, "Choose an autostart action: dropserve autostart enable|disable|status"); err != nil {
+			return 1
+		}
+		return 2
+	}
+
+	switch arguments[0] {
+	case "enable":
+		executable, err := os.Executable()
+		if err == nil {
+			err = autostart.Enable(executable)
+		}
+		if err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not enable autostart: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+		if _, err := fmt.Fprintln(stdout, "Dropserve will start when you log in."); err != nil {
+			return 1
+		}
+		return 0
+	case "disable":
+		if err := autostart.Disable(); err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not disable autostart: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+		if _, err := fmt.Fprintln(stdout, "Dropserve will not start automatically."); err != nil {
+			return 1
+		}
+		return 0
+	case "status":
+		enabled, err := autostart.Enabled()
+		if err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not read autostart status: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+		status := "disabled"
+		if enabled {
+			status = "enabled"
+		}
+		if _, err := fmt.Fprintln(stdout, status); err != nil {
+			return 1
+		}
+		return 0
+	default:
+		if _, err := fmt.Fprintln(stderr, "Choose an autostart action: dropserve autostart enable|disable|status"); err != nil {
 			return 1
 		}
 		return 2

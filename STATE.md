@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T22:57:00Z
+**Last updated:** 2026-08-27T23:06:27Z
 **Gate status:** green
-**Iterations completed:** 81
+**Iterations completed:** 82
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] Script (Windows, CI): `dropserve autostart enable` then `schtasks /Query /TN Dropserve /XML` succeeds and the XML contains `<LogonTrigger>`, `ExecutionTimeLimit` set to `PT0S`, and no `<RunLevel>HighestAvailable</RunLevel>`.
+- [x] Script (Windows, CI): `dropserve autostart enable` then `schtasks /Query /TN Dropserve /XML` succeeds and the XML contains `<LogonTrigger>`, `ExecutionTimeLimit` set to `PT0S`, and no `<RunLevel>HighestAvailable</RunLevel>`.
 - [ ] Assert: `dropserve autostart status` after an external `schtasks /Delete` reports **disabled** — proving it reads the OS, not a stored flag.
 - [ ] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
 - [ ] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
@@ -176,6 +176,16 @@
 - The first hosted M5 run [33123512219](https://github.com/tanzir71/dropserve/actions/runs/33123512219) passed the Windows gate and full PowerShell demo but exposed silent POSIX smoke assertions. Named file-based checks and a raw RFC 6455 client now make failures portable and actionable. The diagnostic restart also revealed that the executable did not translate `SIGTERM`/Ctrl+C into context cancellation, so real Unix shutdown skipped deferred command-tree cleanup. `serve` now uses a signal-aware context; its signal-set regression test failed first, then passed, as did the real Windows M5 demo and the full 39.3-second local gate.
 - Final hosted CI [run 33124023875](https://github.com/tanzir71/dropserve/actions/runs/33124023875) passed the Ubuntu and Windows gates, lint, secret scan, both platform-native M2 smokes, and both platform-native M5 smokes. The Unix demo specifically proved the real executable handles `SIGTERM`, releases its command processes and stable ports, restarts, and reclaims the persisted own port.
 - The M5 closure push launched duplicate branch and tag workflows for the same commit: the tag run [33124226268](https://github.com/tanzir71/dropserve/actions/runs/33124226268) passed every job while the simultaneous branch run [33124223818](https://github.com/tanzir71/dropserve/actions/runs/33124223818) hit the five-second Windows/npm restart-test deadline. Ten consecutive local race-enabled repetitions passed. CI now runs on branches and pull requests but not duplicate tag pushes, and the asynchronous restart acceptance window is 15 seconds—still below the supervisor's 30-second health limit—with no production timing change.
+- Hosted CI [run 33124552684](https://github.com/tanzir71/dropserve/actions/runs/33124552684) validated that reliability change with one workflow: Ubuntu and Windows gates, both native M2/M5 smokes, lint, and secret scan all passed.
+
+### M6 evidence
+
+- `TestTaskXMLUsesSafePerUserLogonSettings` failed first because no autostart implementation existed, then locked the current-user `LogonTrigger`, interactive token, least privilege, ten-second delay, three one-minute failure restarts, disabled battery restrictions, `PT0S` runtime, and `--background` action. A live first import exposed Task Scheduler's UTF-16 requirement; the task file now uses a UTF-16LE byte-order mark and declaration, with a separate encoding regression test.
+- `scripts/smoke/m6.ps1` enables the real built binary, queries `schtasks /Query /TN Dropserve /XML`, checks the required trigger/runtime/no-elevation contract plus action and retry details, confirms CLI status, and removes the task. It backs up and restores any pre-existing task. The local run left no task behind and the full race/lint/version/cross-build/shipped-file gate is green.
+
+  ```text
+  M6 Windows autostart smoke passed: Dropserve is registered for current-user logon without elevation.
+  ```
 
 ## Decisions made this build (beyond the spec)
 

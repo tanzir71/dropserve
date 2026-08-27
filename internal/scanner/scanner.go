@@ -197,6 +197,7 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		Autostart:  true,
 		HealthPath: "/",
 		PortEnv:    "PORT",
+		Status:     "ready",
 	}
 	var err error
 	if entry.IsDir() {

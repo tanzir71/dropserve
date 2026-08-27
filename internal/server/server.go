@@ -2,6 +2,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -38,8 +39,9 @@ type Server struct {
 
 // Options configures scanning and optional machine-state persistence.
 type Options struct {
-	Scanner   scanner.Options
-	IndexPath string
+	Scanner    scanner.Options
+	IndexPath  string
+	Supervisor supervisor.Options
 }
 
 // New scans the configured roots and registered apps, then mounts every app.
@@ -53,11 +55,15 @@ func NewWithOptions(options Options) (*Server, error) {
 		router:     router.New(nil),
 		options:    options,
 		events:     newEventHub(),
-		supervisor: supervisor.NewManager(),
+		supervisor: supervisor.NewManager(options.Supervisor),
 	}
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/_dropserve/api/events" {
 			server.events.serveHTTP(response, request)
+			return
+		}
+		if strings.HasPrefix(request.URL.Path, "/_dropserve/api/logs/") {
+			server.serveCommandLogs(response, request)
 			return
 		}
 		if request.URL.Path == "/" || strings.HasPrefix(request.URL.Path, "/_dropserve/") {
@@ -131,11 +137,16 @@ func (server *Server) reconcile() error {
 		return err
 	}
 	mounts := make([]router.Mount, 0, len(result.Apps))
-	for _, application := range result.Apps {
+	for applicationIndex := range result.Apps {
+		application := result.Apps[applicationIndex]
 		var applicationHandler http.Handler
 		switch application.Kind {
 		case app.KindCommand:
 			applicationHandler, err = server.supervisor.Handler(application)
+			if commandState, found := server.supervisor.Snapshot(application.Slug); found {
+				application.Status = commandState.Status
+				result.Apps[applicationIndex].Status = commandState.Status
+			}
 		default:
 			applicationHandler = staticserver.New(application)
 		}
@@ -167,6 +178,24 @@ func (server *Server) reconcile() error {
 	server.rebuilds.Add(1)
 	server.events.publish()
 	return nil
+}
+
+func (server *Server) serveCommandLogs(response http.ResponseWriter, request *http.Request) {
+	slug := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/logs/")
+	if slug == "" || strings.Contains(slug, "/") {
+		http.NotFound(response, request)
+		return
+	}
+	commandState, found := server.supervisor.Snapshot(slug)
+	if !found {
+		http.NotFound(response, request)
+		return
+	}
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.Header().Set("Cache-Control", "no-store")
+	if err := json.NewEncoder(response).Encode(commandState); err != nil {
+		http.Error(response, "Dropserve could not encode these logs.", http.StatusInternalServerError)
+	}
 }
 
 func warningMessages(warnings []scanner.Warning) []string {

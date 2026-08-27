@@ -15,10 +15,12 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
+	"github.com/tanzir71/dropserve/internal/supervisor"
 )
 
 func TestDashboardAtRoot(t *testing.T) {
@@ -535,7 +537,12 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 		t.Fatal("runtime.Caller could not locate fixtures")
 	}
 	fixtures := filepath.Clean(filepath.Join(filepath.Dir(sourceFile), "..", "..", "testdata", "fixtures"))
-	server, err := dropserver.New(scanner.Options{Roots: []string{fixtures}})
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{Roots: []string{fixtures}},
+		Supervisor: supervisor.Options{
+			RestartDelays: []time.Duration{10 * time.Millisecond},
+		},
+	})
 	if err != nil {
 		t.Fatalf("create fixture server: %v", err)
 	}
@@ -576,22 +583,24 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 		t.Fatalf("decode apps API: %v", err)
 	}
 	expected := map[string]struct {
-		name string
-		kind string
+		name   string
+		kind   string
+		status string
 	}{
-		"field-notes":   {name: "field notes", kind: "static"},
-		"invoice-desk":  {name: "invoice desk", kind: "static"},
-		"kitchen-timer": {name: "kitchen timer", kind: "static"},
-		"node":          {name: "node", kind: "command"},
-		"python":        {name: "python", kind: "command"},
-		"static":        {name: "static", kind: "static"},
+		"broken":        {name: "broken", kind: "command", status: "crashed"},
+		"field-notes":   {name: "field notes", kind: "static", status: "ready"},
+		"invoice-desk":  {name: "invoice desk", kind: "static", status: "ready"},
+		"kitchen-timer": {name: "kitchen timer", kind: "static", status: "ready"},
+		"node":          {name: "node", kind: "command", status: "ready"},
+		"python":        {name: "python", kind: "command", status: "ready"},
+		"static":        {name: "static", kind: "static", status: "ready"},
 	}
 	if len(entries) != len(expected) {
 		t.Fatalf("apps API returned %d entries, want every fixture (%d): %#v", len(entries), len(expected), entries)
 	}
 	for _, entry := range entries {
 		want, found := expected[entry.Slug]
-		if !found || entry.Name != want.name || entry.Type != want.kind || entry.Status != "ready" {
+		if !found || entry.Name != want.name || entry.Type != want.kind || entry.Status != want.status {
 			t.Fatalf("fixture metadata is incorrect: %#v", entry)
 		}
 		if entry.URLs.Path != "/"+entry.Slug+"/" {

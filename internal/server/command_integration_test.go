@@ -8,10 +8,13 @@ import (
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
+	"github.com/tanzir71/dropserve/internal/supervisor"
 )
 
 func TestNodeFixtureIsDetectedStartedHealthyAndProxied(t *testing.T) {
@@ -23,11 +26,11 @@ func TestNodeFixtureIsDetectedStartedHealthyAndProxied(t *testing.T) {
 	if _, err := exec.LookPath("npm"); err != nil {
 		t.Skip("npm is not installed; the package.json start rule requires it")
 	}
-	fixtures, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures"))
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "node"))
 	if err != nil {
 		t.Fatalf("resolve fixtures: %v", err)
 	}
-	server, err := dropserver.New(scanner.Options{Roots: []string{fixtures}})
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
 	if err != nil {
 		t.Fatalf("create command-app server: %v", err)
 	}
@@ -136,6 +139,94 @@ func TestPythonFixtureIsDetectedStartedHealthyAndProxied(t *testing.T) {
 	detection := requestDetectionReason(t, httpServer.Client(), httpServer.URL+"/_dropserve/api/apps/python")
 	if detection != "Python app from server.py" {
 		t.Fatalf("Python detection reason = %q", detection)
+	}
+}
+
+func TestImmediateFailureRestartsFiveTimesThenCrashes(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the broken package fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "broken"))
+	if err != nil {
+		t.Fatalf("resolve broken fixture: %v", err)
+	}
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{Registered: []string{fixture}},
+		Supervisor: supervisor.Options{
+			RestartDelays: []time.Duration{10 * time.Millisecond},
+		},
+	})
+	if err != nil {
+		t.Fatalf("server aborted instead of isolating crashed app: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close crashed-app server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		httpServer.URL+"/_dropserve/api/logs/broken",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create crashed-app log request: %v", err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("request crashed-app logs: %v", err)
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	var snapshot struct {
+		Status   string `json:"status"`
+		Attempts int    `json:"attempts"`
+		Logs     string `json:"logs"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode crashed-app logs: %v", err)
+	}
+	if snapshot.Status != "crashed" || snapshot.Attempts != 5 {
+		t.Fatalf("crashed state = %#v", snapshot)
+	}
+	if !strings.Contains(snapshot.Logs, "intentional fixture failure") {
+		t.Fatalf("crashed logs do not contain fixture error: %q", snapshot.Logs)
+	}
+
+	detailRequest, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		httpServer.URL+"/_dropserve/api/apps/broken",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create crashed-app detail request: %v", err)
+	}
+	detailResponse, err := httpServer.Client().Do(detailRequest)
+	if err != nil {
+		t.Fatalf("request crashed-app detail: %v", err)
+	}
+	defer func() {
+		_ = detailResponse.Body.Close()
+	}()
+	var detail struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(detailResponse.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode crashed-app detail: %v", err)
+	}
+	if detail.Status != "crashed" {
+		t.Fatalf("crashed-app detail status = %q, want crashed", detail.Status)
 	}
 }
 

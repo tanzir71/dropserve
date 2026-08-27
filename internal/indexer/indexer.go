@@ -84,6 +84,10 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 		title, heading := readHTMLMetadata(files, application)
 		size, modified := fileMetadata(files, application.Path, application.LooseFile)
 		icon, iconKind, iconColor := appIcon(files, application)
+		status := application.Status
+		if status == "" {
+			status = "ready"
+		}
 		entry := Entry{
 			Slug:        application.Slug,
 			Name:        application.Name,
@@ -92,7 +96,7 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 			Title:       title,
 			Heading:     heading,
 			Type:        string(application.Kind),
-			Status:      "ready",
+			Status:      status,
 			Detection:   detectionReason(application),
 			URLs:        URLs{Path: "/" + strings.Trim(application.Slug, "/") + "/"},
 			Icon:        icon,

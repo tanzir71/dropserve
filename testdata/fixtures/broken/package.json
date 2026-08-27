@@ -1,0 +1,7 @@
+{
+  "name": "dropserve-broken-fixture",
+  "private": true,
+  "scripts": {
+    "start": "node fail.js"
+  }
+}

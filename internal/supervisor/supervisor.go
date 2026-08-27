@@ -22,15 +22,33 @@ import (
 
 const healthDeadline = 30 * time.Second
 
+const maximumStartAttempts = 5
+
+// Options controls restart timing. Empty values use the production policy.
+type Options struct {
+	RestartDelays []time.Duration
+}
+
+// Snapshot is the observable state and bounded logs for one command app.
+type Snapshot struct {
+	Status   string `json:"status"`
+	Attempts int    `json:"attempts"`
+	Logs     string `json:"logs"`
+}
+
 // Manager preserves healthy command processes across scanner reconciliations.
 type Manager struct {
 	mu        sync.Mutex
 	processes map[string]*Process
+	options   Options
 }
 
 // NewManager creates an empty process manager.
-func NewManager() *Manager {
-	return &Manager{processes: make(map[string]*Process)}
+func NewManager(options Options) *Manager {
+	if len(options.RestartDelays) == 0 {
+		options.RestartDelays = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
+	}
+	return &Manager{processes: make(map[string]*Process), options: options}
 }
 
 // Handler returns a healthy process proxy, starting the app once when necessary.
@@ -41,12 +59,47 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	if process, found := manager.processes[key]; found {
 		return process.Handler(), nil
 	}
-	process := newProcess(application)
-	if err := process.Start(); err != nil {
-		return nil, err
+	logs := newRingBuffer(256 << 10)
+	var lastError error
+	for attempt := 1; attempt <= maximumStartAttempts; attempt++ {
+		process := newProcess(application)
+		process.logs = logs
+		process.attempts = attempt
+		err := process.Start()
+		if err == nil {
+			process.status = "ready"
+			manager.processes[key] = process
+			return process.Handler(), nil
+		}
+		lastError = err
+		if attempt < maximumStartAttempts {
+			delayIndex := attempt - 1
+			if delayIndex >= len(manager.options.RestartDelays) {
+				delayIndex = len(manager.options.RestartDelays) - 1
+			}
+			timer := time.NewTimer(manager.options.RestartDelays[delayIndex])
+			<-timer.C
+		}
 	}
-	manager.processes[key] = process
-	return process.Handler(), nil
+	crashed := newProcess(application)
+	crashed.logs = logs
+	crashed.attempts = maximumStartAttempts
+	crashed.status = "crashed"
+	crashed.proxy = crashedHandler(application, lastError)
+	manager.processes[key] = crashed
+	return crashed.Handler(), nil
+}
+
+// Snapshot returns one command app's current state and bounded logs.
+func (manager *Manager) Snapshot(slug string) (Snapshot, bool) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	for _, process := range manager.processes {
+		if process.application.Slug == slug {
+			return process.Snapshot(), true
+		}
+	}
+	return Snapshot{}, false
 }
 
 // Reconcile stops command processes that no longer appear in the scan.
@@ -97,6 +150,8 @@ type Process struct {
 	closeOnce   sync.Once
 	closeErr    error
 	control     *processControl
+	status      string
+	attempts    int
 }
 
 func newProcess(application app.App) *Process {
@@ -159,6 +214,11 @@ func (process *Process) Start() error {
 // Handler returns the healthy loopback reverse proxy.
 func (process *Process) Handler() http.Handler {
 	return process.proxy
+}
+
+// Snapshot returns this process's current state and bounded logs.
+func (process *Process) Snapshot() Snapshot {
+	return Snapshot{Status: process.status, Attempts: process.attempts, Logs: process.logs.String()}
 }
 
 // Close terminates the command and waits for it to exit.
@@ -291,6 +351,23 @@ func commandEnvironment(application app.App, port int) []string {
 		environment = append(environment, name+"="+value)
 	}
 	return environment
+}
+
+func crashedHandler(application app.App, startError error) http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.WriteHeader(http.StatusOK)
+		if request.Method == http.MethodHead {
+			return
+		}
+		_, _ = fmt.Fprintf(
+			response,
+			"<!doctype html><title>%s stopped · Dropserve</title><h1>%s stopped after five starts.</h1><p>Open its logs in Dropserve to see the error.</p><!-- %s -->",
+			application.Name,
+			application.Name,
+			startError,
+		)
+	})
 }
 
 type ringBuffer struct {

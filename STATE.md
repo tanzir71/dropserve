@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:48:23Z
+**Last updated:** 2026-08-27T20:49:29Z
 **Gate status:** green
-**Iterations completed:** 43
+**Iterations completed:** 44
 
 ## Milestone progress
 
@@ -25,7 +25,7 @@
 - [x] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
 - [x] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
 - [x] Assert: renaming an app changes the slug and the old slug 404s.
-- [ ] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
+- [x] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
 - [ ] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
 - [ ] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
 - [ ] Assert: watching a root that does not exist yet does not crash; when the directory appears, it is picked up.
@@ -101,6 +101,7 @@
 - `internal/watcher` watches each existing root plus app subdirectories to a three-level cap and 256-watch per-app budget, skips dependency/cache directories, and invokes the same full reconcile path every 30 seconds as an event-loss safety net.
 - `TestDeletedFolderIsRemovedWithinTwoSeconds` deletes a mounted app, then accepts the result only after the immutable scan snapshot is empty and the URL returns the friendly Dropserve HTML 404. The native removal path settled in about 650 ms without a panic.
 - `TestRenamedFolderChangesSlugWithinTwoSeconds` renames a real mounted folder and polls both URLs plus the immutable scan snapshot. Within about 650 ms the old slug returned 404 while the new slug served the exact original body and was the sole indexed app.
+- `TestRapidChangesAreDebounced` creates 20 app folders and indexes in a tight loop, waits for a 600 ms quiescent window, verifies all 20 published routes return 200, and rejects more than three successful snapshot rebuilds after the initial scan. The race-enabled full gate passes with the monotonic rebuild counter.
 
 ## Decisions made this build (beyond the spec)
 

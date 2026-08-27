@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -165,6 +166,69 @@ func TestRenamedFolderChangesSlugWithinTwoSeconds(t *testing.T) {
 				newBody,
 				current.Apps,
 			)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestRapidChangesAreDebounced(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create live server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close live server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	baselineRebuilds := server.RebuildCount()
+
+	for index := range 20 {
+		name := fmt.Sprintf("burst-%02d", index)
+		appRoot := filepath.Join(root, name)
+		if err := os.Mkdir(appRoot, 0o750); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+		body := fmt.Sprintf("<h1>%s</h1>", name)
+		if err := os.WriteFile(filepath.Join(appRoot, "index.html"), []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s index: %v", name, err)
+		}
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	var stableSince time.Time
+	var lastRebuilds uint64
+	for {
+		current := server.Scan()
+		rebuilds := server.RebuildCount() - baselineRebuilds
+		if len(current.Apps) == 20 {
+			if rebuilds != lastRebuilds || stableSince.IsZero() {
+				lastRebuilds = rebuilds
+				stableSince = time.Now()
+			}
+			if time.Since(stableSince) >= 600*time.Millisecond {
+				if rebuilds > 3 {
+					t.Fatalf("rapid change burst triggered %d rebuilds, want at most 3", rebuilds)
+				}
+				for _, application := range current.Apps {
+					status, _ := requestLiveApp(t, httpServer.Client(), httpServer.URL+"/"+application.Slug+"/")
+					if status != http.StatusOK {
+						t.Fatalf("settled route %s returned %d", application.Slug, status)
+					}
+				}
+				return
+			}
+		} else {
+			stableSince = time.Time{}
+			lastRebuilds = rebuilds
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("burst did not settle: apps=%d rebuilds=%d", len(current.Apps), rebuilds)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

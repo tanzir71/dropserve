@@ -28,6 +28,7 @@ type Server struct {
 	watcher     *watcher.Watcher
 	options     Options
 	reconcileMu sync.Mutex
+	rebuilds    atomic.Uint64
 }
 
 // Options configures scanning and optional machine-state persistence.
@@ -93,6 +94,11 @@ func (server *Server) Close() error {
 	return server.watcher.Close()
 }
 
+// RebuildCount returns the number of successfully published mount snapshots.
+func (server *Server) RebuildCount() uint64 {
+	return server.rebuilds.Load()
+}
+
 func (server *Server) reconcile() error {
 	server.reconcileMu.Lock()
 	defer server.reconcileMu.Unlock()
@@ -120,5 +126,6 @@ func (server *Server) reconcile() error {
 	}
 	server.router.Swap(mounts)
 	server.snapshot.Store(&snapshot{scan: result, dashboard: dashboardHandler})
+	server.rebuilds.Add(1)
 	return nil
 }

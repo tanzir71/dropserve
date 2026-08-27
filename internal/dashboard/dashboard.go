@@ -56,7 +56,10 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		response.Header().Set("Cache-Control", "public, max-age=300")
 		content = dashboard.script
 	case "/_dropserve/api/apps":
-		dashboard.serveApps(response, request)
+		dashboard.serveJSON(response, request, dashboard.apps)
+		return
+	case "/_dropserve/api/search":
+		dashboard.serveJSON(response, request, indexer.Search(dashboard.apps, request.URL.Query().Get("q")))
 		return
 	default:
 		http.NotFound(response, request)
@@ -75,8 +78,8 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	_, _ = response.Write(content)
 }
 
-func (dashboard *handler) serveApps(response http.ResponseWriter, request *http.Request) {
-	content, err := json.Marshal(dashboard.apps)
+func (dashboard *handler) serveJSON(response http.ResponseWriter, request *http.Request, value any) {
+	content, err := json.Marshal(value)
 	if err != nil {
 		http.Error(response, "Dropserve could not encode its app index.", http.StatusInternalServerError)
 		return

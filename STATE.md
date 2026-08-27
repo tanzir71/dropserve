@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:13:13Z
+**Last updated:** 2026-08-27T20:15:02Z
 **Gate status:** green
-**Iterations completed:** 24
+**Iterations completed:** 25
 
 ## Milestone progress
 
@@ -24,7 +24,7 @@
 
 - [x] `GET /` returns the dashboard HTML with a 200 and `Content-Type: text/html`.
 - [x] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
-- [ ] Search finds a fixture app by text that appears only in its `README.md`.
+- [x] Search finds a fixture app by text that appears only in its `README.md`.
 - [ ] Search finds a fixture app by text that appears only in a filename.
 - [ ] A name match ranks above a filename-only match.
 - [ ] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
@@ -74,6 +74,7 @@
 
 - `TestDashboardAtRoot`: the composed server reserves `/` for an embedded vanilla dashboard and returns 200 HTML with the focused launcher search. The responsive light/dark shell, empty/error states, cards, and keyboard controls total 13,409 bytes with no frontend build step.
 - `TestAppsAPIListsEveryFixture`: the embedded dashboard API exposes the immutable scanner snapshot; the real static fixture reports slug/name/type/status plus its path URL in stable JSON.
+- `TestSearchFindsREADMEContent`: the read-only indexer extracts the first non-heading README paragraph (capped at 200 Unicode characters), and case-insensitive substring/token-prefix search returns the owning app for a term found nowhere else.
 
 ## Decisions made this build (beyond the spec)
 

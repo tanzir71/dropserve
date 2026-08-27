@@ -169,3 +169,35 @@ func TestScannerWalksLongPaths(t *testing.T) {
 		t.Fatalf("deep-tree file count = %d, want %d", got, want)
 	}
 }
+
+func TestReservedSlugsAreRefusedWithWarnings(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	reserved := []string{"_dropserve", "api", "health", ".well-known"}
+	for _, name := range reserved {
+		if err := os.Mkdir(filepath.Join(root, name), 0o750); err != nil {
+			t.Fatalf("create reserved fixture %q: %v", name, err)
+		}
+	}
+
+	result, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("scan reserved fixtures: %v", err)
+	}
+	if len(result.Apps) != 0 {
+		t.Fatalf("reserved scan mounted %d apps, want 0: %#v", len(result.Apps), result.Apps)
+	}
+
+	warned := make(map[string]bool, len(result.Warnings))
+	for _, warning := range result.Warnings {
+		if warning.Code == "reserved_slug" {
+			warned[filepath.Base(warning.Path)] = true
+		}
+	}
+	for _, name := range reserved {
+		if !warned[name] {
+			t.Errorf("reserved name %q did not produce a reserved_slug warning", name)
+		}
+	}
+}

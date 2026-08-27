@@ -65,6 +65,14 @@ func Scan(options Options) (Result, error) {
 			return Result{}, fmt.Errorf("read Apps root %q: %w", root, err)
 		}
 		for _, entry := range entries {
+			if reservedName(entry.Name()) {
+				result.Warnings = append(result.Warnings, Warning{
+					Code:    "reserved_slug",
+					Path:    filepath.Join(root, entry.Name()),
+					Message: fmt.Sprintf("Rename %q because Dropserve reserves that address for its own features", entry.Name()),
+				})
+				continue
+			}
 			if unsafeName(entry.Name()) {
 				result.Warnings = append(result.Warnings, Warning{
 					Code:    "unsafe_name",
@@ -175,6 +183,15 @@ func Slug(name string) string {
 
 func unsafeName(name string) bool {
 	return strings.HasPrefix(name, "..")
+}
+
+func reservedName(name string) bool {
+	extension := filepath.Ext(name)
+	if strings.EqualFold(extension, ".html") || strings.EqualFold(extension, ".htm") {
+		name = strings.TrimSuffix(name, extension)
+	}
+	_, reserved := reservedSlugs[strings.ToLower(name)]
+	return reserved
 }
 
 func ignored(name string) bool {

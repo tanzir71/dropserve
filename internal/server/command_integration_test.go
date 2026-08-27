@@ -336,6 +336,43 @@ func TestShutdownLeavesNoCommandChild(t *testing.T) {
 	}
 }
 
+func TestMissingRuntimeMountsFriendlyNeedsRuntimePage(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "node"))
+	if err != nil {
+		t.Fatalf("resolve Node fixture: %v", err)
+	}
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{Registered: []string{fixture}},
+		Supervisor: supervisor.Options{
+			RestartDelays: []time.Duration{10 * time.Millisecond},
+		},
+	})
+	if err != nil {
+		t.Fatalf("mount app with missing runtime: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close missing-runtime server: %v", closeErr)
+		}
+	}()
+	current := server.Scan()
+	if len(current.Apps) != 1 || current.Apps[0].Status != "needs-runtime" {
+		t.Fatalf("missing-runtime scan = %#v", current.Apps)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	status, body := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/node/")
+	if status != http.StatusOK {
+		t.Fatalf("missing-runtime page status = %d, want 200; body=%q", status, body)
+	}
+	if !strings.Contains(body, "Node.js") || !strings.Contains(body, "install") {
+		t.Fatalf("missing-runtime page does not explain the fix: %q", body)
+	}
+}
+
 func requestCommandApp(t *testing.T, client *http.Client, target string) (int, string) {
 	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)

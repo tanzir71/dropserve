@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -60,6 +61,15 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	defer manager.mu.Unlock()
 	if process, found := manager.processes[key]; found {
 		return process.Handler(), nil
+	}
+	if len(application.Command) != 0 {
+		if _, err := exec.LookPath(application.Command[0]); err != nil {
+			missing := newProcess(application)
+			missing.status = "needs-runtime"
+			missing.proxy = needsRuntimeHandler(application)
+			manager.processes[key] = missing
+			return missing.Handler(), nil
+		}
 	}
 	logs, err := newLogSink(manager.options.LogDirectory, application.Slug)
 	if err != nil {
@@ -374,6 +384,7 @@ func commandEnvironment(application app.App, port int) []string {
 }
 
 func crashedHandler(application app.App, startError error) http.Handler {
+	name := html.EscapeString(application.Name)
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.Header().Set("Content-Type", "text/html; charset=utf-8")
 		response.WriteHeader(http.StatusOK)
@@ -383,11 +394,50 @@ func crashedHandler(application app.App, startError error) http.Handler {
 		_, _ = fmt.Fprintf(
 			response,
 			"<!doctype html><title>%s stopped · Dropserve</title><h1>%s stopped after five starts.</h1><p>Open its logs in Dropserve to see the error.</p><!-- %s -->",
-			application.Name,
-			application.Name,
+			name,
+			name,
 			startError,
 		)
 	})
+}
+
+func needsRuntimeHandler(application app.App) http.Handler {
+	name := html.EscapeString(application.Name)
+	runtimeName := html.EscapeString(runtimeDisplayName(application))
+	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.WriteHeader(http.StatusOK)
+		if request.Method == http.MethodHead {
+			return
+		}
+		_, _ = fmt.Fprintf(
+			response,
+			"<!doctype html><title>%s needs %s · Dropserve</title><h1>%s needs %s.</h1><p>To open this app, install %s and restart Dropserve.</p>",
+			name,
+			runtimeName,
+			name,
+			runtimeName,
+			runtimeName,
+		)
+	})
+}
+
+func runtimeDisplayName(application app.App) string {
+	switch strings.ToLower(application.Runtime) {
+	case "node":
+		return "Node.js"
+	case "python":
+		return "Python"
+	case "ruby":
+		return "Ruby"
+	}
+	if application.Runtime != "" {
+		return application.Runtime
+	}
+	if len(application.Command) != 0 {
+		return application.Command[0]
+	}
+	return "its runtime"
 }
 
 type ringBuffer struct {

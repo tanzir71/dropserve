@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:27:23Z
+**Last updated:** 2026-08-27T21:29:46Z
 **Gate status:** green
-**Iterations completed:** 58
+**Iterations completed:** 59
 
 ## Milestone progress
 
@@ -29,7 +29,7 @@
 - [x] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
 - [x] Assert: on Dropserve shutdown, no child processes survive.
 - [x] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
-- [ ] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
+- [x] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
 - [ ] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
 
 ### M0 completion evidence
@@ -129,6 +129,7 @@
 - Windows-only `TestProcessTreeIsKilled` runs a real `npm start` package whose Node server spawns a long-lived Node grandchild. It verifies the reported grandchild PID is live, closes Dropserve, and observes that exact PID exit in about 820 ms—well inside the mandatory five-second window. The full gate and a separate process inventory both found no surviving process-tree fixture descendants.
 - Cross-platform `TestShutdownLeavesNoCommandChild` reads the healthy Node process's real PID through its fixture endpoint, proves it is live, closes Dropserve, and observes it exit in about 810 ms within the five-second deadline. The test failed first when the endpoint did not exist, the full gate is green, the Unix test variant cross-compiles, and a separate Windows process inventory found no surviving Node fixture process.
 - `TestTenMegabyteLogBurstIsMemoryBoundedAndRotatesDisk` writes one 10 MB burst through the real concurrent log sink. It asserts the in-memory tail is exactly 256 KB, only the current file plus four backups remain, every file is at most 1 MB, and total retained disk data is at most 5 MB. Command stdout/stderr now share this sink across restart attempts; servers with persistent state place the files under the state directory's `logs/` folder. The focused test passes in about 40 ms and the full race/lint/cross-build gate is green.
+- `TestMissingRuntimeMountsFriendlyNeedsRuntimePage` empties `PATH`, registers the real Node package, and first observed the old `crashed` state. Runtime availability is now checked before launch: the app mounts immediately as `needs-runtime`, its dashboard metadata carries that state, and `/node/` returns a status-200 page that names Node.js and says to install it. No futile restart loop or 502 is exposed, and the full gate is green.
 
 ## Decisions made this build (beyond the spec)
 

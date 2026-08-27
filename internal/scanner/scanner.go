@@ -58,6 +58,17 @@ func Scan(options Options) (Result, error) {
 		if err != nil {
 			return Result{}, fmt.Errorf("resolve Apps root %q: %w", configuredRoot, err)
 		}
+		if provider := syncProvider(root); provider != "" {
+			collector.result.Warnings = append(collector.result.Warnings, Warning{
+				Code: "sync_root",
+				Path: root,
+				Message: fmt.Sprintf(
+					"Apps root %s is inside %s; use %%USERPROFILE%%\\Dropserve for the most reliable file updates",
+					root,
+					provider,
+				),
+			})
+		}
 		entries, err := os.ReadDir(root)
 		if errors.Is(err, os.ErrNotExist) {
 			collector.result.Warnings = append(collector.result.Warnings, Warning{
@@ -248,6 +259,23 @@ func ignored(name string) bool {
 	}
 	_, ignoredName := ignoredNames[strings.ToLower(name)]
 	return ignoredName
+}
+
+func syncProvider(path string) string {
+	for _, segment := range strings.Split(filepath.ToSlash(filepath.Clean(path)), "/") {
+		folded := strings.ToLower(segment)
+		switch {
+		case folded == "onedrive" || strings.HasPrefix(folded, "onedrive - "):
+			return "OneDrive"
+		case folded == "dropbox":
+			return "Dropbox"
+		case folded == "google drive":
+			return "Google Drive"
+		case folded == "icloud drive":
+			return "iCloud Drive"
+		}
+	}
+	return ""
 }
 
 func looseHTML(entry fs.DirEntry) bool {

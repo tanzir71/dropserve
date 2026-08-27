@@ -29,10 +29,21 @@ type handler struct {
 	apps       []indexer.Entry
 	started    time.Time
 	csrfToken  string
+	warnings   []string
+}
+
+// Options supplies runtime information displayed by the dashboard.
+type Options struct {
+	Warnings []string
 }
 
 // New returns the embedded dashboard handler.
 func New(applications []indexer.Entry) (http.Handler, error) {
+	return NewWithOptions(applications, Options{})
+}
+
+// NewWithOptions returns the embedded dashboard handler with runtime warnings.
+func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler, error) {
 	index, _ := assets.ReadFile("assets/index.html")
 	stylesheet, _ := assets.ReadFile("assets/app.css")
 	script, _ := assets.ReadFile("assets/app.js")
@@ -47,6 +58,7 @@ func New(applications []indexer.Entry) (http.Handler, error) {
 		apps:       append([]indexer.Entry(nil), applications...),
 		started:    time.Now(),
 		csrfToken:  hex.EncodeToString(tokenBytes),
+		warnings:   append([]string{}, options.Warnings...),
 	}, nil
 }
 
@@ -138,7 +150,7 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		Commit:        version.Commit,
 		UptimeSeconds: int64(time.Since(dashboard.started).Seconds()),
 		Ports:         ports{HTTP: requestHTTPPort(request)},
-		Warnings:      []string{},
+		Warnings:      append([]string{}, dashboard.warnings...),
 		CSRFToken:     dashboard.csrfToken,
 	}
 	dashboard.serveJSON(response, request, payload)

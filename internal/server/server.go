@@ -130,7 +130,9 @@ func (server *Server) reconcile() error {
 			return err
 		}
 	}
-	dashboardHandler, err := dashboard.New(entries)
+	dashboardHandler, err := dashboard.NewWithOptions(entries, dashboard.Options{
+		Warnings: warningMessages(result.Warnings),
+	})
 	if err != nil {
 		return err
 	}
@@ -139,4 +141,12 @@ func (server *Server) reconcile() error {
 	server.rebuilds.Add(1)
 	server.events.publish()
 	return nil
+}
+
+func warningMessages(warnings []scanner.Warning) []string {
+	messages := make([]string, 0, len(warnings))
+	for _, warning := range warnings {
+		messages = append(messages, warning.Message)
+	}
+	return messages
 }

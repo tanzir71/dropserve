@@ -28,6 +28,7 @@ const usage = `Dropserve hosts folders as local websites.
 Usage:
   dropserve serve      run in the foreground
   dropserve status     print the current runtime state as JSON
+  dropserve doctor     check this computer's Dropserve setup
   dropserve version    print the version and build commit
   dropserve add PATH   register an app folder without moving it
   dropserve help       show this help
@@ -54,6 +55,8 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return serveCommand(args[1:], stdout, stderr, configPath)
 	case "status":
 		return statusCommand(args[1:], stdout, stderr)
+	case "doctor":
+		return doctorCommand(args[1:], stdout, stderr, configPath)
 	case "version", "--version", "-v":
 		if _, err := fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit); err != nil {
 			return 1
@@ -334,6 +337,62 @@ func statusCommand(arguments []string, stdout, stderr io.Writer) int {
 	}
 	if err := json.NewEncoder(stdout).Encode(output); err != nil {
 		return 1
+	}
+	return 0
+}
+
+func doctorCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPath string) int {
+	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", injectedConfigPath, "configuration file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		if _, err := fmt.Fprintln(stderr, "The doctor command accepts flags only."); err != nil {
+			return 1
+		}
+		return 2
+	}
+	if *configPath == "" {
+		var err error
+		*configPath, err = config.DefaultPath()
+		if err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve doctor could not find its config folder: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+	}
+	configuration, err := config.Load(*configPath)
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve doctor could not read its config: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	result, err := scanner.Scan(scanner.Options{
+		Roots:      configuration.Server.AppsRoots,
+		Registered: configuration.Server.RegisteredApps,
+	})
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve doctor could not scan your app folders: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	if _, err := fmt.Fprintf(stdout, "OK config %s\n", *configPath); err != nil {
+		return 1
+	}
+	for _, warning := range result.Warnings {
+		if _, err := fmt.Fprintf(stdout, "WARN %s\n", warning.Message); err != nil {
+			return 1
+		}
+	}
+	if len(result.Warnings) == 0 {
+		if _, err := fmt.Fprintln(stdout, "OK app folders"); err != nil {
+			return 1
+		}
 	}
 	return 0
 }

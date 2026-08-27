@@ -3,6 +3,7 @@ package server_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -383,6 +384,53 @@ func TestMissingRootIsPickedUpWhenItAppears(t *testing.T) {
 			t.Fatalf("late root was not picked up: status=%d body=%q", status, gotBody)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestSyncRootWarningAppearsInDashboardStatus(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "OneDrive", "Apps")
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		t.Fatalf("create sync-backed root: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create sync-root server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close live server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		httpServer.URL+"/_dropserve/api/status",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create dashboard status request: %v", err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("request dashboard status: %v", err)
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	var status struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
+		t.Fatalf("decode dashboard status: %v", err)
+	}
+	warnings := strings.Join(status.Warnings, "\n")
+	if !strings.Contains(warnings, root) || !strings.Contains(warnings, `%USERPROFILE%\Dropserve`) {
+		t.Fatalf("dashboard warnings = %q, want root and recommended location", warnings)
 	}
 }
 

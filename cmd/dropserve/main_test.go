@@ -47,6 +47,31 @@ func TestUnknownCommandNamesTheFix(t *testing.T) {
 	}
 }
 
+func TestDoctorReportsSyncRootWarning(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "Dropbox", "Apps")
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		t.Fatalf("create sync-backed root: %v", err)
+	}
+	configuration := config.Default()
+	configuration.Server.AppsRoots = []string{root}
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := config.Save(configPath, configuration); err != nil {
+		t.Fatalf("save doctor config: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := runWithConfigPath([]string{"doctor"}, &stdout, &stderr, configPath); code != 0 {
+		t.Fatalf("doctor returned %d; stderr=%q", code, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, root) || !strings.Contains(output, `%USERPROFILE%\Dropserve`) {
+		t.Fatalf("doctor output = %q, want root and recommended location", output)
+	}
+}
+
 func TestAddRegistersPathWithoutChangingApp(t *testing.T) {
 	t.Parallel()
 

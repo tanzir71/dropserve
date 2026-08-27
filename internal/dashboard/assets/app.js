@@ -11,6 +11,7 @@ const qrDialog = document.querySelector('#qr-dialog');
 const qrImage = document.querySelector('#qr-image');
 const qrAddress = document.querySelector('#qr-address');
 const qrCopy = document.querySelector('#qr-copy');
+const warningNotice = document.querySelector('#port-warning');
 
 let apps = [];
 let visible = [];
@@ -197,17 +198,39 @@ document.addEventListener('keydown', event => {
   if (event.key === 'Escape') setSharingOpen(false);
 });
 
-fetch('/_dropserve/api/apps')
+function loadApps() {
+  return fetch('/_dropserve/api/apps')
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    })
+    .then(items => { apps = items; render(); })
+    .catch(() => {
+      grid.setAttribute('aria-busy', 'false');
+      count.textContent = 'Unavailable';
+      empty.hidden = true;
+      errorState.hidden = false;
+    });
+}
+
+loadApps();
+if ('EventSource' in window) {
+  const appEvents = new EventSource('/_dropserve/api/events');
+  appEvents.addEventListener('apps-changed', loadApps);
+}
+
+fetch('/_dropserve/api/status')
   .then(response => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
   })
-  .then(items => { apps = items; render(); })
-  .catch(() => {
-    grid.setAttribute('aria-busy', 'false');
-    count.textContent = 'Unavailable';
-    empty.hidden = true;
-    errorState.hidden = false;
+  .then(status => {
+    if (!status.warnings?.length) return;
+    warningNotice.querySelector('p').textContent = status.warnings.join(' ');
+    warningNotice.hidden = false;
+    warningNotice.querySelector('button').addEventListener('click', () => {
+      window.location.assign('/_dropserve/api/status');
+    });
   });
 
 fetch('/_dropserve/api/urls')

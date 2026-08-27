@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:23:42Z
+**Last updated:** 2026-08-27T20:24:15Z
 **Gate status:** green
-**Iterations completed:** 33
+**Iterations completed:** 34
 
 ## Milestone progress
 
@@ -93,7 +93,7 @@
 
 ## Decisions made this build (beyond the spec)
 
-- None.
+- 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
 
 ## Open questions for the human
 

@@ -123,6 +123,84 @@ func TestDropserveNamespaceCannotBeShadowed(t *testing.T) {
 	}
 }
 
+func TestDashboardReadOnlyOperationalAPIs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeDashboardFixture(t, root, "notes", "Notes", "Personal notes.")
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create operational API server: %v", err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	healthResponse := getWithContext(t, httpServer.Client(), httpServer.URL+"/_dropserve/healthz")
+	healthBody, readErr := io.ReadAll(healthResponse.Body)
+	_ = healthResponse.Body.Close()
+	if readErr != nil {
+		t.Fatalf("read health: %v", readErr)
+	}
+	if healthResponse.StatusCode != http.StatusOK || string(healthBody) != "ok\n" {
+		t.Fatalf("health response = %d %q, want 200 ok", healthResponse.StatusCode, healthBody)
+	}
+
+	statusResponse := getWithContext(t, httpServer.Client(), httpServer.URL+"/_dropserve/api/status")
+	var status struct {
+		Version       string `json:"version"`
+		UptimeSeconds int64  `json:"uptime_seconds"`
+		CSRFToken     string `json:"csrf_token"`
+		Ports         struct {
+			HTTP int `json:"http"`
+		} `json:"ports"`
+		Warnings []any `json:"warnings"`
+	}
+	decodeErr := json.NewDecoder(statusResponse.Body).Decode(&status)
+	_ = statusResponse.Body.Close()
+	if decodeErr != nil {
+		t.Fatalf("decode status: %v", decodeErr)
+	}
+	if statusResponse.StatusCode != http.StatusOK || status.Version == "" || status.UptimeSeconds < 0 || len(status.CSRFToken) < 32 || status.Ports.HTTP == 0 || status.Warnings == nil {
+		t.Fatalf("status payload is incomplete: %#v", status)
+	}
+
+	detailResponse := getWithContext(t, httpServer.Client(), httpServer.URL+"/_dropserve/api/apps/notes")
+	var detail struct {
+		Slug      string   `json:"slug"`
+		Path      string   `json:"path"`
+		Detection string   `json:"detection"`
+		Warnings  []string `json:"warnings"`
+	}
+	decodeErr = json.NewDecoder(detailResponse.Body).Decode(&detail)
+	_ = detailResponse.Body.Close()
+	if decodeErr != nil {
+		t.Fatalf("decode app detail: %v", decodeErr)
+	}
+	if detailResponse.StatusCode != http.StatusOK || detail.Slug != "notes" || detail.Path != filepath.Join(root, "notes") || detail.Detection == "" || detail.Warnings == nil {
+		t.Fatalf("app detail is incomplete: status=%d detail=%#v", detailResponse.StatusCode, detail)
+	}
+
+	missingResponse := getWithContext(t, httpServer.Client(), httpServer.URL+"/_dropserve/api/apps/missing")
+	_ = missingResponse.Body.Close()
+	if missingResponse.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing app detail returned %d, want 404", missingResponse.StatusCode)
+	}
+}
+
+func getWithContext(t *testing.T, client *http.Client, targetURL string) *http.Response {
+	t.Helper()
+
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, targetURL, nil)
+	if err != nil {
+		t.Fatalf("create request for %s: %v", targetURL, err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("fetch %s: %v", targetURL, err)
+	}
+	return response
+}
+
 func fetchAppSlugs(t *testing.T, handler http.Handler) []string {
 	t.Helper()
 

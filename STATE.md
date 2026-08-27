@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:26:26Z
+**Last updated:** 2026-08-27T20:28:38Z
 **Gate status:** green
-**Iterations completed:** 35
+**Iterations completed:** 36
 
 ## Milestone progress
 
@@ -36,7 +36,7 @@
 ### M2 deliverables audit
 
 - [x] Extract index `<title>`/first `<h1>`, byte size, mtime, favicon, and deterministic monogram metadata.
-- [ ] Complete read-only app detail, status, and health API surfaces used by the dashboard.
+- [x] Complete read-only app detail, status, and health API surfaces used by the dashboard.
 - [ ] Persist the in-memory index atomically as `index.json` for fast cold starts.
 - [ ] Wire sharing, QR, copy-link, and card action interactions into the vanilla dashboard.
 - [ ] Run the real-binary M2 smoke and a browser-rendered launcher demo before tagging.
@@ -91,6 +91,7 @@
 - `TestDashboardHandlesZeroAndTwoHundredApps`: an empty scan serializes as a real empty list that activates the designed invitation state; a generated 200-app scan returns all 200 unique cards in one unpaginated snapshot. The client filters once and maps that snapshot once per render (linear work, no nested app scan).
 - `TestDropserveNamespaceCannotBeShadowed`: an actual `_dropserve` folder is refused by the scanner, absent from the apps API, and cannot replace the dashboard root, embedded assets, or system API responses.
 - `TestBuildExtractsDashboardMetadata` and `TestBuildGeneratesDeterministicMonogram`: the read-only index captures `<title>`, first `<h1>`, total regular-file bytes, newest file mtime, direct favicon/icon URLs, and stable initials/colours; the dashboard renders image icons or monograms from that metadata.
+- `TestDashboardReadOnlyOperationalAPIs`: `healthz` returns plain `ok`; status exposes version/commit, live uptime, request listener port, a non-nil warnings list, and a cryptographically random CSRF token; per-app detail exposes the full path and detection reason while unknown slugs return 404.
 
 ## Decisions made this build (beyond the spec)
 

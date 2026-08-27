@@ -25,11 +25,13 @@ type URLs struct {
 type Entry struct {
 	Slug        string `json:"slug"`
 	Name        string `json:"name"`
+	Path        string `json:"path"`
 	Description string `json:"description"`
 	Title       string `json:"title,omitempty"`
 	Heading     string `json:"heading,omitempty"`
 	Type        string `json:"type"`
 	Status      string `json:"status"`
+	Detection   string `json:"detection"`
 	URLs        URLs   `json:"urls"`
 	Icon        string `json:"icon,omitempty"`
 	IconKind    string `json:"icon_kind"`
@@ -49,11 +51,13 @@ func Build(applications []app.App) []Entry {
 		entry := Entry{
 			Slug:        application.Slug,
 			Name:        application.Name,
+			Path:        application.Path,
 			Description: readDescription(application.Path, application.LooseFile),
 			Title:       title,
 			Heading:     heading,
 			Type:        string(application.Kind),
 			Status:      "ready",
+			Detection:   detectionReason(application),
 			URLs:        URLs{Path: "/" + strings.Trim(application.Slug, "/") + "/"},
 			Icon:        icon,
 			IconKind:    iconKind,
@@ -65,6 +69,16 @@ func Build(applications []app.App) []Entry {
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+func detectionReason(application app.App) string {
+	if application.LooseFile {
+		return "Static HTML file"
+	}
+	if application.Index != "" {
+		return "Static files with " + application.Index
+	}
+	return "Static files with directory listing"
 }
 
 // Search returns matching entries ordered by weighted field relevance.

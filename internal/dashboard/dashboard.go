@@ -2,15 +2,22 @@
 package dashboard
 
 import (
+	"crypto/rand"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
+	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
 	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/indexer"
+	"github.com/tanzir71/dropserve/internal/version"
 )
 
 //go:embed assets/*
@@ -21,19 +28,27 @@ type handler struct {
 	stylesheet []byte
 	script     []byte
 	apps       []indexer.Entry
+	started    time.Time
+	csrfToken  string
 }
 
 // New returns the embedded dashboard handler.
-func New(applications []app.App) http.Handler {
+func New(applications []app.App) (http.Handler, error) {
 	index, _ := assets.ReadFile("assets/index.html")
 	stylesheet, _ := assets.ReadFile("assets/app.css")
 	script, _ := assets.ReadFile("assets/app.js")
+	tokenBytes := make([]byte, 32)
+	if _, err := rand.Read(tokenBytes); err != nil {
+		return nil, fmt.Errorf("create dashboard security token: %w", err)
+	}
 	return &handler{
 		index:      index,
 		stylesheet: stylesheet,
 		script:     script,
 		apps:       indexer.Build(applications),
-	}
+		started:    time.Now(),
+		csrfToken:  hex.EncodeToString(tokenBytes),
+	}, nil
 }
 
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -69,7 +84,17 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	case "/_dropserve/api/qr":
 		dashboard.serveQR(response, request)
 		return
+	case "/_dropserve/api/status":
+		dashboard.serveStatus(response, request)
+		return
+	case "/_dropserve/healthz":
+		dashboard.serveHealth(response, request)
+		return
 	default:
+		if strings.HasPrefix(request.URL.Path, "/_dropserve/api/apps/") {
+			dashboard.serveAppDetail(response, request)
+			return
+		}
 		http.NotFound(response, request)
 		return
 	}
@@ -84,6 +109,73 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = response.Write(content)
+}
+
+func (dashboard *handler) serveHealth(response http.ResponseWriter, request *http.Request) {
+	content := []byte("ok\n")
+	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodHead {
+		return
+	}
+	_, _ = response.Write(content)
+}
+
+func (dashboard *handler) serveStatus(response http.ResponseWriter, request *http.Request) {
+	type ports struct {
+		HTTP int `json:"http"`
+	}
+	payload := struct {
+		Version       string   `json:"version"`
+		Commit        string   `json:"commit"`
+		UptimeSeconds int64    `json:"uptime_seconds"`
+		Ports         ports    `json:"ports"`
+		Warnings      []string `json:"warnings"`
+		CSRFToken     string   `json:"csrf_token"`
+	}{
+		Version:       version.Version,
+		Commit:        version.Commit,
+		UptimeSeconds: int64(time.Since(dashboard.started).Seconds()),
+		Ports:         ports{HTTP: requestHTTPPort(request)},
+		Warnings:      []string{},
+		CSRFToken:     dashboard.csrfToken,
+	}
+	dashboard.serveJSON(response, request, payload)
+}
+
+func requestHTTPPort(request *http.Request) int {
+	_, portText, err := net.SplitHostPort(request.Host)
+	if err == nil {
+		port, conversionErr := strconv.Atoi(portText)
+		if conversionErr == nil {
+			return port
+		}
+	}
+	if request.TLS != nil {
+		return 443
+	}
+	return 80
+}
+
+func (dashboard *handler) serveAppDetail(response http.ResponseWriter, request *http.Request) {
+	slug := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/apps/")
+	if slug == "" || strings.Contains(slug, "/") {
+		http.NotFound(response, request)
+		return
+	}
+	for _, entry := range dashboard.apps {
+		if entry.Slug == slug {
+			payload := struct {
+				indexer.Entry
+				Warnings []string `json:"warnings"`
+			}{Entry: entry, Warnings: []string{}}
+			dashboard.serveJSON(response, request, payload)
+			return
+		}
+	}
+	http.NotFound(response, request)
 }
 
 type advertisedURL struct {

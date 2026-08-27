@@ -56,6 +56,9 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./scripts/smoke/m6.ps1 -Binary ./bin/dropserve.exe
+      - name: Run the M6 Linux autostart smoke
+        if: runner.os != 'Windows'
+        run: ./scripts/smoke/m6.sh ./bin/dropserve
 
   golangci:
     name: golangci-lint

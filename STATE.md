@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:16:00Z
+**Last updated:** 2026-08-27T23:21:00Z
 **Gate status:** green
-**Iterations completed:** 85
+**Iterations completed:** 86
 
 ## Milestone progress
 
@@ -185,6 +185,8 @@
 - The first hosted lint analyzed the non-Windows build and correctly found its temporary `Disable` and `Enabled` error returns made the CLI branches constant. Unsupported platforms now model the truthful idempotent state—nothing to disable and status disabled—while `enable` remains explicit about missing support; Linux receives its real systemd implementation in the dedicated criterion.
 - Hosted CI [run 33125234271](https://github.com/tanzir71/dropserve/actions/runs/33125234271) passed the Ubuntu and Windows gates, lint, secret scan, native M2/M5 demos, and the new real Windows Scheduled Task smoke. The smoke now also deletes the task directly with `schtasks.exe` and requires `dropserve autostart status` to report `disabled`, proving status is queried from the OS rather than cached in Dropserve state.
 - Hosted CI [run 33125444890](https://github.com/tanzir71/dropserve/actions/runs/33125444890) passed the externally deleted task/status assertion on Windows alongside every gate job. The smoke now also replaces the task with two consecutive enables, then creates it fresh and completes two consecutive disables; the idempotence assertion passed immediately because the Windows implementation deliberately uses `/F` replacement and an OS presence check.
+- Hosted CI [run 33125666236](https://github.com/tanzir71/dropserve/actions/runs/33125666236) passed the double-enable/double-disable sequence on the real Windows scheduler alongside every other job.
+- `TestSystemdUnitRunsInBackgroundAndRestartsOnFailure` failed first with no unit generator, then locked a quoted `--background` action, network-online ordering, `Restart=on-failure`, a 60-second restart delay, and the default-user install target. Linux now atomically installs `~/.config/systemd/user/dropserve.service`, drives `systemctl --user`, and queries `is-enabled` for actual state. The Linux test binary cross-compiles with zero CGO, `scripts/smoke/m6.sh` passes `sh -n`, and the full local gate is green; the real `systemd-analyze verify` assertion is pending its Ubuntu run.
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.

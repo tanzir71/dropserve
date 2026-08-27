@@ -132,6 +132,45 @@ func TestSearchFindsFilename(t *testing.T) {
 	}
 }
 
+func TestSearchRanksNameAboveFilename(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeDashboardFixture(t, root, "invoice-studio", "Invoice Studio", "Create documents.")
+	writeDashboardFixture(t, root, "archive", "Archive", "Stored documents.")
+	if err := os.WriteFile(filepath.Join(root, "archive", "invoice-history.txt"), []byte("history"), 0o600); err != nil {
+		t.Fatalf("write filename match: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create ranking server: %v", err)
+	}
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"http://dropserve.test/_dropserve/api/search?q=invoice",
+		nil,
+	)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	result := response.Result()
+	defer func() {
+		_ = result.Body.Close()
+	}()
+	var entries []struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(result.Body).Decode(&entries); err != nil {
+		t.Fatalf("decode ranked search: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("ranked search returned %d entries, want 2: %#v", len(entries), entries)
+	}
+	if entries[0].Slug != "invoice-studio" || entries[1].Slug != "archive" {
+		t.Fatalf("ranked search order = %#v, want name match before filename match", entries)
+	}
+}
+
 func writeDashboardFixture(t *testing.T, root, name, title, readmeParagraph string) {
 	t.Helper()
 

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:16:13Z
+**Last updated:** 2026-08-27T20:17:02Z
 **Gate status:** green
-**Iterations completed:** 26
+**Iterations completed:** 27
 
 ## Milestone progress
 
@@ -26,7 +26,7 @@
 - [x] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
 - [x] Search finds a fixture app by text that appears only in its `README.md`.
 - [x] Search finds a fixture app by text that appears only in a filename.
-- [ ] A name match ranks above a filename-only match.
+- [x] A name match ranks above a filename-only match.
 - [ ] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
 - [ ] The QR endpoint returns a valid PNG for the requested URL.
 - [ ] Dashboard assets remain under 100 KB.
@@ -76,6 +76,7 @@
 - `TestAppsAPIListsEveryFixture`: the embedded dashboard API exposes the immutable scanner snapshot; the real static fixture reports slug/name/type/status plus its path URL in stable JSON.
 - `TestSearchFindsREADMEContent`: the read-only indexer extracts the first non-heading README paragraph (capped at 200 Unicode characters), and case-insensitive substring/token-prefix search returns the owning app for a term found nowhere else.
 - `TestSearchFindsFilename`: file names are indexed read-only to a hard cap of 5,000 files and three levels per app, with dependency/cache directories pruned; a term present only in a nested filename returns the owning app.
+- `TestSearchRanksNameAboveFilename`: the explicit 5× name, 3× description, and 1× filename weights place an app named for the query above an app matching only through a file.
 
 ## Decisions made this build (beyond the spec)
 
@@ -89,6 +90,7 @@
 
 - Build-loop process only: the minimal trailing-slash dispatch branch landed with the first router slice, so its dedicated acceptance test passed when added in the following iteration instead of failing first. The product behavior and gate match the criterion.
 - On Windows only, the gate retries the full race suite once when every package test passed but Go itself reports an `unlinkat` sharing violation for its completed temporary test executable. Real test failures are never retried. This handles transient antivirus/indexer locks without hiding product failures.
+- Build-loop process only: the ranking assertion passed immediately because the weighted scorer was introduced alongside the preceding README/filename search slices. The dedicated acceptance test and full gate now lock the required order.
 
 ## Verify on real hardware
 

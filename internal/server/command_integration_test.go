@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -370,6 +371,63 @@ func TestMissingRuntimeMountsFriendlyNeedsRuntimePage(t *testing.T) {
 	}
 	if !strings.Contains(body, "Node.js") || !strings.Contains(body, "install") {
 		t.Fatalf("missing-runtime page does not explain the fix: %q", body)
+	}
+}
+
+func TestAutostartFalseStartsOnFirstRequest(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the lazy Node fixture requires it")
+	}
+	appRoot := filepath.Join(t.TempDir(), "lazy-node")
+	if err := os.Mkdir(appRoot, 0o750); err != nil {
+		t.Fatalf("create lazy app: %v", err)
+	}
+	files := map[string]string{
+		"package.json":   `{"name":"lazy-node","private":true,"scripts":{"start":"node server.js"}}`,
+		"dropserve.json": `{"autostart":false}`,
+		"server.js": `const fs = require("node:fs");
+const http = require("node:http");
+const path = require("node:path");
+fs.writeFileSync(path.join(__dirname, "started"), String(process.pid));
+http.createServer((_request, response) => response.end("lazy fixture ready"))
+  .listen(Number(process.env.PORT), process.env.HOST);`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(appRoot, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write lazy fixture %s: %v", name, err)
+		}
+	}
+	marker := filepath.Join(appRoot, "started")
+	server, err := dropserver.New(scanner.Options{Registered: []string{appRoot}})
+	if err != nil {
+		t.Fatalf("create lazy-start server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close lazy-start server: %v", closeErr)
+		}
+	}()
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("lazy app started during scan; marker error = %v", err)
+	}
+	current := server.Scan()
+	if len(current.Apps) != 1 || current.Apps[0].Autostart || current.Apps[0].Status != "stopped" {
+		t.Fatalf("lazy app scan = %#v", current.Apps)
+	}
+
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	status, body := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/lazy-node/")
+	if status != http.StatusOK || body != "lazy fixture ready" {
+		t.Fatalf("lazy first response = %d %q", status, body)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("lazy app did not start on first request: %v", err)
 	}
 }
 

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:29:46Z
+**Last updated:** 2026-08-27T21:33:53Z
 **Gate status:** green
-**Iterations completed:** 59
+**Iterations completed:** 60
 
 ## Milestone progress
 
@@ -30,7 +30,7 @@
 - [x] Assert: on Dropserve shutdown, no child processes survive.
 - [x] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
 - [x] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
-- [ ] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
+- [x] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
 
 ### M0 completion evidence
 
@@ -130,6 +130,8 @@
 - Cross-platform `TestShutdownLeavesNoCommandChild` reads the healthy Node process's real PID through its fixture endpoint, proves it is live, closes Dropserve, and observes it exit in about 810 ms within the five-second deadline. The test failed first when the endpoint did not exist, the full gate is green, the Unix test variant cross-compiles, and a separate Windows process inventory found no surviving Node fixture process.
 - `TestTenMegabyteLogBurstIsMemoryBoundedAndRotatesDisk` writes one 10 MB burst through the real concurrent log sink. It asserts the in-memory tail is exactly 256 KB, only the current file plus four backups remain, every file is at most 1 MB, and total retained disk data is at most 5 MB. Command stdout/stderr now share this sink across restart attempts; servers with persistent state place the files under the state directory's `logs/` folder. The focused test passes in about 40 ms and the full race/lint/cross-build gate is green.
 - `TestMissingRuntimeMountsFriendlyNeedsRuntimePage` empties `PATH`, registers the real Node package, and first observed the old `crashed` state. Runtime availability is now checked before launch: the app mounts immediately as `needs-runtime`, its dashboard metadata carries that state, and `/node/` returns a status-200 page that names Node.js and says to install it. No futile restart loop or 502 is exposed, and the full gate is green.
+- `TestAutostartFalseStartsOnFirstRequest` creates a temporary Node package with `dropserve.json` setting `autostart: false` and a process-written marker. The failing run proved scanning launched it immediately; manifest autostart is now honored, scan reports `stopped` with no marker, and the first request performs the single serialized cold start, health-checks, returns the exact fixture body, and creates the marker in about 780 ms.
+- The first full gate after lazy start caught an existing atomic-removal edge: an in-flight request could retain the deleted app's old static handler and receive Go's plain 404 after the new empty scan published. All static misses now use Dropserve's friendly designed 404; the exact race test passed 10 consecutive `-race` runs and the full gate is green.
 
 ## Decisions made this build (beyond the spec)
 

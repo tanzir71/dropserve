@@ -54,7 +54,7 @@ func NewManager(options Options) *Manager {
 	return &Manager{processes: make(map[string]*Process), options: options}
 }
 
-// Handler returns a healthy process proxy, starting the app once when necessary.
+// Handler returns a process proxy, preserving lazy apps in a stopped state until requested.
 func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	key := filepath.Clean(application.Path)
 	manager.mu.Lock()
@@ -62,6 +62,19 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	if process, found := manager.processes[key]; found {
 		return process.Handler(), nil
 	}
+	if !application.Autostart {
+		stopped := newProcess(application)
+		stopped.status = "stopped"
+		lazy := &lazyHandler{manager: manager, application: application, placeholder: stopped}
+		stopped.proxy = lazy
+		manager.processes[key] = stopped
+		return stopped.Handler(), nil
+	}
+	return manager.startLocked(application)
+}
+
+func (manager *Manager) startLocked(application app.App) (http.Handler, error) {
+	key := filepath.Clean(application.Path)
 	if len(application.Command) != 0 {
 		if _, err := exec.LookPath(application.Command[0]); err != nil {
 			missing := newProcess(application)
@@ -107,6 +120,36 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	crashed.proxy = crashedHandler(application, lastError)
 	manager.processes[key] = crashed
 	return crashed.Handler(), nil
+}
+
+func (manager *Manager) startLazy(application app.App, placeholder *Process) (http.Handler, error) {
+	key := filepath.Clean(application.Path)
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if current, found := manager.processes[key]; found && current != placeholder {
+		return current.Handler(), nil
+	}
+	delete(manager.processes, key)
+	handler, err := manager.startLocked(application)
+	if err != nil {
+		manager.processes[key] = placeholder
+	}
+	return handler, err
+}
+
+type lazyHandler struct {
+	manager     *Manager
+	application app.App
+	placeholder *Process
+}
+
+func (handler *lazyHandler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	proxy, err := handler.manager.startLazy(handler.application, handler.placeholder)
+	if err != nil {
+		http.Error(response, "Dropserve could not start this app: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	proxy.ServeHTTP(response, request)
 }
 
 // Snapshot returns one command app's current state and bounded logs.

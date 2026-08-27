@@ -13,13 +13,22 @@
       <span class="brand-mark" aria-hidden="true">D</span>
       <span><strong>Dropserve</strong><small>Yours, from this computer.</small></span>
     </a>
-    <button class="sharing-button" type="button" aria-label="Open sharing options">
+    <button id="sharing-toggle" class="sharing-button" type="button" aria-label="Open sharing options" aria-controls="sharing-panel" aria-expanded="false">
       <span class="online-dot" aria-hidden="true"></span>
       This device
     </button>
   </header>
 
   <main>
+    <aside id="sharing-panel" class="sharing-panel" aria-labelledby="sharing-title" hidden>
+      <div class="panel-heading">
+        <div><p class="eyebrow">Reach this computer</p><h2 id="sharing-title">Sharing</h2></div>
+        <button id="sharing-close" class="icon-button" type="button" aria-label="Close sharing panel">×</button>
+      </div>
+      <p class="panel-copy">Use one of these verified addresses on a device connected to the same network.</p>
+      <div id="sharing-urls" class="sharing-urls" aria-live="polite">Checking addresses…</div>
+    </aside>
+
     <section class="hero" aria-labelledby="page-title">
       <p class="eyebrow">Your local launchpad</p>
       <h1 id="page-title">What do you want to open?</h1>
@@ -59,6 +68,17 @@
       </div>
     </section>
   </main>
+
+  <dialog id="qr-dialog" class="qr-dialog" aria-labelledby="qr-title">
+    <form method="dialog">
+      <button class="icon-button dialog-close" value="close" aria-label="Close QR code">×</button>
+      <p class="eyebrow">Scan to open</p>
+      <h2 id="qr-title">Open this address</h2>
+      <img id="qr-image" alt="QR code">
+      <p id="qr-address" class="qr-address"></p>
+      <button id="qr-copy" class="primary-button" type="button">Copy link</button>
+    </form>
+  </dialog>
 
   <footer>
     <span><span class="online-dot" aria-hidden="true"></span> Dropserve is running</span>

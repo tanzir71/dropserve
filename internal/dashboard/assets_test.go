@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 )
 
@@ -32,4 +33,38 @@ func TestEmbeddedAssetsStayUnderBudget(t *testing.T) {
 		t.Fatalf("embedded dashboard assets total %d bytes, must stay below %d", total, maximumBytes)
 	}
 	t.Logf("dashboard asset total: %d/%d bytes", total, maximumBytes)
+}
+
+func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
+	t.Parallel()
+
+	index, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatalf("read embedded dashboard HTML: %v", err)
+	}
+	script, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read embedded dashboard JavaScript: %v", err)
+	}
+	for _, marker := range []string{
+		`id="sharing-toggle"`,
+		`id="sharing-panel"`,
+		`id="qr-dialog"`,
+		`aria-controls="sharing-panel"`,
+	} {
+		if !strings.Contains(string(index), marker) {
+			t.Fatalf("dashboard HTML does not contain interaction marker %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		"/_dropserve/api/urls",
+		"/_dropserve/api/qr?url=",
+		"navigator.clipboard",
+		"showModal",
+		"data-action",
+	} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("dashboard JavaScript does not contain interaction marker %q", marker)
+		}
+	}
 }

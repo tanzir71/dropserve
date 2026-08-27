@@ -3,10 +3,19 @@ const grid = document.querySelector('#app-grid');
 const empty = document.querySelector('#empty-state');
 const errorState = document.querySelector('#error-state');
 const count = document.querySelector('#app-count');
+const sharingToggle = document.querySelector('#sharing-toggle');
+const sharingPanel = document.querySelector('#sharing-panel');
+const sharingClose = document.querySelector('#sharing-close');
+const sharingURLs = document.querySelector('#sharing-urls');
+const qrDialog = document.querySelector('#qr-dialog');
+const qrImage = document.querySelector('#qr-image');
+const qrAddress = document.querySelector('#qr-address');
+const qrCopy = document.querySelector('#qr-copy');
 
 let apps = [];
 let visible = [];
 let selected = 0;
+let currentQRURL = '';
 
 const palette = ['#156b50', '#3d5d9a', '#9a5b3d', '#77519d', '#a06d18', '#327b82'];
 
@@ -20,12 +29,51 @@ function colour(slug) {
   return palette[Math.abs(hash) % palette.length];
 }
 
+async function copyText(value, button) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch {
+    const helper = document.createElement('textarea');
+    helper.value = value;
+    helper.setAttribute('readonly', '');
+    helper.style.position = 'fixed';
+    helper.style.opacity = '0';
+    document.body.append(helper);
+    helper.select();
+    document.execCommand('copy');
+    helper.remove();
+  }
+  if (button) {
+    const original = button.textContent;
+    button.textContent = 'Copied';
+    window.setTimeout(() => { button.textContent = original; }, 1200);
+  }
+}
+
+function showQR(targetURL, label = 'Open this address') {
+  currentQRURL = new URL(targetURL, window.location.href).href;
+  qrImage.src = `/_dropserve/api/qr?url=${encodeURIComponent(currentQRURL)}`;
+  qrAddress.textContent = currentQRURL;
+  document.querySelector('#qr-title').textContent = label;
+  if (typeof qrDialog.showModal === 'function') qrDialog.showModal();
+  else qrDialog.setAttribute('open', '');
+}
+
+function actionButton(label, action) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.dataset.action = action;
+  return button;
+}
+
 function appCard(item, index) {
   const article = document.createElement('article');
   article.className = 'app-card';
   article.dataset.selected = String(index === selected);
+  const targetURL = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
   const link = document.createElement('a');
-  link.href = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
+  link.href = targetURL;
   link.dataset.appLink = '';
 
   const icon = document.createElement('div');
@@ -42,19 +90,48 @@ function appCard(item, index) {
   const name = document.createElement('h3');
   name.textContent = item.name || item.slug;
   const description = document.createElement('p');
-  description.textContent = item.description || 'Ready to open on this device.';
+  description.textContent = item.description || item.heading || 'Ready to open on this device.';
   const meta = document.createElement('div');
   meta.className = 'card-meta';
   meta.innerHTML = '<span class="online-dot"></span>';
   meta.append(document.createTextNode(item.type || 'static'));
   link.append(icon, name, description, meta);
-  article.append(link);
+
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'card-actions-toggle';
+  toggle.textContent = '⋯';
+  toggle.setAttribute('aria-label', `Actions for ${item.name || item.slug}`);
+  toggle.setAttribute('aria-expanded', 'false');
+  const menu = document.createElement('div');
+  menu.className = 'card-actions';
+  menu.hidden = true;
+  menu.append(actionButton('Open', 'open'), actionButton('Copy link', 'copy'), actionButton('Show QR', 'qr'));
+  toggle.addEventListener('click', event => {
+    event.stopPropagation();
+    const opening = menu.hidden;
+    document.querySelectorAll('.card-actions').forEach(other => { other.hidden = true; });
+    document.querySelectorAll('.card-actions-toggle').forEach(other => { other.setAttribute('aria-expanded', 'false'); });
+    menu.hidden = !opening;
+    toggle.setAttribute('aria-expanded', String(opening));
+  });
+  menu.addEventListener('click', event => {
+    const button = event.target.closest('[data-action]');
+    if (!button) return;
+    const absoluteURL = new URL(targetURL, window.location.href).href;
+    if (button.dataset.action === 'open') window.location.assign(absoluteURL);
+    if (button.dataset.action === 'copy') copyText(absoluteURL, button);
+    if (button.dataset.action === 'qr') showQR(absoluteURL, item.name || item.slug);
+    menu.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+  });
+  article.append(link, toggle, menu);
   return article;
 }
 
 function render() {
   const query = search.value.trim().toLowerCase();
-  visible = apps.filter(item => !query || [item.name, item.description, item.slug].some(value => value?.toLowerCase().includes(query)));
+  visible = apps.filter(item => !query || [item.name, item.description, item.title, item.heading, item.slug].some(value => value?.toLowerCase().includes(query)));
   selected = Math.max(0, Math.min(selected, visible.length - 1));
   grid.replaceChildren(...visible.map(appCard));
   grid.setAttribute('aria-busy', 'false');
@@ -62,6 +139,38 @@ function render() {
   errorState.hidden = true;
   count.textContent = apps.length === 1 ? '1 app' : `${apps.length} apps`;
 }
+
+function sharingRow(item) {
+  const row = document.createElement('div');
+  row.className = 'sharing-row';
+  const link = document.createElement('a');
+  link.href = item.url;
+  link.textContent = item.url;
+  const copy = actionButton('Copy', 'copy');
+  const qr = actionButton('QR', 'qr');
+  copy.className = 'mini-button';
+  qr.className = 'mini-button';
+  copy.addEventListener('click', () => copyText(item.url, copy));
+  qr.addEventListener('click', () => showQR(item.url, 'Open Dropserve'));
+  row.append(link, copy, qr);
+  return row;
+}
+
+function setSharingOpen(open) {
+  sharingPanel.hidden = !open;
+  sharingToggle.setAttribute('aria-expanded', String(open));
+  if (open) sharingClose.focus();
+}
+
+sharingToggle.addEventListener('click', () => setSharingOpen(sharingPanel.hidden));
+sharingClose.addEventListener('click', () => setSharingOpen(false));
+qrCopy.addEventListener('click', () => copyText(currentQRURL, qrCopy));
+document.addEventListener('click', event => {
+  if (!event.target.closest('.app-card')) {
+    document.querySelectorAll('.card-actions').forEach(menu => { menu.hidden = true; });
+    document.querySelectorAll('.card-actions-toggle').forEach(button => { button.setAttribute('aria-expanded', 'false'); });
+  }
+});
 
 search.addEventListener('input', () => { selected = 0; render(); });
 search.addEventListener('keydown', event => {
@@ -74,7 +183,7 @@ search.addEventListener('keydown', event => {
   }
   if (event.key === 'Enter') {
     event.preventDefault();
-    const link = grid.children[selected]?.querySelector('a');
+    const link = grid.children[selected]?.querySelector('[data-app-link]');
     if (event.ctrlKey || event.metaKey) window.open(link?.href, '_blank', 'noopener');
     else link?.click();
   }
@@ -85,6 +194,7 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     search.focus();
   }
+  if (event.key === 'Escape') setSharingOpen(false);
 });
 
 fetch('/_dropserve/api/apps')
@@ -99,3 +209,11 @@ fetch('/_dropserve/api/apps')
     empty.hidden = true;
     errorState.hidden = false;
   });
+
+fetch('/_dropserve/api/urls')
+  .then(response => {
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  })
+  .then(items => sharingURLs.replaceChildren(...items.map(sharingRow)))
+  .catch(() => { sharingURLs.textContent = 'No verified address is available yet.'; });

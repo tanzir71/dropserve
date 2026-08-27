@@ -3,7 +3,12 @@ package dashboard
 
 import (
 	"embed"
+	"encoding/json"
 	"net/http"
+	"strconv"
+
+	"github.com/tanzir71/dropserve/internal/app"
+	"github.com/tanzir71/dropserve/internal/indexer"
 )
 
 //go:embed assets/*
@@ -13,14 +18,20 @@ type handler struct {
 	index      []byte
 	stylesheet []byte
 	script     []byte
+	apps       []indexer.Entry
 }
 
 // New returns the embedded dashboard handler.
-func New() http.Handler {
+func New(applications []app.App) http.Handler {
 	index, _ := assets.ReadFile("assets/index.html")
 	stylesheet, _ := assets.ReadFile("assets/app.css")
 	script, _ := assets.ReadFile("assets/app.js")
-	return &handler{index: index, stylesheet: stylesheet, script: script}
+	return &handler{
+		index:      index,
+		stylesheet: stylesheet,
+		script:     script,
+		apps:       indexer.Build(applications),
+	}
 }
 
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
@@ -44,6 +55,9 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		response.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		response.Header().Set("Cache-Control", "public, max-age=300")
 		content = dashboard.script
+	case "/_dropserve/api/apps":
+		dashboard.serveApps(response, request)
+		return
 	default:
 		http.NotFound(response, request)
 		return
@@ -53,7 +67,7 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		"Content-Security-Policy",
 		"default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'",
 	)
-	response.Header().Set("Content-Length", contentLength(content))
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
 	response.WriteHeader(http.StatusOK)
 	if request.Method == http.MethodHead {
 		return
@@ -61,19 +75,18 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	_, _ = response.Write(content)
 }
 
-func contentLength(content []byte) string {
-	const digits = "0123456789"
-	if len(content) == 0 {
-		return "0"
+func (dashboard *handler) serveApps(response http.ResponseWriter, request *http.Request) {
+	content, err := json.Marshal(dashboard.apps)
+	if err != nil {
+		http.Error(response, "Dropserve could not encode its app index.", http.StatusInternalServerError)
+		return
 	}
-	value := len(content)
-	buffer := make([]byte, 0, 20)
-	for value > 0 {
-		buffer = append(buffer, digits[value%10])
-		value /= 10
+	response.Header().Set("Content-Type", "application/json; charset=utf-8")
+	response.Header().Set("Cache-Control", "no-store")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodHead {
+		return
 	}
-	for left, right := 0, len(buffer)-1; left < right; left, right = left+1, right-1 {
-		buffer[left], buffer[right] = buffer[right], buffer[left]
-	}
-	return string(buffer)
+	_, _ = response.Write(content)
 }

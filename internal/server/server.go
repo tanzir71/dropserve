@@ -32,7 +32,7 @@ func New(options scanner.Options) (*Server, error) {
 		})
 	}
 	appRouter := router.New(mounts)
-	dashboardHandler := dashboard.New()
+	dashboardHandler := dashboard.New(result.Apps)
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/" || strings.HasPrefix(request.URL.Path, "/_dropserve/") {
 			dashboardHandler.ServeHTTP(response, request)

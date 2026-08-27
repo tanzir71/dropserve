@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:12:57Z
+**Last updated:** 2026-08-27T20:13:13Z
 **Gate status:** green
-**Iterations completed:** 23
+**Iterations completed:** 24
 
 ## Milestone progress
 
@@ -23,7 +23,7 @@
 ## Current milestone criteria
 
 - [x] `GET /` returns the dashboard HTML with a 200 and `Content-Type: text/html`.
-- [ ] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
+- [x] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
 - [ ] Search finds a fixture app by text that appears only in its `README.md`.
 - [ ] Search finds a fixture app by text that appears only in a filename.
 - [ ] A name match ranks above a filename-only match.
@@ -68,10 +68,12 @@
 - Shipped binary: `dropserve 0.0.0-dev (8263b2a)`.
 - Final `scripts/smoke/m1.ps1`: `http://127.0.0.1:54826/static/` returned 200 with the fixture heading.
 - Hosted Windows CI revealed that its image reserves port 80 with `WSAEACCES` before the test can own it. The acceptance test now treats that failed real bind as proof the port is unavailable, while still using its own listener wherever Windows permits; local Windows continues to exercise owned listeners on both 80 and 8080.
+- Corrected hosted CI [run 33076229938](https://github.com/tanzir71/dropserve/actions/runs/33076229938): Ubuntu gate, Windows gate, golangci-lint, and secret scan all passed for the commit referenced by `m1-complete`.
 
 ### M2 evidence
 
 - `TestDashboardAtRoot`: the composed server reserves `/` for an embedded vanilla dashboard and returns 200 HTML with the focused launcher search. The responsive light/dark shell, empty/error states, cards, and keyboard controls total 13,409 bytes with no frontend build step.
+- `TestAppsAPIListsEveryFixture`: the embedded dashboard API exposes the immutable scanner snapshot; the real static fixture reports slug/name/type/status plus its path URL in stable JSON.
 
 ## Decisions made this build (beyond the spec)
 

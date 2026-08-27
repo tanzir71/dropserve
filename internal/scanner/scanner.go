@@ -59,6 +59,14 @@ func Scan(options Options) (Result, error) {
 			return Result{}, fmt.Errorf("resolve Apps root %q: %w", configuredRoot, err)
 		}
 		entries, err := os.ReadDir(root)
+		if errors.Is(err, os.ErrNotExist) {
+			collector.result.Warnings = append(collector.result.Warnings, Warning{
+				Code:    "root_missing",
+				Path:    root,
+				Message: fmt.Sprintf("Create the Apps root at %s and Dropserve will pick it up automatically", root),
+			})
+			continue
+		}
 		if err != nil {
 			return Result{}, fmt.Errorf("read Apps root %q: %w", root, err)
 		}

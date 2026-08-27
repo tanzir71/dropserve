@@ -347,6 +347,45 @@ func TestSSEStreamSurvivesThreeAppChanges(t *testing.T) {
 	}
 }
 
+func TestMissingRootIsPickedUpWhenItAppears(t *testing.T) {
+	t.Parallel()
+
+	parent := t.TempDir()
+	root := filepath.Join(parent, "Apps")
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create server with missing root: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close live server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	appRoot := filepath.Join(root, "late-arrival")
+	if err := os.MkdirAll(appRoot, 0o750); err != nil {
+		t.Fatalf("create late Apps root: %v", err)
+	}
+	const body = "<h1>Late arrival</h1>"
+	if err := os.WriteFile(filepath.Join(appRoot, "index.html"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write late app index: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status, gotBody := requestLiveApp(t, httpServer.Client(), httpServer.URL+"/late-arrival/")
+		if status == http.StatusOK && gotBody == body {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("late root was not picked up: status=%d body=%q", status, gotBody)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func requestLiveApp(t *testing.T, client *http.Client, target string) (int, string) {
 	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)

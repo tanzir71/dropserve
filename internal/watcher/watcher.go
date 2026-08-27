@@ -177,6 +177,15 @@ func (watcher *Watcher) refreshWatches() error {
 	for _, root := range watcher.roots {
 		info, err := os.Stat(root)
 		if errors.Is(err, os.ErrNotExist) {
+			ancestor, ancestorErr := nearestExistingDirectory(root)
+			if ancestorErr != nil {
+				return ancestorErr
+			}
+			if ancestor != "" {
+				if err := watcher.add(ancestor); err != nil {
+					return err
+				}
+			}
 			continue
 		}
 		if err != nil {
@@ -256,4 +265,24 @@ func ignoredDirectory(name string) bool {
 	}
 	_, ignored := ignoredDirectories[strings.ToLower(name)]
 	return ignored
+}
+
+func nearestExistingDirectory(path string) (string, error) {
+	candidate := filepath.Dir(filepath.Clean(path))
+	for {
+		info, err := os.Stat(candidate)
+		switch {
+		case err == nil && info.IsDir():
+			return candidate, nil
+		case err == nil:
+			return "", nil
+		case !errors.Is(err, os.ErrNotExist):
+			return "", err
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			return "", nil
+		}
+		candidate = parent
+	}
 }

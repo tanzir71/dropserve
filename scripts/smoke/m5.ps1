@@ -66,7 +66,7 @@ function Get-Text {
 
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if ($Binary -eq "") {
-    $Binary = Join-Path $repositoryRoot "bin\dropserve.exe"
+    $Binary = Join-Path $repositoryRoot "bin\dropserve-cli.exe"
 }
 $binaryPath = (Resolve-Path -LiteralPath $Binary).Path
 $fixturesRoot = (Resolve-Path -LiteralPath (Join-Path $repositoryRoot "testdata\fixtures")).Path

@@ -55,6 +55,12 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return 0
 	}
 	if args[0] == "--background" {
+		if err := writeBackgroundConsoleProbe(); err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not write its background console probe: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
 		return serveCommand(args[1:], stdout, stderr, configPath)
 	}
 
@@ -124,7 +130,7 @@ func autostartCommand(arguments []string, stdout, stderr io.Writer) int {
 	case "enable":
 		executable, err := os.Executable()
 		if err == nil {
-			err = autostart.Enable(executable)
+			err = autostart.Enable(backgroundExecutable(executable))
 		}
 		if err != nil {
 			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not enable autostart: %v\n", err); writeErr != nil {

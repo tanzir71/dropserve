@@ -1,5 +1,6 @@
 param(
-    [string]$Binary = ""
+    [string]$Binary = "",
+    [string]$BackgroundBinary = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,9 +19,13 @@ function Invoke-Autostart {
 
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if ($Binary -eq "") {
-    $Binary = Join-Path $repositoryRoot "bin\dropserve.exe"
+    $Binary = Join-Path $repositoryRoot "bin\dropserve-cli.exe"
+}
+if ($BackgroundBinary -eq "") {
+    $BackgroundBinary = Join-Path $repositoryRoot "bin\dropserve.exe"
 }
 $script:binaryPath = (Resolve-Path -LiteralPath $Binary).Path
+$backgroundBinaryPath = (Resolve-Path -LiteralPath $BackgroundBinary).Path
 $backupPath = Join-Path ([System.IO.Path]::GetTempPath()) ("dropserve-task-backup-" + [Guid]::NewGuid().ToString("N") + ".xml")
 $existingTask = @(& schtasks.exe /Query /TN Dropserve /XML 2>$null)
 $hadExistingTask = $LASTEXITCODE -eq 0
@@ -58,8 +63,8 @@ try {
     if ($taskXML.Contains("HighestAvailable")) {
         throw "Scheduled Task XML requests elevated privileges"
     }
-    if (-not $taskXML.Contains("<Command>$script:binaryPath</Command>")) {
-        throw "Scheduled Task action does not use $script:binaryPath"
+    if (-not $taskXML.Contains("<Command>$backgroundBinaryPath</Command>")) {
+        throw "Scheduled Task action does not use the GUI binary $backgroundBinaryPath"
     }
     $status = Invoke-Autostart -Action "status"
     if ($status.Trim() -ne "enabled") {

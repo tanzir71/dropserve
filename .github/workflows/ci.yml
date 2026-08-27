@@ -44,18 +44,22 @@ jobs:
         shell: pwsh
         run: |
           make build
-          ./scripts/smoke/m2.ps1 -Binary ./bin/dropserve.exe
+          ./scripts/smoke/m2.ps1 -Binary ./bin/dropserve-cli.exe
       - name: Run the M5 smoke (Unix)
         if: runner.os != 'Windows'
         run: ./scripts/smoke/m5.sh ./bin/dropserve
       - name: Run the M5 smoke (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/smoke/m5.ps1 -Binary ./bin/dropserve.exe
+        run: ./scripts/smoke/m5.ps1 -Binary ./bin/dropserve-cli.exe
       - name: Run the M6 Windows autostart smoke
         if: runner.os == 'Windows'
         shell: pwsh
-        run: ./scripts/smoke/m6.ps1 -Binary ./bin/dropserve.exe
+        run: ./scripts/smoke/m6.ps1 -Binary ./bin/dropserve-cli.exe -BackgroundBinary ./bin/dropserve.exe
+      - name: Run the M6 Windows background smoke
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/smoke/m6-background.ps1 -Binary ./bin/dropserve.exe
       - name: Run the M6 Linux autostart smoke
         if: runner.os != 'Windows'
         run: ./scripts/smoke/m6.sh ./bin/dropserve

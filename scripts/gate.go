@@ -164,14 +164,36 @@ func build(outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0o750); err != nil {
 		return err
 	}
-	name := "dropserve"
-	if runtime.GOOS == "windows" {
-		name += ".exe"
-	}
 	version := envOr("VERSION", "0.0.0-dev")
 	commit := envOr("COMMIT", gitCommit())
-	ldflags := linkFlags(version, commit)
-	return runGo("build", "-trimpath", "-ldflags", ldflags, "-o", filepath.Join(outputDir, name), "./cmd/dropserve")
+	for _, spec := range buildSpecs(runtime.GOOS) {
+		ldflags := strings.TrimSpace(linkFlags(version, commit) + " " + spec.extraLinkFlags)
+		if err := runGo(
+			"build",
+			"-trimpath",
+			"-ldflags", ldflags,
+			"-o", filepath.Join(outputDir, spec.name),
+			"./cmd/dropserve",
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type buildSpec struct {
+	name           string
+	extraLinkFlags string
+}
+
+func buildSpecs(goos string) []buildSpec {
+	if goos == "windows" {
+		return []buildSpec{
+			{name: "dropserve.exe", extraLinkFlags: "-H=windowsgui"},
+			{name: "dropserve-cli.exe"},
+		}
+	}
+	return []buildSpec{{name: "dropserve"}}
 }
 
 func testVersionInjection() error {

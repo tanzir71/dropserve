@@ -65,7 +65,7 @@ func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
 		"navigator.clipboard",
 		"showModal",
 		"data-action",
-		"item.prefers_own_port && item.urls?.own",
+		"item.prefers_own_port && ownURL",
 	} {
 		if !strings.Contains(string(script), marker) {
 			t.Fatalf("dashboard JavaScript does not contain interaction marker %q", marker)
@@ -102,5 +102,32 @@ func TestDashboardCommandLogSurfaceIsWired(t *testing.T) {
 		if !strings.Contains(string(styles), marker) {
 			t.Fatalf("dashboard CSS does not contain log marker %q", marker)
 		}
+	}
+}
+
+func TestDashboardOwnPortRescueSurfaceIsWired(t *testing.T) {
+	t.Parallel()
+
+	script, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read embedded dashboard JavaScript: %v", err)
+	}
+	styles, err := assets.ReadFile("assets/app.css")
+	if err != nil {
+		t.Fatalf("read embedded dashboard CSS: %v", err)
+	}
+	for _, marker := range []string{
+		"This app expects to live at the root",
+		"Open on its own port",
+		"Use the short URL anyway",
+		"open-own",
+		"open-path",
+	} {
+		if !strings.Contains(string(script), marker) {
+			t.Errorf("dashboard JavaScript does not contain own-port marker %q", marker)
+		}
+	}
+	if !strings.Contains(string(styles), ".own-port-note") {
+		t.Error("dashboard CSS does not style the own-port explanation")
 	}
 }

@@ -116,9 +116,9 @@ function appCard(item, index) {
   article.className = 'app-card';
   article.dataset.selected = String(index === selected);
   article.dataset.status = item.status || 'ready';
-  const targetURL = item.prefers_own_port && item.urls?.own
-    ? item.urls.own
-    : (item.urls?.path || `/${encodeURIComponent(item.slug)}/`);
+  const pathURL = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
+  const ownURL = item.urls?.own || '';
+  const targetURL = item.prefers_own_port && ownURL ? ownURL : pathURL;
   const link = document.createElement('a');
   link.href = targetURL;
   link.dataset.appLink = '';
@@ -146,6 +146,12 @@ function appCard(item, index) {
   meta.innerHTML = '<span class="online-dot"></span>';
   meta.append(document.createTextNode(`${item.type || 'static'} · ${item.status || 'ready'}`));
   link.append(icon, name, description);
+  if (item.prefers_own_port && ownURL) {
+    const rescue = document.createElement('p');
+    rescue.className = 'own-port-note';
+    rescue.textContent = 'This app expects to live at the root, so Dropserve is serving it on its own port.';
+    link.append(rescue);
+  }
   if (item.status === 'crashed') {
     const preview = document.createElement('pre');
     preview.className = 'crash-preview';
@@ -166,7 +172,11 @@ function appCard(item, index) {
   const menu = document.createElement('div');
   menu.className = 'card-actions';
   menu.hidden = true;
-  menu.append(actionButton('Open', 'open'), actionButton('Copy link', 'copy'), actionButton('Show QR', 'qr'));
+  const openLabel = item.prefers_own_port && ownURL ? 'Open on its own port' : 'Open';
+  menu.append(actionButton(openLabel, 'open'));
+  if (ownURL && !item.prefers_own_port) menu.append(actionButton('Open on its own port', 'open-own'));
+  if (item.prefers_own_port && ownURL) menu.append(actionButton('Use the short URL anyway', 'open-path'));
+  menu.append(actionButton('Copy link', 'copy'), actionButton('Show QR', 'qr'));
   if (item.type === 'command') menu.append(actionButton('View logs', 'logs'));
   toggle.addEventListener('click', event => {
     event.stopPropagation();
@@ -181,6 +191,8 @@ function appCard(item, index) {
     if (!button) return;
     const absoluteURL = new URL(targetURL, window.location.href).href;
     if (button.dataset.action === 'open') window.location.assign(absoluteURL);
+    if (button.dataset.action === 'open-own' && ownURL) window.location.assign(new URL(ownURL, window.location.href).href);
+    if (button.dataset.action === 'open-path') window.location.assign(new URL(pathURL, window.location.href).href);
     if (button.dataset.action === 'copy') copyText(absoluteURL, button);
     if (button.dataset.action === 'qr') showQR(absoluteURL, item.name || item.slug);
     if (button.dataset.action === 'logs') showLogs(item);

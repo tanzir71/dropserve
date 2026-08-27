@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T22:23:42Z
+**Last updated:** 2026-08-27T22:28:04Z
 **Gate status:** green
-**Iterations completed:** 75
+**Iterations completed:** 76
 
 ## Milestone progress
 
@@ -36,7 +36,7 @@
 
 - [x] Deliverable: command apps receive `BASE_PATH`, `PUBLIC_URL`, `VITE_BASE`, and `NEXT_PUBLIC_BASE_PATH` without overriding values already supplied by the app environment.
 - [x] Deliverable: manifest `base_href: auto | always | never` controls HTML base injection and defaults to `auto`.
-- [ ] Deliverable: own-port cards explain the automatic fallback and expose an explicit own-port/path URL action.
+- [x] Deliverable: own-port cards explain the automatic fallback and expose an explicit own-port/path URL action.
 - [ ] Completion: run the M5 demo, paste its output below, rerun the full gate, commit, and tag `m5-complete`.
 
 ### M4 completion audit (closed)
@@ -168,6 +168,7 @@
 - `TestWebSocketUpgradeThroughCommandProxy` performs a raw RFC 6455 handshake against `/subpath/ws`, sends a masked text frame, and receives the fixture's exact unmasked echo through the real command proxy. The standard-library reverse proxy already preserved the upgrade, and the full gate is green.
 - `TestCommandEnvironmentIncludesFrameworkBasePathConventions` first found `BASE_PATH`, `VITE_BASE`, and `NEXT_PUBLIC_BASE_PATH` absent while preserving an inherited `PUBLIC_URL`. The startup environment now supplies all four conventions only when missing. `TestCommandManifestEnvironmentOverridesFrameworkDefault` then exposed that manifest `env` had never reached a child; the read-only manifest settings now flow through detection and scanning, merge over the OS environment, preserve `/manifest-owned/` in a real Node child, and cannot replace Dropserve's reserved port/host variables. The full gate is green.
 - `TestCommandManifestBaseHrefModes` runs three real Node children and first showed that every manifest behaved as `auto`. Manifest `base_href` now flows through detection into response rewriting: `auto` injects only when no base exists, `always` places Dropserve's base first without deleting upstream markup, and `never` bypasses buffering and leaves the response byte-identical. The original small/large HTML acceptance tests and full gate are green.
+- `TestDashboardOwnPortRescueSurfaceIsWired` first found only a silent card-target switch. Preferred-own-port cards now visibly explain the root-path incompatibility, label their primary own-port action, and offer “Use the short URL anyway”; every other command card with a stable port exposes “Open on its own port”. The embedded bundle remains 29,948/100,000 bytes and `node --check` plus the full gate are green. A real-binary dark-mode browser check rendered the explanation and both menu routes; selecting the short URL navigated successfully to `/absolute-paths/` with no visible page error.
 
 ## Decisions made this build (beyond the spec)
 

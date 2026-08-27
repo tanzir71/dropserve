@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:12:20Z
+**Last updated:** 2026-08-27T23:16:00Z
 **Gate status:** green
-**Iterations completed:** 84
+**Iterations completed:** 85
 
 ## Milestone progress
 
@@ -24,7 +24,7 @@
 
 - [x] Script (Windows, CI): `dropserve autostart enable` then `schtasks /Query /TN Dropserve /XML` succeeds and the XML contains `<LogonTrigger>`, `ExecutionTimeLimit` set to `PT0S`, and no `<RunLevel>HighestAvailable</RunLevel>`.
 - [x] Assert: `dropserve autostart status` after an external `schtasks /Delete` reports **disabled** — proving it reads the OS, not a stored flag.
-- [ ] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
+- [x] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
 - [ ] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
 - [ ] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
 - [ ] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
@@ -184,9 +184,10 @@
 - `scripts/smoke/m6.ps1` enables the real built binary, queries `schtasks /Query /TN Dropserve /XML`, checks the required trigger/runtime/no-elevation contract plus action and retry details, confirms CLI status, and removes the task. It backs up and restores any pre-existing task. The local run left no task behind and the full race/lint/version/cross-build/shipped-file gate is green.
 - The first hosted lint analyzed the non-Windows build and correctly found its temporary `Disable` and `Enabled` error returns made the CLI branches constant. Unsupported platforms now model the truthful idempotent state—nothing to disable and status disabled—while `enable` remains explicit about missing support; Linux receives its real systemd implementation in the dedicated criterion.
 - Hosted CI [run 33125234271](https://github.com/tanzir71/dropserve/actions/runs/33125234271) passed the Ubuntu and Windows gates, lint, secret scan, native M2/M5 demos, and the new real Windows Scheduled Task smoke. The smoke now also deletes the task directly with `schtasks.exe` and requires `dropserve autostart status` to report `disabled`, proving status is queried from the OS rather than cached in Dropserve state.
+- Hosted CI [run 33125444890](https://github.com/tanzir71/dropserve/actions/runs/33125444890) passed the externally deleted task/status assertion on Windows alongside every gate job. The smoke now also replaces the task with two consecutive enables, then creates it fresh and completes two consecutive disables; the idempotence assertion passed immediately because the Windows implementation deliberately uses `/F` replacement and an OS presence check.
 
   ```text
-  M6 Windows autostart smoke passed: safe current-user registration and OS-backed status were verified.
+  M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.
   ```
 
 ## Decisions made this build (beyond the spec)

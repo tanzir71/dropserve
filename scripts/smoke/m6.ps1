@@ -34,6 +34,7 @@ if ($hadExistingTask) {
 
 try {
     $null = Invoke-Autostart -Action "enable"
+    $null = Invoke-Autostart -Action "enable"
     $taskLines = @(& schtasks.exe /Query /TN Dropserve /XML 2>&1)
     if ($LASTEXITCODE -ne 0) {
         throw "schtasks could not query the enabled Dropserve task: $($taskLines -join [Environment]::NewLine)"
@@ -74,7 +75,11 @@ try {
         throw "autostart status reported $status after external deletion instead of disabled"
     }
 
-    "M6 Windows autostart smoke passed: safe current-user registration and OS-backed status were verified."
+    $null = Invoke-Autostart -Action "enable"
+    $null = Invoke-Autostart -Action "disable"
+    $null = Invoke-Autostart -Action "disable"
+
+    "M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified."
 }
 finally {
     $cleanupOutput = @(& $script:binaryPath autostart disable 2>&1)

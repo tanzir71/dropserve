@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:17:02Z
+**Last updated:** 2026-08-27T20:18:04Z
 **Gate status:** green
-**Iterations completed:** 27
+**Iterations completed:** 28
 
 ## Milestone progress
 
@@ -27,7 +27,7 @@
 - [x] Search finds a fixture app by text that appears only in its `README.md`.
 - [x] Search finds a fixture app by text that appears only in a filename.
 - [x] A name match ranks above a filename-only match.
-- [ ] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
+- [x] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
 - [ ] The QR endpoint returns a valid PNG for the requested URL.
 - [ ] Dashboard assets remain under 100 KB.
 - [ ] The dashboard handles both zero apps and 200 apps.
@@ -77,6 +77,7 @@
 - `TestSearchFindsREADMEContent`: the read-only indexer extracts the first non-heading README paragraph (capped at 200 Unicode characters), and case-insensitive substring/token-prefix search returns the owning app for a term found nowhere else.
 - `TestSearchFindsFilename`: file names are indexed read-only to a hard cap of 5,000 files and three levels per app, with dependency/cache directories pruned; a term present only in a nested filename returns the owning app.
 - `TestSearchRanksNameAboveFilename`: the explicit 5× name, 3× description, and 1× filename weights place an app named for the query above an app matching only through a file.
+- `TestEveryAdvertisedURLWorks` (**I3**): the URLs API advertises the exact origin through which the client reached Dropserve; every returned URL is fetched through a real random-port HTTP server and returns below 400.
 
 ## Decisions made this build (beyond the spec)
 

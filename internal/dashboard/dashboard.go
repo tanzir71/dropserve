@@ -61,6 +61,9 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	case "/_dropserve/api/search":
 		dashboard.serveJSON(response, request, indexer.Search(dashboard.apps, request.URL.Query().Get("q")))
 		return
+	case "/_dropserve/api/urls":
+		dashboard.serveAdvertisedURLs(response, request)
+		return
 	default:
 		http.NotFound(response, request)
 		return
@@ -76,6 +79,20 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = response.Write(content)
+}
+
+type advertisedURL struct {
+	Kind string `json:"kind"`
+	URL  string `json:"url"`
+}
+
+func (dashboard *handler) serveAdvertisedURLs(response http.ResponseWriter, request *http.Request) {
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	currentURL := scheme + "://" + request.Host + "/"
+	dashboard.serveJSON(response, request, []advertisedURL{{Kind: "current", URL: currentURL}})
 }
 
 func (dashboard *handler) serveJSON(response http.ResponseWriter, request *http.Request, value any) {

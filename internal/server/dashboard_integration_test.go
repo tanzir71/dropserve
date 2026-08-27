@@ -171,6 +171,62 @@ func TestSearchRanksNameAboveFilename(t *testing.T) {
 	}
 }
 
+func TestEveryAdvertisedURLWorks(t *testing.T) {
+	t.Parallel()
+
+	server, err := dropserver.New(scanner.Options{Roots: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("create URL server: %v", err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	request, err := http.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		httpServer.URL+"/_dropserve/api/urls",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create URLs request: %v", err)
+	}
+	response, err := httpServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("fetch advertised URLs: %v", err)
+	}
+	defer func() {
+		_ = response.Body.Close()
+	}()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("URLs API returned %d, want 200; body=%q", response.StatusCode, body)
+	}
+	var advertised []struct {
+		Kind string `json:"kind"`
+		URL  string `json:"url"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&advertised); err != nil {
+		t.Fatalf("decode advertised URLs: %v", err)
+	}
+	if len(advertised) == 0 {
+		t.Fatal("URLs API advertised nothing")
+	}
+	for _, item := range advertised {
+		request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, item.URL, nil)
+		if err != nil {
+			t.Fatalf("create request for advertised %s URL %q: %v", item.Kind, item.URL, err)
+		}
+		result, err := httpServer.Client().Do(request)
+		if err != nil {
+			t.Fatalf("fetch advertised %s URL %q: %v", item.Kind, item.URL, err)
+		}
+		_ = result.Body.Close()
+		if result.StatusCode >= http.StatusBadRequest {
+			t.Fatalf("advertised %s URL %q returned %d, want < 400", item.Kind, item.URL, result.StatusCode)
+		}
+	}
+}
+
 func writeDashboardFixture(t *testing.T, root, name, title, readmeParagraph string) {
 	t.Helper()
 

@@ -65,3 +65,74 @@ func TestSlugSanitisation(t *testing.T) {
 		t.Fatal("..evil was not rejected with an unsafe_name warning")
 	}
 }
+
+func TestCaseInsensitiveCollisionAndRename(t *testing.T) {
+	t.Parallel()
+
+	t.Run("collision", func(t *testing.T) {
+		firstRoot := t.TempDir()
+		secondRoot := t.TempDir()
+		for _, fixture := range []struct {
+			root string
+			name string
+		}{
+			{firstRoot, "Notes"},
+			{secondRoot, "notes"},
+		} {
+			if err := os.Mkdir(filepath.Join(fixture.root, fixture.name), 0o750); err != nil {
+				t.Fatalf("create %s: %v", fixture.name, err)
+			}
+		}
+
+		result, err := scanner.Scan(scanner.Options{Roots: []string{firstRoot, secondRoot}})
+		if err != nil {
+			t.Fatalf("scan roots: %v", err)
+		}
+		if len(result.Apps) != 2 {
+			t.Fatalf("scan returned %d apps, want 2", len(result.Apps))
+		}
+		if got, want := result.Apps[0].Slug, "notes"; got != want {
+			t.Fatalf("first slug = %q, want %q", got, want)
+		}
+		if got, want := result.Apps[1].Slug, "notes-2"; got != want {
+			t.Fatalf("second slug = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("case-only rename", func(t *testing.T) {
+		root := t.TempDir()
+		lowerPath := filepath.Join(root, "notes")
+		if err := os.Mkdir(lowerPath, 0o750); err != nil {
+			t.Fatalf("create notes: %v", err)
+		}
+		before, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+		if err != nil {
+			t.Fatalf("scan before rename: %v", err)
+		}
+
+		intermediatePath := filepath.Join(root, "rename-in-progress")
+		titlePath := filepath.Join(root, "Notes")
+		if err := os.Rename(lowerPath, intermediatePath); err != nil {
+			t.Fatalf("rename through intermediate path: %v", err)
+		}
+		if err := os.Rename(intermediatePath, titlePath); err != nil {
+			t.Fatalf("complete case-only rename: %v", err)
+		}
+		after, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+		if err != nil {
+			t.Fatalf("scan after rename: %v", err)
+		}
+
+		changes := scanner.Compare(before, after, true)
+		if len(changes.Renamed) != 1 {
+			t.Fatalf("renamed changes = %d, want 1: %#v", len(changes.Renamed), changes)
+		}
+		if len(changes.Added) != 0 || len(changes.Removed) != 0 {
+			t.Fatalf("case-only rename produced added/removed changes: %#v", changes)
+		}
+		rename := changes.Renamed[0]
+		if filepath.Base(rename.Before.Path) != "notes" || filepath.Base(rename.After.Path) != "Notes" {
+			t.Fatalf("rename = %q -> %q, want notes -> Notes", rename.Before.Path, rename.After.Path)
+		}
+	})
+}

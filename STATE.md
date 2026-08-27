@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:21:00Z
+**Last updated:** 2026-08-27T23:24:30Z
 **Gate status:** green
-**Iterations completed:** 86
+**Iterations completed:** 87
 
 ## Milestone progress
 
@@ -187,6 +187,7 @@
 - Hosted CI [run 33125444890](https://github.com/tanzir71/dropserve/actions/runs/33125444890) passed the externally deleted task/status assertion on Windows alongside every gate job. The smoke now also replaces the task with two consecutive enables, then creates it fresh and completes two consecutive disables; the idempotence assertion passed immediately because the Windows implementation deliberately uses `/F` replacement and an OS presence check.
 - Hosted CI [run 33125666236](https://github.com/tanzir71/dropserve/actions/runs/33125666236) passed the double-enable/double-disable sequence on the real Windows scheduler alongside every other job.
 - `TestSystemdUnitRunsInBackgroundAndRestartsOnFailure` failed first with no unit generator, then locked a quoted `--background` action, network-online ordering, `Restart=on-failure`, a 60-second restart delay, and the default-user install target. Linux now atomically installs `~/.config/systemd/user/dropserve.service`, drives `systemctl --user`, and queries `is-enabled` for actual state. The Linux test binary cross-compiles with zero CGO, `scripts/smoke/m6.sh` passes `sh -n`, and the full local gate is green; the real `systemd-analyze verify` assertion is pending its Ubuntu run.
+- Hosted run [33125973637](https://github.com/tanzir71/dropserve/actions/runs/33125973637) passed every gate, Windows smoke, lint, and secret scan but exposed a harness-only Linux issue before unit verification: POSIX `command -v true` returned the shell builtin name, creating a broken relative `systemctl` shim, so Go found the host's real tool. The isolated smoke now points its shim directly to `/bin/true`; production systemctl lookup is unchanged.
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.

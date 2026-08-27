@@ -17,7 +17,7 @@ trap cleanup EXIT INT TERM
 config_directory="$work_directory/config"
 fake_bin="$work_directory/bin"
 mkdir -p "$config_directory" "$fake_bin"
-ln -s "$(command -v true)" "$fake_bin/systemctl"
+ln -s /bin/true "$fake_bin/systemctl"
 
 XDG_CONFIG_HOME="$config_directory" PATH="$fake_bin:$PATH" "$binary" autostart enable
 unit_path="$config_directory/systemd/user/dropserve.service"

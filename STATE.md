@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M0 — Repository, CI, and the gate
-**Last updated:** 2026-08-27T12:29:12Z
+**Last updated:** 2026-08-27T12:30:31Z
 **Gate status:** green
-**Iterations completed:** 1
+**Iterations completed:** 2
 
 ## Milestone progress
 
@@ -54,7 +54,7 @@ gate: green
 
 ## Open questions for the human
 
-- None.
+- The required `github.com/tanzir71/dropserve` repository does not exist. Creating it as a public repository is the external publication step needed to run and verify Ubuntu and Windows CI. Awaiting explicit approval; no remote repository was created.
 
 ## Deviations from the spec
 

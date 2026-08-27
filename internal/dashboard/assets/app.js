@@ -30,8 +30,15 @@ function appCard(item, index) {
 
   const icon = document.createElement('div');
   icon.className = 'app-icon';
-  icon.style.setProperty('--icon', colour(item.slug));
-  icon.textContent = item.icon || initials(item.name || item.slug);
+  icon.style.setProperty('--icon', item.icon_color || colour(item.slug));
+  if (item.icon_kind === 'image') {
+    const image = document.createElement('img');
+    image.src = item.icon;
+    image.alt = '';
+    icon.append(image);
+  } else {
+    icon.textContent = item.icon || initials(item.name || item.slug);
+  }
   const name = document.createElement('h3');
   name.textContent = item.name || item.slug;
   const description = document.createElement('p');

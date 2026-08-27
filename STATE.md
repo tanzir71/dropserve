@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:24:15Z
+**Last updated:** 2026-08-27T20:26:26Z
 **Gate status:** green
-**Iterations completed:** 34
+**Iterations completed:** 35
 
 ## Milestone progress
 
@@ -35,7 +35,7 @@
 
 ### M2 deliverables audit
 
-- [ ] Extract index `<title>`/first `<h1>`, byte size, mtime, favicon, and deterministic monogram metadata.
+- [x] Extract index `<title>`/first `<h1>`, byte size, mtime, favicon, and deterministic monogram metadata.
 - [ ] Complete read-only app detail, status, and health API surfaces used by the dashboard.
 - [ ] Persist the in-memory index atomically as `index.json` for fast cold starts.
 - [ ] Wire sharing, QR, copy-link, and card action interactions into the vanilla dashboard.
@@ -87,9 +87,10 @@
 - `TestSearchRanksNameAboveFilename`: the explicit 5× name, 3× description, and 1× filename weights place an app named for the query above an app matching only through a file.
 - `TestEveryAdvertisedURLWorks` (**I3**): the URLs API advertises the exact origin through which the client reached Dropserve; every returned URL is fetched through a real random-port HTTP server and returns below 400.
 - `TestQREndpointReturnsPNG`: validated HTTP(S) input is passed to the handover-approved pure-Go QR encoder; the response independently decodes as a substantial 256×256 PNG and distinct URLs produce distinct images. The test does not decode the QR symbols back to text, avoiding a second decoder dependency; this is the explicit acceptance-criterion fallback limitation.
-- `TestEmbeddedAssetsStayUnderBudget`: the exact embedded files total 13,409 of the strict 100,000-byte budget (CSS 7,187; JavaScript 3,444; HTML 2,778), enforced on every gate run.
+- `TestEmbeddedAssetsStayUnderBudget`: the exact embedded files currently total 13,689 of the strict 100,000-byte budget (CSS 7,275; JavaScript 3,636; HTML 2,778), enforced on every gate run.
 - `TestDashboardHandlesZeroAndTwoHundredApps`: an empty scan serializes as a real empty list that activates the designed invitation state; a generated 200-app scan returns all 200 unique cards in one unpaginated snapshot. The client filters once and maps that snapshot once per render (linear work, no nested app scan).
 - `TestDropserveNamespaceCannotBeShadowed`: an actual `_dropserve` folder is refused by the scanner, absent from the apps API, and cannot replace the dashboard root, embedded assets, or system API responses.
+- `TestBuildExtractsDashboardMetadata` and `TestBuildGeneratesDeterministicMonogram`: the read-only index captures `<title>`, first `<h1>`, total regular-file bytes, newest file mtime, direct favicon/icon URLs, and stable initials/colours; the dashboard renders image icons or monograms from that metadata.
 
 ## Decisions made this build (beyond the spec)
 

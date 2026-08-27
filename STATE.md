@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T13:06:48Z
+**Last updated:** 2026-08-27T13:11:07Z
 **Gate status:** green
-**Iterations completed:** 17
+**Iterations completed:** 18
 
 ## Milestone progress
 
@@ -33,7 +33,7 @@
 - [x] A full scan-and-serve cycle leaves every app file and directory mtime unchanged (I2).
 - [x] `dropserve add <path>` writes only a registered-path config entry and serves it.
 - [x] M1 smoke script starts the server on a random port and fetches a mounted fixture.
-- [ ] Port fallback skips occupied 80 and 8080, binds 8000, and reports the warning.
+- [x] Port fallback skips occupied 80 and 8080, binds 8000, and reports the warning.
 
 ### M0 completion evidence
 
@@ -60,6 +60,7 @@
 - `TestAppFolderIsReadOnlyToUs`: SHA-256, size, mode, and nanosecond mtime snapshots for every app file and directory are identical before and after scan plus HTTP serving.
 - `TestAddRegistersPathWithoutChangingApp`: the CLI atomically writes one `registered_apps` TOML entry, leaves no temp/symlink/copy/marker files, preserves the app snapshot, and the registered path serves at its slug.
 - `scripts/smoke/m1.ps1`: built and launched the real binary on `127.0.0.1:0`; `http://127.0.0.1:60348/static/` returned 200 with the fixture heading. A matching POSIX smoke script is included.
+- `TestPortFallbackAndStatus`: real Windows listeners occupied `127.0.0.1:80` and `:8080`; Dropserve probed and bound `:8000`, served the fixture, atomically persisted the port, exposed a `port_fallback` warning through `dropserve status`, and stopped cleanly on cancellation.
 
 ## Decisions made this build (beyond the spec)
 

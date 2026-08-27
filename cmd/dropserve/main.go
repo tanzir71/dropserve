@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,13 +11,14 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/tanzir71/dropserve/internal/config"
+	"github.com/tanzir71/dropserve/internal/ports"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
+	"github.com/tanzir71/dropserve/internal/state"
 	"github.com/tanzir71/dropserve/internal/version"
 )
 
@@ -24,6 +26,7 @@ const usage = `Dropserve hosts folders as local websites.
 
 Usage:
   dropserve serve      run in the foreground
+  dropserve status     print the current runtime state as JSON
   dropserve version    print the version and build commit
   dropserve add PATH   register an app folder without moving it
   dropserve help       show this help
@@ -48,6 +51,8 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 	switch args[0] {
 	case "serve":
 		return serveCommand(args[1:], stdout, stderr, configPath)
+	case "status":
+		return statusCommand(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		if _, err := fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit); err != nil {
 			return 1
@@ -108,10 +113,22 @@ func (roots *rootFlags) Set(value string) error {
 }
 
 func serveCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPath string) int {
+	return serveCommandContext(context.Background(), arguments, stdout, stderr, injectedConfigPath)
+}
+
+func serveCommandContext(
+	ctx context.Context,
+	arguments []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	injectedConfigPath string,
+) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	listenAddress := flags.String("listen", "", "listener address; use 127.0.0.1:0 for a random local port")
+	bindAddress := flags.String("bind", "", "listener host or IP; defaults to the configured bind address")
 	configPath := flags.String("config", injectedConfigPath, "configuration file")
+	statePath := flags.String("state", "", "runtime state file")
 	var roots rootFlags
 	flags.Var(&roots, "root", "Apps root; repeat to use more than one")
 	if err := flags.Parse(arguments); err != nil {
@@ -149,8 +166,8 @@ func serveCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPa
 	if len(roots) != 0 {
 		configuration.Server.AppsRoots = append([]string(nil), roots...)
 	}
-	if *listenAddress == "" {
-		*listenAddress = net.JoinHostPort(configuration.Server.Bind, strconv.Itoa(configuration.Server.HTTPPort))
+	if *bindAddress == "" {
+		*bindAddress = configuration.Server.Bind
 	}
 
 	handler, err := dropserver.New(scanner.Options{
@@ -164,10 +181,9 @@ func serveCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPa
 		return 1
 	}
 
-	var listenConfig net.ListenConfig
-	listener, err := listenConfig.Listen(context.Background(), "tcp", *listenAddress)
+	listener, err := acquireMainListener(ctx, *listenAddress, *bindAddress, *statePath, configuration)
 	if err != nil {
-		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not use %s: %v\n", *listenAddress, err); writeErr != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not start its HTTP listener: %v\n", err); writeErr != nil {
 			return 1
 		}
 		return 1
@@ -188,10 +204,115 @@ func serveCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPa
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    1 << 20,
 	}
+	serveFinished := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			shutdownContext, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancelShutdown()
+			_ = httpServer.Shutdown(shutdownContext)
+		case <-serveFinished:
+		}
+	}()
 	if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		close(serveFinished)
 		if _, writeErr := fmt.Fprintf(stderr, "Dropserve stopped serving: %v\n", err); writeErr != nil {
 			return 1
 		}
+		return 1
+	}
+	close(serveFinished)
+	return 0
+}
+
+func acquireMainListener(
+	ctx context.Context,
+	listenAddress string,
+	bindAddress string,
+	statePath string,
+	configuration config.Config,
+) (net.Listener, error) {
+	if listenAddress != "" {
+		var listenConfig net.ListenConfig
+		listener, err := listenConfig.Listen(ctx, "tcp", listenAddress)
+		if err != nil {
+			return nil, fmt.Errorf("use %s: %w", listenAddress, err)
+		}
+		return listener, nil
+	}
+
+	if statePath == "" {
+		var err error
+		statePath, err = state.DefaultPath()
+		if err != nil {
+			return nil, err
+		}
+	}
+	persisted, err := state.Load(statePath)
+	if err != nil {
+		return nil, err
+	}
+	preferredPort := configuration.Server.HTTPPort
+	if preferredPort == 0 {
+		preferredPort = persisted.HTTPPort
+	}
+	listener, selection, err := ports.Acquire(ctx, bindAddress, preferredPort)
+	if err != nil {
+		return nil, err
+	}
+	snapshot := state.State{HTTPPort: selection.Port}
+	if selection.Fallback {
+		snapshot.Warnings = []state.Warning{{Code: "port_fallback", Message: selection.Message}}
+	}
+	if err := state.Save(statePath, snapshot); err != nil {
+		_ = listener.Close()
+		return nil, err
+	}
+	return listener, nil
+}
+
+func statusCommand(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("status", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	statePath := flags.String("state", "", "runtime state file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		if _, err := fmt.Fprintln(stderr, "The status command accepts flags only."); err != nil {
+			return 1
+		}
+		return 2
+	}
+	if *statePath == "" {
+		var err error
+		*statePath, err = state.DefaultPath()
+		if err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not find its state folder: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+	}
+	snapshot, err := state.Load(*statePath)
+	if err != nil {
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not read its runtime state: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	output := struct {
+		Version  string          `json:"version"`
+		Commit   string          `json:"commit"`
+		Port     int             `json:"port"`
+		Warnings []state.Warning `json:"warnings"`
+	}{
+		Version:  version.Version,
+		Commit:   version.Commit,
+		Port:     snapshot.HTTPPort,
+		Warnings: snapshot.Warnings,
+	}
+	if err := json.NewEncoder(stdout).Encode(output); err != nil {
 		return 1
 	}
 	return 0

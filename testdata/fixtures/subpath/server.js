@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const http = require("node:http");
 
 const assets = {
@@ -7,7 +8,7 @@ const assets = {
   "/asset.png": ["image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex")],
 };
 
-http.createServer((request, response) => {
+const server = http.createServer((request, response) => {
   if (assets[request.url]) {
     const [contentType, body] = assets[request.url];
     response.writeHead(200, { "content-type": contentType, "content-length": body.length });
@@ -59,4 +60,37 @@ http.createServer((request, response) => {
     return;
   }
   response.end("subpath fixture");
-}).listen(Number(process.env.PORT), process.env.HOST);
+});
+
+server.on("upgrade", (request, socket) => {
+  if (request.url !== "/ws") {
+    socket.destroy();
+    return;
+  }
+  const accept = crypto
+    .createHash("sha1")
+    .update(request.headers["sec-websocket-key"] + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+    .digest("base64");
+  socket.write(
+    "HTTP/1.1 101 Switching Protocols\r\n" +
+    "Upgrade: websocket\r\n" +
+    "Connection: Upgrade\r\n" +
+    `Sec-WebSocket-Accept: ${accept}\r\n\r\n`
+  );
+  let buffered = Buffer.alloc(0);
+  socket.on("data", chunk => {
+    buffered = Buffer.concat([buffered, chunk]);
+    if (buffered.length < 6) return;
+    const length = buffered[1] & 0x7f;
+    if (length > 125 || buffered.length < 6 + length) {
+      if (length > 125) socket.destroy();
+      return;
+    }
+    const mask = buffered.subarray(2, 6);
+    const payload = Buffer.from(buffered.subarray(6, 6 + length));
+    for (let index = 0; index < payload.length; index++) payload[index] ^= mask[index % 4];
+    socket.end(Buffer.concat([Buffer.from([0x81, payload.length]), payload]));
+  });
+});
+
+server.listen(Number(process.env.PORT), process.env.HOST);

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T22:12:43Z
+**Last updated:** 2026-08-27T22:17:13Z
 **Gate status:** green
-**Iterations completed:** 72
+**Iterations completed:** 73
 
 ## Milestone progress
 
@@ -30,7 +30,14 @@
 - [x] Assert: `testdata/fixtures/absolute-paths/` is flagged `prefers_own_port`, its dashboard card links to `http://127.0.0.1:<port>/`, and that URL serves the app correctly at its root.
 - [x] Assert: assigned per-app ports are stable across a restart of Dropserve (persisted in state).
 - [x] Assert: `X-Forwarded-Prefix`, `X-Forwarded-Host`, `X-Forwarded-Proto` arrive at a command app with the right values.
-- [ ] Assert: WebSocket upgrade through the proxy works for a command app (a fixture echo server).
+- [x] Assert: WebSocket upgrade through the proxy works for a command app (a fixture echo server).
+
+### M5 completion audit (open)
+
+- [ ] Deliverable: command apps receive `BASE_PATH`, `PUBLIC_URL`, `VITE_BASE`, and `NEXT_PUBLIC_BASE_PATH` without overriding values already supplied by the app environment.
+- [ ] Deliverable: manifest `base_href: auto | always | never` controls HTML base injection and defaults to `auto`.
+- [ ] Deliverable: own-port cards explain the automatic fallback and expose an explicit own-port/path URL action.
+- [ ] Completion: run the M5 demo, paste its output below, rerun the full gate, commit, and tag `m5-complete`.
 
 ### M4 completion audit (closed)
 
@@ -158,6 +165,7 @@
 - `TestAbsolutePathsFixturePrefersAndServesOwnPort` starts the real root-absolute asset fixture, whose healthy index probe flags `src="/app.js"`. The supervisor's live loopback port and `prefers_own_port` state now flow through scan and dashboard JSON; card logic selects `http://127.0.0.1:<port>/`, and a direct request to that root returns the exact source HTML without proxy rewriting. The focused test and full gate are green.
 - `TestAssignedCommandPortPersistsAcrossDropserveRestart` first observed two different ephemeral ports. Command apps now receive the first real-bindable port in 7400–7999, atomically persist the slug mapping to `ports.json` beside machine state, and reclaim it when free. The test fully closes and recreates Dropserve with one state directory, gets the same port, and serves the exact Node root body; in-process reservations close the probe/start race across parallel test servers. The full race gate is green.
 - `TestCommandReceivesForwardedSubpathHeaders` first saw all public context fields empty. The proxy director now overwrites `X-Forwarded-Prefix` and `X-Script-Name` with `/subpath`, `X-Forwarded-Host` with the inbound public host, and `X-Forwarded-Proto` from the actual request transport. The real child echoes the exact expected values and the full gate is green.
+- `TestWebSocketUpgradeThroughCommandProxy` performs a raw RFC 6455 handshake against `/subpath/ws`, sends a masked text frame, and receives the fixture's exact unmasked echo through the real command proxy. The standard-library reverse proxy already preserved the upgrade, and the full gate is green.
 
 ## Decisions made this build (beyond the spec)
 
@@ -179,6 +187,7 @@
 - Build-loop process only: the mandatory Windows grandchild assertion passed immediately because native Job Object containment was added when the first Node proxy test exposed the leak. The dedicated PID-liveness test now guards the full `npm → node → grandchild` tree and its five-second deadline on every Windows gate.
 - Build-loop process only: the M5 non-HTML hash assertion passed immediately because the preceding HTML injection slice already gated rewriting on parsed `text/html`. The explicit JSON/JS/CSS/PNG hashes now guard that corruption boundary.
 - Build-loop process only: the M5 5 MB HTML assertion passed immediately because the preceding injection implementation included its cap+1 streaming fallback. The dedicated chunked-response size and hash assertions now lock the memory/corruption boundary.
+- Build-loop process only: the M5 WebSocket assertion passed immediately because Go's standard reverse proxy already supported upgrades. The raw handshake and frame echo now guard that dependency behavior end to end.
 - Build-loop process only: the M3 rename assertion passed when first added because the preceding live-create slice deliberately reconciles the entire immutable scan and mount table, which already treats a filesystem rename as one removal plus one addition. The dedicated two-URL deadline test now locks that behavior.
 
 ## Verify on real hardware

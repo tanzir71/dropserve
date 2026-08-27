@@ -1,16 +1,23 @@
 package server_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
@@ -326,5 +333,99 @@ func TestCommandReceivesForwardedSubpathHeaders(t *testing.T) {
 	}
 	if headers.Host != request.URL.Host || headers.Proto != "http" {
 		t.Fatalf("forwarded public origin = %#v, want host %q and http", headers, request.URL.Host)
+	}
+}
+
+func TestWebSocketUpgradeThroughCommandProxy(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the subpath fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "subpath"))
+	if err != nil {
+		t.Fatalf("resolve subpath fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create subpath server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close subpath server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	var dialer net.Dialer
+	connection, err := dialer.DialContext(context.Background(), "tcp", httpServer.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("connect WebSocket client: %v", err)
+	}
+	defer func() {
+		_ = connection.Close()
+	}()
+	if err := connection.SetDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		t.Fatalf("set WebSocket deadline: %v", err)
+	}
+	keyBytes := make([]byte, 16)
+	if _, err := rand.Read(keyBytes); err != nil {
+		t.Fatalf("create WebSocket key: %v", err)
+	}
+	key := base64.StdEncoding.EncodeToString(keyBytes)
+	handshake := fmt.Sprintf(
+		"GET /subpath/ws HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n",
+		httpServer.Listener.Addr().String(),
+		key,
+	)
+	if _, err := io.WriteString(connection, handshake); err != nil {
+		t.Fatalf("write WebSocket handshake: %v", err)
+	}
+	reader := bufio.NewReader(connection)
+	statusLine, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read WebSocket status: %v", err)
+	}
+	if !strings.Contains(statusLine, " 101 ") {
+		t.Fatalf("WebSocket status line = %q", statusLine)
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read WebSocket headers: %v", err)
+		}
+		if line == "\r\n" {
+			break
+		}
+	}
+	payload := []byte("echo through dropserve")
+	if len(payload) > 125 {
+		t.Fatalf("test WebSocket payload is %d bytes; short frames allow at most 125", len(payload))
+	}
+	mask := []byte{0x12, 0x34, 0x56, 0x78}
+	frame := []byte{0x81, 0x80 | byte(len(payload))} //nolint:gosec // bounded to the RFC 6455 short-frame maximum above.
+	frame = append(frame, mask...)
+	for index, value := range payload {
+		frame = append(frame, value^mask[index%len(mask)])
+	}
+	if _, err := connection.Write(frame); err != nil {
+		t.Fatalf("write WebSocket frame: %v", err)
+	}
+	header := make([]byte, 2)
+	if _, err := io.ReadFull(reader, header); err != nil {
+		t.Fatalf("read WebSocket echo header: %v", err)
+	}
+	if header[0] != 0x81 || int(header[1]&0x7f) != len(payload) {
+		t.Fatalf("WebSocket echo header = %x", header)
+	}
+	echoed := make([]byte, len(payload))
+	if _, err := io.ReadFull(reader, echoed); err != nil {
+		t.Fatalf("read WebSocket echo: %v", err)
+	}
+	if !bytes.Equal(echoed, payload) {
+		t.Fatalf("WebSocket echo = %q, want %q", echoed, payload)
 	}
 }

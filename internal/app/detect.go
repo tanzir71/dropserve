@@ -18,6 +18,7 @@ type Detection struct {
 	Runtime     string
 	Reason      string
 	Environment map[string]string
+	BaseHref    string
 	Autostart   bool
 }
 
@@ -204,6 +205,7 @@ func commandRuntime(command string) string {
 type manifestSettings struct {
 	Autostart   *bool             `json:"autostart"`
 	Environment map[string]string `json:"env"`
+	BaseHref    string            `json:"base_href"`
 }
 
 func readManifestSettings(root string) (manifestSettings, error) {
@@ -232,6 +234,14 @@ func withManifestSettings(detection Detection, settings manifestSettings) Detect
 		for name, value := range settings.Environment {
 			detection.Environment[name] = value
 		}
+	}
+	switch strings.ToLower(strings.TrimSpace(settings.BaseHref)) {
+	case "always":
+		detection.BaseHref = "always"
+	case "never":
+		detection.BaseHref = "never"
+	default:
+		detection.BaseHref = "auto"
 	}
 	return detection
 }

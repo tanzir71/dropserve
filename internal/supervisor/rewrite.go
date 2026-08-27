@@ -11,7 +11,11 @@ import (
 
 const maximumHTMLRewriteBytes = 2 << 20
 
-func rewriteHTMLResponse(response *http.Response, prefix string) error {
+func rewriteHTMLResponse(response *http.Response, prefix, mode string) error {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "never" {
+		return nil
+	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || !strings.EqualFold(mediaType, "text/html") {
 		return nil
@@ -41,7 +45,7 @@ func rewriteHTMLResponse(response *http.Response, prefix string) error {
 	if err := body.Close(); err != nil {
 		return err
 	}
-	rewritten, changed := injectBaseElement(content, prefix)
+	rewritten, changed := injectBaseElement(content, prefix, mode == "always")
 	response.Body = io.NopCloser(bytes.NewReader(rewritten))
 	if !changed {
 		return nil
@@ -54,9 +58,9 @@ func rewriteHTMLResponse(response *http.Response, prefix string) error {
 	return nil
 }
 
-func injectBaseElement(document []byte, prefix string) ([]byte, bool) {
+func injectBaseElement(document []byte, prefix string, always bool) ([]byte, bool) {
 	lower := bytes.ToLower(document)
-	if _, found := openingTagEnd(lower, "base"); found {
+	if _, found := openingTagEnd(lower, "base"); found && !always {
 		return document, false
 	}
 	headEnd, found := openingTagEnd(lower, "head")

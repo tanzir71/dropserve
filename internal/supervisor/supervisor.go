@@ -424,7 +424,7 @@ func (process *Process) Start() error {
 				response.Header.Set("Location", prefix+location)
 			}
 		}
-		return rewriteHTMLResponse(response, prefix)
+		return rewriteHTMLResponse(response, prefix, process.application.BaseHref)
 	}
 	proxy.ErrorHandler = func(response http.ResponseWriter, _ *http.Request, proxyErr error) {
 		http.Error(response, "Dropserve could not reach this app: "+proxyErr.Error(), http.StatusBadGateway)

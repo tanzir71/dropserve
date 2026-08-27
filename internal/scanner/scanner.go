@@ -210,6 +210,7 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		application.Runtime = detection.Runtime
 		application.Detection = detection.Reason
 		application.Environment = detection.Environment
+		application.BaseHref = detection.BaseHref
 		application.Autostart = detection.Autostart
 		if application.Kind == app.KindStatic {
 			application.Index, err = findIndex(fullPath)

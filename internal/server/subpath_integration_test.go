@@ -491,3 +491,87 @@ http.createServer((_request, response) => {
 		t.Fatalf("child framework environment = %#v", environment)
 	}
 }
+
+func TestCommandManifestBaseHrefModes(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	root := t.TempDir()
+	serverSource := `const http = require("node:http");
+http.createServer((_request, response) => {
+  response.setHeader("content-type", "text/html; charset=utf-8");
+  response.end(process.env.HTML_BODY);
+}).listen(Number(process.env.PORT), process.env.HOST);`
+	tests := []struct {
+		slug string
+		mode string
+		body string
+		want string
+	}{
+		{
+			slug: "auto-mode",
+			mode: "auto",
+			body: "<!doctype html><html><head><title>Auto</title></head><body></body></html>",
+			want: "<!doctype html><html><head><base href=\"/auto-mode/\"><title>Auto</title></head><body></body></html>",
+		},
+		{
+			slug: "always-mode",
+			mode: "always",
+			body: "<!doctype html><html><head><base href=\"/upstream/\"><title>Always</title></head><body></body></html>",
+			want: "<!doctype html><html><head><base href=\"/always-mode/\"><base href=\"/upstream/\"><title>Always</title></head><body></body></html>",
+		},
+		{
+			slug: "never-mode",
+			mode: "never",
+			body: "<!doctype html><html><head><title>Never</title></head><body></body></html>",
+			want: "<!doctype html><html><head><title>Never</title></head><body></body></html>",
+		},
+	}
+	registered := make([]string, 0, len(tests))
+	for _, test := range tests {
+		fixture := filepath.Join(root, test.slug)
+		if err := os.Mkdir(fixture, 0o750); err != nil {
+			t.Fatalf("create %s fixture: %v", test.slug, err)
+		}
+		manifest, err := json.Marshal(map[string]any{
+			"base_href": test.mode,
+			"env":       map[string]string{"HTML_BODY": test.body},
+		})
+		if err != nil {
+			t.Fatalf("encode %s manifest: %v", test.slug, err)
+		}
+		files := map[string][]byte{
+			"package.json":   []byte(`{"scripts":{"start":"node server.js"}}`),
+			"dropserve.json": manifest,
+			"server.js":      []byte(serverSource),
+		}
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(fixture, name), content, 0o600); err != nil {
+				t.Fatalf("write %s/%s: %v", test.slug, name, err)
+			}
+		}
+		registered = append(registered, fixture)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: registered})
+	if err != nil {
+		t.Fatalf("create base-href server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close base-href server: %v", closeErr)
+		}
+	}()
+	for _, test := range tests {
+		t.Run(test.mode, func(t *testing.T) {
+			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/"+test.slug+"/", nil)
+			recorder := httptest.NewRecorder()
+			server.Handler().ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("status = %d, body = %q", recorder.Code, recorder.Body.String())
+			}
+			if recorder.Body.String() != test.want {
+				t.Fatalf("body = %q, want %q", recorder.Body.String(), test.want)
+			}
+		})
+	}
+}

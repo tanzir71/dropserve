@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:36:52Z
+**Last updated:** 2026-08-27T21:40:47Z
 **Gate status:** green
-**Iterations completed:** 61
+**Iterations completed:** 62
 
 ## Milestone progress
 
@@ -35,7 +35,7 @@
 ### M4 completion audit
 
 - [x] Deliverable: detection rules 2–4, 6, and 8 are implemented and tested.
-- [ ] Deliverable: the bounded log API is surfaced in a designed dashboard log viewer for command apps and crashed cards expose their error output.
+- [x] Deliverable: the bounded log API is surfaced in a designed dashboard log viewer for command apps and crashed cards expose their error output.
 - [ ] Deliverable: restart policy also covers a command that exits after becoming healthy, not only failures during initial health checking.
 - [ ] Completion: run the M4 demo, paste its output below, rerun the full gate, commit, and tag `m4-complete`.
 
@@ -140,6 +140,7 @@
 - `TestAutostartFalseStartsOnFirstRequest` creates a temporary Node package with `dropserve.json` setting `autostart: false` and a process-written marker. The failing run proved scanning launched it immediately; manifest autostart is now honored, scan reports `stopped` with no marker, and the first request performs the single serialized cold start, health-checks, returns the exact fixture body, and creates the marker in about 780 ms.
 - The first full gate after lazy start caught an existing atomic-removal edge: an in-flight request could retain the deleted app's old static handler and receive Go's plain 404 after the new empty scan published. All static misses now use Dropserve's friendly designed 404; the exact race test passed 10 consecutive `-race` runs and the full gate is green.
 - `TestCommandDetectionRulesTwoFourAndEight` completes the explicit M4 detection deliverable: it covers `Procfile` `web:` commands (rule 2), package `main` plus `index.js`/`server.js` fallbacks when no start script exists (rule 4), and a sole `.exe`/Unix-executable file (rule 8). Each result records its command, runtime, and friendly detection reason; the pre-implementation run classified all four fixtures as static, and the full gate is now green alongside the rule 3 and 6 integration tests.
+- `TestDashboardCommandLogSurfaceIsWired` locks an accessible app-log dialog, command-card action, crashed preview, and status styling while the dashboard asset budget remains 28,823/100,000 bytes. A real browser check against all fixtures showed the amber crashed card with the last five failure outputs, opened “broken logs” with `crashed · 5 starts`, refreshed the bounded tail, and produced zero console warnings/errors; the temporary demo shutdown left no fixture processes.
 
 ## Decisions made this build (beyond the spec)
 

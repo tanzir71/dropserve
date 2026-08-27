@@ -71,3 +71,35 @@ func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
 		}
 	}
 }
+
+func TestDashboardCommandLogSurfaceIsWired(t *testing.T) {
+	t.Parallel()
+
+	index, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatalf("read embedded dashboard HTML: %v", err)
+	}
+	script, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read embedded dashboard JavaScript: %v", err)
+	}
+	styles, err := assets.ReadFile("assets/app.css")
+	if err != nil {
+		t.Fatalf("read embedded dashboard CSS: %v", err)
+	}
+	for _, marker := range []string{`id="log-dialog"`, `id="log-output"`, `id="log-refresh"`} {
+		if !strings.Contains(string(index), marker) {
+			t.Fatalf("dashboard HTML does not contain log marker %q", marker)
+		}
+	}
+	for _, marker := range []string{"/_dropserve/api/logs/", "View logs", "crash-preview", "lastLogLines"} {
+		if !strings.Contains(string(script), marker) {
+			t.Fatalf("dashboard JavaScript does not contain log marker %q", marker)
+		}
+	}
+	for _, marker := range []string{`data-status="crashed"`, ".log-output", ".crash-preview"} {
+		if !strings.Contains(string(styles), marker) {
+			t.Fatalf("dashboard CSS does not contain log marker %q", marker)
+		}
+	}
+}

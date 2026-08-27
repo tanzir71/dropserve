@@ -12,11 +12,17 @@ const qrImage = document.querySelector('#qr-image');
 const qrAddress = document.querySelector('#qr-address');
 const qrCopy = document.querySelector('#qr-copy');
 const warningNotice = document.querySelector('#port-warning');
+const logDialog = document.querySelector('#log-dialog');
+const logTitle = document.querySelector('#log-title');
+const logState = document.querySelector('#log-state');
+const logOutput = document.querySelector('#log-output');
+const logRefresh = document.querySelector('#log-refresh');
 
 let apps = [];
 let visible = [];
 let selected = 0;
 let currentQRURL = '';
+let currentLogApp = null;
 
 const palette = ['#156b50', '#3d5d9a', '#9a5b3d', '#77519d', '#a06d18', '#327b82'];
 
@@ -68,10 +74,48 @@ function actionButton(label, action) {
   return button;
 }
 
+function lastLogLines(logs, maximum = 50) {
+  return String(logs || '').trimEnd().split(/\r?\n/).slice(-maximum).join('\n');
+}
+
+function fetchLogs(item) {
+  return fetch(`/_dropserve/api/logs/${encodeURIComponent(item.slug)}`)
+    .then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    });
+}
+
+function refreshLogs() {
+  if (!currentLogApp) return;
+  logState.textContent = 'Loading the latest output…';
+  fetchLogs(currentLogApp)
+    .then(snapshot => {
+      const attempts = snapshot.attempts === 1 ? '1 start' : `${snapshot.attempts || 0} starts`;
+      logState.textContent = `${snapshot.status || currentLogApp.status || 'ready'} · ${attempts}`;
+      logOutput.textContent = snapshot.logs || 'This app has not written any output yet.';
+    })
+    .catch(() => {
+      logState.textContent = 'Dropserve could not refresh these logs.';
+      logOutput.textContent = 'Try again in a moment.';
+    });
+}
+
+function showLogs(item) {
+  currentLogApp = item;
+  logTitle.textContent = `${item.name || item.slug} logs`;
+  logState.textContent = 'Loading the latest output…';
+  logOutput.textContent = 'Loading…';
+  if (typeof logDialog.showModal === 'function') logDialog.showModal();
+  else logDialog.setAttribute('open', '');
+  refreshLogs();
+}
+
 function appCard(item, index) {
   const article = document.createElement('article');
   article.className = 'app-card';
   article.dataset.selected = String(index === selected);
+  article.dataset.status = item.status || 'ready';
   const targetURL = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
   const link = document.createElement('a');
   link.href = targetURL;
@@ -91,12 +135,25 @@ function appCard(item, index) {
   const name = document.createElement('h3');
   name.textContent = item.name || item.slug;
   const description = document.createElement('p');
-  description.textContent = item.description || item.heading || 'Ready to open on this device.';
+  if (item.status === 'crashed') description.textContent = 'This app stopped after five starts. Its latest output is below.';
+  else if (item.status === 'needs-runtime') description.textContent = 'This app needs its runtime installed before it can open.';
+  else if (item.status === 'stopped') description.textContent = 'This app starts when you open it.';
+  else description.textContent = item.description || item.heading || 'Ready to open on this device.';
   const meta = document.createElement('div');
   meta.className = 'card-meta';
   meta.innerHTML = '<span class="online-dot"></span>';
-  meta.append(document.createTextNode(item.type || 'static'));
-  link.append(icon, name, description, meta);
+  meta.append(document.createTextNode(`${item.type || 'static'} · ${item.status || 'ready'}`));
+  link.append(icon, name, description);
+  if (item.status === 'crashed') {
+    const preview = document.createElement('pre');
+    preview.className = 'crash-preview';
+    preview.textContent = 'Loading the last 50 lines…';
+    link.append(preview);
+    fetchLogs(item)
+      .then(snapshot => { preview.textContent = lastLogLines(snapshot.logs) || 'No error output was captured.'; })
+      .catch(() => { preview.textContent = 'Logs are temporarily unavailable.'; });
+  }
+  link.append(meta);
 
   const toggle = document.createElement('button');
   toggle.type = 'button';
@@ -108,6 +165,7 @@ function appCard(item, index) {
   menu.className = 'card-actions';
   menu.hidden = true;
   menu.append(actionButton('Open', 'open'), actionButton('Copy link', 'copy'), actionButton('Show QR', 'qr'));
+  if (item.type === 'command') menu.append(actionButton('View logs', 'logs'));
   toggle.addEventListener('click', event => {
     event.stopPropagation();
     const opening = menu.hidden;
@@ -123,6 +181,7 @@ function appCard(item, index) {
     if (button.dataset.action === 'open') window.location.assign(absoluteURL);
     if (button.dataset.action === 'copy') copyText(absoluteURL, button);
     if (button.dataset.action === 'qr') showQR(absoluteURL, item.name || item.slug);
+    if (button.dataset.action === 'logs') showLogs(item);
     menu.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
   });
@@ -166,6 +225,7 @@ function setSharingOpen(open) {
 sharingToggle.addEventListener('click', () => setSharingOpen(sharingPanel.hidden));
 sharingClose.addEventListener('click', () => setSharingOpen(false));
 qrCopy.addEventListener('click', () => copyText(currentQRURL, qrCopy));
+logRefresh.addEventListener('click', refreshLogs);
 document.addEventListener('click', event => {
   if (!event.target.closest('.app-card')) {
     document.querySelectorAll('.card-actions').forEach(menu => { menu.hidden = true; });

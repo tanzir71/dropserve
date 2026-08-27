@@ -80,6 +80,18 @@
     </form>
   </dialog>
 
+  <dialog id="log-dialog" class="log-dialog" aria-labelledby="log-title">
+    <form method="dialog">
+      <button class="icon-button dialog-close" value="close" aria-label="Close app logs">×</button>
+      <div class="log-heading">
+        <div><p class="eyebrow">App output</p><h2 id="log-title">Logs</h2></div>
+        <button id="log-refresh" class="mini-button" type="button">Refresh</button>
+      </div>
+      <p id="log-state" class="log-state" aria-live="polite">Loading…</p>
+      <pre id="log-output" class="log-output" tabindex="0">Loading…</pre>
+    </form>
+  </dialog>
+
   <footer>
     <span><span class="online-dot" aria-hidden="true"></span> Dropserve is running</span>
     <a href="/_dropserve/api/status">Status</a>

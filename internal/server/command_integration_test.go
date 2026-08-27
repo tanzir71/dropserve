@@ -230,6 +230,49 @@ func TestImmediateFailureRestartsFiveTimesThenCrashes(t *testing.T) {
 	}
 }
 
+func TestCrashedAppDoesNotBlockHealthyApp(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the command fixtures require it")
+	}
+	fixtureRoot, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures"))
+	if err != nil {
+		t.Fatalf("resolve fixture root: %v", err)
+	}
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{Registered: []string{
+			filepath.Join(fixtureRoot, "broken"),
+			filepath.Join(fixtureRoot, "node"),
+		}},
+		Supervisor: supervisor.Options{
+			RestartDelays: []time.Duration{10 * time.Millisecond},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create mixed-health server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close mixed-health server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	dashboardStatus, dashboardBody := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/")
+	if dashboardStatus != http.StatusOK || !strings.Contains(dashboardBody, "Dropserve") {
+		t.Fatalf("dashboard with crashed app = %d %q", dashboardStatus, dashboardBody)
+	}
+	healthyStatus, healthyBody := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/node/")
+	if healthyStatus != http.StatusOK || healthyBody != "Dropserve Node fixture" {
+		t.Fatalf("healthy app beside crashed app = %d %q", healthyStatus, healthyBody)
+	}
+}
+
 func requestCommandApp(t *testing.T, client *http.Client, target string) (int, string) {
 	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)

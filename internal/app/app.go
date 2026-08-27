@@ -1,0 +1,21 @@
+// Package app defines the immutable description of a discovered Dropserve app.
+package app
+
+// Kind identifies how an app is served.
+type Kind string
+
+const (
+	// KindStatic serves files directly from the app path.
+	KindStatic Kind = "static"
+)
+
+// App is the read-only result of scanning one app folder or loose HTML file.
+type App struct {
+	Slug             string
+	Name             string
+	Path             string
+	Kind             Kind
+	Index            string
+	LooseFile        bool
+	DirectoryListing bool
+}

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T12:43:52Z
+**Last updated:** 2026-08-27T12:48:16Z
 **Gate status:** green
-**Iterations completed:** 6
+**Iterations completed:** 7
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] Static fixture mounted at `/static/` returns the expected body and content type.
+- [x] Static fixture mounted at `/static/` returns the expected body and content type.
 - [ ] `GET /static` redirects permanently to `/static/`.
 - [ ] Slug sanitisation handles spaces, Unicode, unsafe prefixes, and ignored names.
 - [ ] Path traversal is refused for encoded, absolute, UNC, and escaping-symlink paths.
@@ -46,6 +46,10 @@
   dropserve 0.0.0-dev (b5c2d9f)
   ```
 - The first hosted attempt exposed Windows CRLF conversion and a first-push secret-scan range edge case. Repository-wide LF attributes fixed the platform gate; the next normal push fixed the Git range and passed.
+
+### M1 evidence
+
+- `TestStaticFixtureMounted`: the read-only scanner discovers `testdata/fixtures/static/`, the immutable router mounts it at `/static/`, and the response is 200 HTML containing the fixture heading.
 
 ## Decisions made this build (beyond the spec)
 

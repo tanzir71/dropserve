@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:42:59Z
+**Last updated:** 2026-08-27T20:46:20Z
 **Gate status:** green
-**Iterations completed:** 40
+**Iterations completed:** 41
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
+- [x] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
 - [ ] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
 - [ ] Assert: renaming an app changes the slug and the old slug 404s.
 - [ ] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
@@ -95,9 +95,15 @@
 - Final `scripts/smoke/m2.ps1`: the real binary rendered four apps; README-only search and local QR passed at `http://127.0.0.1:55855/`.
 - Hosted CI [run 33114496357](https://github.com/tanzir71/dropserve/actions/runs/33114496357): Ubuntu gate, Windows gate, golangci-lint, secret scan, and both platform-native M2 smoke scripts all passed.
 
+### M3 evidence
+
+- `TestFolderAddedIsServedWithinTwoSeconds` starts from an empty real Apps root and HTTP server, creates `live-notes/index.html`, and polls requests against a two-second deadline. The new fsnotify path debounces the native events for 500 ms, rescans read-only, swaps immutable router/dashboard snapshots, and served the exact body in about 660 ms on Windows.
+- `internal/watcher` watches each existing root plus app subdirectories to a three-level cap and 256-watch per-app budget, skips dependency/cache directories, and invokes the same full reconcile path every 30 seconds as an event-loss safety net.
+
 ## Decisions made this build (beyond the spec)
 
 - 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
+- 2026-08-28 — ADR-011 records the handover-prescribed fsnotify watcher paired with periodic reconciliation. fsnotify adds one direct module plus its platform syscall module while preserving zero-CGO cross-builds.
 
 ## Open questions for the human
 
@@ -116,4 +122,4 @@
 
 ## Dependency count
 
-2 direct external dependencies (the handover-approved TOML parser and pure-Go QR encoder); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 3 modules including the main module.
+3 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, and fsnotify); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 5 modules including the main module.

@@ -1,0 +1,9 @@
+/bin/
+/dist/
+/.tools/
+*.exe
+*.test
+*.out
+coverage.txt
+.DS_Store
+

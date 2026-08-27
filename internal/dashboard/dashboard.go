@@ -15,7 +15,6 @@ import (
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
-	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/version"
 )
@@ -33,7 +32,7 @@ type handler struct {
 }
 
 // New returns the embedded dashboard handler.
-func New(applications []app.App) (http.Handler, error) {
+func New(applications []indexer.Entry) (http.Handler, error) {
 	index, _ := assets.ReadFile("assets/index.html")
 	stylesheet, _ := assets.ReadFile("assets/app.css")
 	script, _ := assets.ReadFile("assets/app.js")
@@ -45,7 +44,7 @@ func New(applications []app.App) (http.Handler, error) {
 		index:      index,
 		stylesheet: stylesheet,
 		script:     script,
-		apps:       indexer.Build(applications),
+		apps:       append([]indexer.Entry(nil), applications...),
 		started:    time.Now(),
 		csrfToken:  hex.EncodeToString(tokenBytes),
 	}, nil

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:28:38Z
+**Last updated:** 2026-08-27T20:31:09Z
 **Gate status:** green
-**Iterations completed:** 36
+**Iterations completed:** 37
 
 ## Milestone progress
 
@@ -37,7 +37,7 @@
 
 - [x] Extract index `<title>`/first `<h1>`, byte size, mtime, favicon, and deterministic monogram metadata.
 - [x] Complete read-only app detail, status, and health API surfaces used by the dashboard.
-- [ ] Persist the in-memory index atomically as `index.json` for fast cold starts.
+- [x] Persist the in-memory index atomically as `index.json` for fast cold starts.
 - [ ] Wire sharing, QR, copy-link, and card action interactions into the vanilla dashboard.
 - [ ] Run the real-binary M2 smoke and a browser-rendered launcher demo before tagging.
 
@@ -92,6 +92,7 @@
 - `TestDropserveNamespaceCannotBeShadowed`: an actual `_dropserve` folder is refused by the scanner, absent from the apps API, and cannot replace the dashboard root, embedded assets, or system API responses.
 - `TestBuildExtractsDashboardMetadata` and `TestBuildGeneratesDeterministicMonogram`: the read-only index captures `<title>`, first `<h1>`, total regular-file bytes, newest file mtime, direct favicon/icon URLs, and stable initials/colours; the dashboard renders image icons or monograms from that metadata.
 - `TestDashboardReadOnlyOperationalAPIs`: `healthz` returns plain `ok`; status exposes version/commit, live uptime, request listener port, a non-nil warnings list, and a cryptographically random CSRF token; per-app detail exposes the full path and detection reason while unknown slugs return 404.
+- `TestIndexCacheRoundTripsAtomically` and `TestServerPersistsIndexOutsideAppRoot`: the complete public metadata plus private filename-search fields round-trip through versioned JSON and an fsynced sibling-temp replacement; normal serving writes only `index.json` beside machine state, with load support for cold-start reuse and no app-folder changes.
 
 ## Decisions made this build (beyond the spec)
 

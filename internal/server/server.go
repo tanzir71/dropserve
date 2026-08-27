@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/tanzir71/dropserve/internal/dashboard"
+	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
@@ -18,9 +19,20 @@ type Server struct {
 	http   http.Handler
 }
 
+// Options configures scanning and optional machine-state persistence.
+type Options struct {
+	Scanner   scanner.Options
+	IndexPath string
+}
+
 // New scans the configured roots and registered apps, then mounts every app.
 func New(options scanner.Options) (*Server, error) {
-	result, err := scanner.Scan(options)
+	return NewWithOptions(Options{Scanner: options})
+}
+
+// NewWithOptions creates a server and atomically persists its dashboard index when requested.
+func NewWithOptions(options Options) (*Server, error) {
+	result, err := scanner.Scan(options.Scanner)
 	if err != nil {
 		return nil, err
 	}
@@ -32,7 +44,13 @@ func New(options scanner.Options) (*Server, error) {
 		})
 	}
 	appRouter := router.New(mounts)
-	dashboardHandler, err := dashboard.New(result.Apps)
+	entries := indexer.Build(result.Apps)
+	if options.IndexPath != "" {
+		if err := indexer.Save(options.IndexPath, entries); err != nil {
+			return nil, err
+		}
+	}
+	dashboardHandler, err := dashboard.New(entries)
 	if err != nil {
 		return nil, err
 	}

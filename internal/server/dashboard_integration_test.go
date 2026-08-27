@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 )
@@ -48,6 +49,43 @@ func TestDashboardAtRoot(t *testing.T) {
 		if !strings.Contains(string(body), expected) {
 			t.Fatalf("dashboard body does not contain %q: %s", expected, body)
 		}
+	}
+}
+
+func TestServerPersistsIndexOutsideAppRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeDashboardFixture(t, root, "ledger", "Ledger", "Tracks local records.")
+	stateDirectory := t.TempDir()
+	indexPath := filepath.Join(stateDirectory, "index.json")
+	_, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner:   scanner.Options{Roots: []string{root}},
+		IndexPath: indexPath,
+	})
+	if err != nil {
+		t.Fatalf("create persistent server: %v", err)
+	}
+	entries, err := indexer.Load(indexPath)
+	if err != nil {
+		t.Fatalf("load persisted server index: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Slug != "ledger" {
+		t.Fatalf("persisted server index = %#v, want ledger", entries)
+	}
+	appEntries, err := os.ReadDir(filepath.Join(root, "ledger"))
+	if err != nil {
+		t.Fatalf("read app root: %v", err)
+	}
+	if len(appEntries) != 2 {
+		t.Fatalf("server wrote inside app root: %v", appEntries)
+	}
+	stateEntries, err := os.ReadDir(stateDirectory)
+	if err != nil {
+		t.Fatalf("read state directory: %v", err)
+	}
+	if len(stateEntries) != 1 || stateEntries[0].Name() != "index.json" {
+		t.Fatalf("state directory contents = %v, want only index.json", stateEntries)
 	}
 }
 

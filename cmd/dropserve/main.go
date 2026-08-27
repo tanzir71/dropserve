@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -169,10 +170,27 @@ func serveCommandContext(
 	if *bindAddress == "" {
 		*bindAddress = configuration.Server.Bind
 	}
+	if *statePath == "" && *listenAddress == "" {
+		var err error
+		*statePath, err = state.DefaultPath()
+		if err != nil {
+			if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not find its state folder: %v\n", err); writeErr != nil {
+				return 1
+			}
+			return 1
+		}
+	}
+	indexPath := ""
+	if *statePath != "" {
+		indexPath = filepath.Join(filepath.Dir(*statePath), "index.json")
+	}
 
-	handler, err := dropserver.New(scanner.Options{
-		Roots:      configuration.Server.AppsRoots,
-		Registered: configuration.Server.RegisteredApps,
+	handler, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{
+			Roots:      configuration.Server.AppsRoots,
+			Registered: configuration.Server.RegisteredApps,
+		},
+		IndexPath: indexPath,
 	})
 	if err != nil {
 		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not scan your app folders: %v\n", err); writeErr != nil {

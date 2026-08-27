@@ -592,6 +592,7 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 		"invoice-desk":  {name: "invoice desk", kind: "static", status: "ready"},
 		"kitchen-timer": {name: "kitchen timer", kind: "static", status: "ready"},
 		"node":          {name: "node", kind: "command", status: "ready"},
+		"process-tree":  {name: "process tree", kind: "command", status: "ready"},
 		"python":        {name: "python", kind: "command", status: "ready"},
 		"static":        {name: "static", kind: "static", status: "ready"},
 	}

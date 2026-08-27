@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:19:12Z
+**Last updated:** 2026-08-27T21:21:46Z
 **Gate status:** green
-**Iterations completed:** 55
+**Iterations completed:** 56
 
 ## Milestone progress
 
@@ -26,7 +26,7 @@
 - [x] Assert: same for a Python fixture.
 - [x] Assert: a fixture that exits immediately with code 1 is restarted with backoff, gives up after 5 attempts inside the window, ends in `crashed`, and its logs contain the error output.
 - [x] Assert (**I4**): with a crashed app and a healthy app both present, the healthy app still returns 200 and the dashboard still renders.
-- [ ] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
+- [x] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
 - [ ] Assert: on Dropserve shutdown, no child processes survive.
 - [ ] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
 - [ ] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
@@ -126,6 +126,7 @@
 - `TestPythonFixtureIsDetectedStartedHealthyAndProxied` exercises the real `testdata/fixtures/python/server.py`: rule 6 records `Python app from server.py`, runs it with allocated loopback environment, health-checks it, and proxies `/python/` to the exact fixture body in about 330 ms locally. CI installs Python 3.13 explicitly with the official setup action.
 - `TestImmediateFailureRestartsFiveTimesThenCrashes` drives a real package whose start script prints `intentional fixture failure` and exits 1. The supervisor shares its 256 KB log ring across five isolated attempts, waits the production `1s, 2s, 4s, 8s` backoff sequence (with short injected delays in tests), then mounts a friendly status-200 stopped page and reports `crashed`, five attempts, and the captured error through both app metadata and the log endpoint. The full gate is green and a post-gate process inspection found no fixture descendants.
 - `TestCrashedAppDoesNotBlockHealthyApp` registers only the broken and healthy Node packages, drives the broken app through all five attempts, then proves the dashboard still renders with status 200 and `/node/` still proxies the exact healthy fixture body. This locks invariant I4 at the HTTP boundary.
+- Windows-only `TestProcessTreeIsKilled` runs a real `npm start` package whose Node server spawns a long-lived Node grandchild. It verifies the reported grandchild PID is live, closes Dropserve, and observes that exact PID exit in about 820 ms—well inside the mandatory five-second window. The full gate and a separate process inventory both found no surviving process-tree fixture descendants.
 
 ## Decisions made this build (beyond the spec)
 
@@ -144,6 +145,7 @@
 - Build-loop process only: the ranking assertion passed immediately because the weighted scorer was introduced alongside the preceding README/filename search slices. The dedicated acceptance test and full gate now lock the required order.
 - Build-loop process only: the namespace-shadowing assertion passed immediately because M1 already refused reserved slugs and the first M2 server composition reserved system paths before app routing. The explicit end-to-end test now locks both layers together.
 - Build-loop process only: the M4 I4 assertion passed immediately because the preceding restart-policy slice had to retain a crashed handler instead of aborting reconciliation. The dedicated mixed-health end-to-end test now locks dashboard and healthy-app availability together.
+- Build-loop process only: the mandatory Windows grandchild assertion passed immediately because native Job Object containment was added when the first Node proxy test exposed the leak. The dedicated PID-liveness test now guards the full `npm → node → grandchild` tree and its five-second deadline on every Windows gate.
 - Build-loop process only: the M3 rename assertion passed when first added because the preceding live-create slice deliberately reconciles the entire immutable scan and mount table, which already treats a filesystem rename as one removal plus one addition. The dedicated two-URL deadline test now locks that behavior.
 
 ## Verify on real hardware

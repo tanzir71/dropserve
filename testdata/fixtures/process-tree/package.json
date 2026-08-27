@@ -1,0 +1,7 @@
+{
+  "name": "dropserve-process-tree-fixture",
+  "private": true,
+  "scripts": {
+    "start": "node server.js"
+  }
+}

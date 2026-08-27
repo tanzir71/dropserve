@@ -1,14 +1,14 @@
 # Build State
 
-**Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T13:14:59Z
+**Current milestone:** M2 — The index
+**Last updated:** 2026-08-27T13:15:42Z
 **Gate status:** green
-**Iterations completed:** 19
+**Iterations completed:** 20
 
 ## Milestone progress
 
 - [x] M0 — Repository, CI, and the gate (tag: `m0-complete`)
-- [ ] M1 — Scan, mount, serve
+- [x] M1 — Scan, mount, serve (tag: `m1-complete`)
 - [ ] M2 — The index
 - [ ] M3 — Live
 - [ ] M4 — Running things
@@ -22,18 +22,16 @@
 
 ## Current milestone criteria
 
-- [x] Static fixture mounted at `/static/` returns the expected body and content type.
-- [x] `GET /static` redirects permanently to `/static/`.
-- [x] Slug sanitisation handles spaces, Unicode, unsafe prefixes, and ignored names.
-- [x] Path traversal is refused for encoded, absolute, UNC, and escaping-symlink paths.
-- [x] Slug collisions across roots produce stable suffixes and both apps remain reachable.
-- [x] Case-insensitive collisions and case-only renames behave correctly.
-- [x] Scanner walks a path deeper than 260 characters.
-- [x] Reserved slugs are refused with a warning.
-- [x] A full scan-and-serve cycle leaves every app file and directory mtime unchanged (I2).
-- [x] `dropserve add <path>` writes only a registered-path config entry and serves it.
-- [x] M1 smoke script starts the server on a random port and fetches a mounted fixture.
-- [x] Port fallback skips occupied 80 and 8080, binds 8000, and reports the warning.
+- [ ] `GET /` returns the dashboard HTML with a 200 and `Content-Type: text/html`.
+- [ ] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
+- [ ] Search finds a fixture app by text that appears only in its `README.md`.
+- [ ] Search finds a fixture app by text that appears only in a filename.
+- [ ] A name match ranks above a filename-only match.
+- [ ] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
+- [ ] The QR endpoint returns a valid PNG for the requested URL.
+- [ ] Dashboard assets remain under 100 KB.
+- [ ] The dashboard handles both zero apps and 200 apps.
+- [ ] `/_dropserve/*` cannot be shadowed by an app slug.
 
 ### M0 completion evidence
 
@@ -64,6 +62,12 @@
 - `TestStaticFileValidatorsAndRange` and `TestDirectoryListingWhenNoIndexExists`: the M1 deliverables audit proves ETag/`If-None-Match`, byte ranges, MIME detection, safe URL-encoded directory listings, and index resolution. The existing I2 fixture now uses deterministic mtimes so delayed Windows directory metadata cannot create a false write report.
 - `TestPersistedPortIsPreferredOnRestart`: a random previously selected port is atomically loaded and rebound before the fallback ladder is retried, preserving the original warning rather than inventing a new port-80 diagnosis.
 
+### M1 completion evidence
+
+- Final `make check`: green with race tests, full golangci-lint, version injection, Windows/Linux/macOS zero-CGO cross-builds, and the shipped-file scan.
+- Shipped binary: `dropserve 0.0.0-dev (8263b2a)`.
+- Final `scripts/smoke/m1.ps1`: `http://127.0.0.1:54826/static/` returned 200 with the fixture heading.
+
 ## Decisions made this build (beyond the spec)
 
 - None.
@@ -78,7 +82,7 @@
 
 ## Verify on real hardware
 
-- None currently listed for M1.
+- None currently listed for M2.
 
 ## Dependency count
 

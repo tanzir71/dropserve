@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:46:20Z
+**Last updated:** 2026-08-27T20:47:35Z
 **Gate status:** green
-**Iterations completed:** 41
+**Iterations completed:** 42
 
 ## Milestone progress
 
@@ -23,7 +23,7 @@
 ## Current milestone criteria
 
 - [x] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
-- [ ] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
+- [x] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
 - [ ] Assert: renaming an app changes the slug and the old slug 404s.
 - [ ] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
 - [ ] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
@@ -99,6 +99,7 @@
 
 - `TestFolderAddedIsServedWithinTwoSeconds` starts from an empty real Apps root and HTTP server, creates `live-notes/index.html`, and polls requests against a two-second deadline. The new fsnotify path debounces the native events for 500 ms, rescans read-only, swaps immutable router/dashboard snapshots, and served the exact body in about 660 ms on Windows.
 - `internal/watcher` watches each existing root plus app subdirectories to a three-level cap and 256-watch per-app budget, skips dependency/cache directories, and invokes the same full reconcile path every 30 seconds as an event-loss safety net.
+- `TestDeletedFolderIsRemovedWithinTwoSeconds` deletes a mounted app, then accepts the result only after the immutable scan snapshot is empty and the URL returns the friendly Dropserve HTML 404. The native removal path settled in about 650 ms without a panic.
 
 ## Decisions made this build (beyond the spec)
 

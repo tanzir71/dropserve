@@ -3,6 +3,7 @@ package router
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -48,7 +49,7 @@ func (router *Router) Swap(mounts []Mount) {
 func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	table := router.table.Load()
 	if table == nil {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 
@@ -56,7 +57,7 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 	slug, remainder, hasSlash := strings.Cut(trimmed, "/")
 	mount, found := table.mounts[slug]
 	if !found || slug == "" {
-		http.NotFound(response, request)
+		serveNotFound(response, request)
 		return
 	}
 	if !hasSlash {
@@ -73,4 +74,15 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 	proxied.URL.Path = "/" + remainder
 	proxied.URL.RawPath = ""
 	mount.Handler.ServeHTTP(response, proxied)
+}
+
+func serveNotFound(response http.ResponseWriter, request *http.Request) {
+	const content = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>App not found · Dropserve</title><body><main><h1>Dropserve could not find that app.</h1><p>Check the address, or return to <a href="/">your apps</a>.</p></main></body></html>`
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusNotFound)
+	if request.Method == http.MethodHead {
+		return
+	}
+	_, _ = response.Write([]byte(content))
 }

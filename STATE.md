@@ -1,16 +1,16 @@
 # Build State
 
-**Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T21:01:06Z
+**Current milestone:** M4 — Running things
+**Last updated:** 2026-08-27T21:03:24Z
 **Gate status:** green
-**Iterations completed:** 50
+**Iterations completed:** 51
 
 ## Milestone progress
 
 - [x] M0 — Repository, CI, and the gate (tag: `m0-complete`)
 - [x] M1 — Scan, mount, serve (tag: `m1-complete`)
 - [x] M2 — The index (tag: `m2-complete`)
-- [ ] M3 — Live
+- [x] M3 — Live (tag: `m3-complete`)
 - [ ] M4 — Running things
 - [ ] M5 — The subpath survival kit
 - [ ] M6 — Always there
@@ -22,24 +22,15 @@
 
 ## Current milestone criteria
 
-- [x] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
-- [x] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
-- [x] Assert: renaming an app changes the slug and the old slug 404s.
-- [x] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
-- [x] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
-- [x] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
-- [x] Assert: watching a root that does not exist yet does not crash; when the directory appears, it is picked up.
-- [x] Assert (**hazard 5**): a file marked with the cloud-placeholder attribute (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, simulated in the test via an injected stat interface) is listed in the index by name but never opened by the indexer, so a cloud-only folder cannot stall the scan. On non-Windows this test asserts the interface is wired and skips the attribute check.
-- [x] Assert (**hazard 5**): if a configured Apps root resolves inside a known sync folder (`OneDrive`, `Dropbox`, `Google Drive`, `iCloud Drive` in the path), a warning is recorded and surfaced in `doctor` and the dashboard, naming the root and recommending `%USERPROFILE%\Dropserve`.
-
-### M3 deliverables audit
-
-- [x] Watch each existing Apps root with fsnotify and debounce native change bursts for 500 ms.
-- [x] Recursively watch app directories to a three-level cap, a 256-watch per-app default budget, and prune dependency/cache directories before watching.
-- [x] Run the same full read-only reconcile every 30 seconds as the event-loss safety net.
-- [x] Stream bounded `apps-changed` SSE notifications and have the open launcher reload its immutable apps snapshot without a page refresh.
-- [x] Handle missing roots, cloud-only placeholder content, and known sync-folder warnings without stalling or crashing.
-- [x] Run the real shipped binary and browser-rendered empty-to-one-app live demo before tagging.
+- [ ] Assert: fixture `testdata/fixtures/node/` (a 20-line `http` server reading `process.env.PORT`) is detected as `command`, started, health-checked, and `GET /node/` proxies to it with the correct body. Skip with a clear message if `node` is absent from the runner, and ensure CI installs Node so it does not skip.
+- [ ] Assert: same for a Python fixture.
+- [ ] Assert: a fixture that exits immediately with code 1 is restarted with backoff, gives up after 5 attempts inside the window, ends in `crashed`, and its logs contain the error output.
+- [ ] Assert (**I4**): with a crashed app and a healthy app both present, the healthy app still returns 200 and the dashboard still renders.
+- [ ] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
+- [ ] Assert: on Dropserve shutdown, no child processes survive.
+- [ ] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
+- [ ] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
+- [ ] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
 
 ### M0 completion evidence
 
@@ -120,6 +111,13 @@
 - `TestWatchDepthAndPerAppBudgetAreBounded` constructs a deep and wide app with `node_modules`, then inspects the real native watch set: no fourth-level or dependency path is watched, and the configured four-watch test budget is exact. `TestSyncRootWarningNamesAllKnownProviders` locks all four named sync providers.
 - Real-binary browser demo: `dropserve 0.0.0-dev (d8dc490)` started against an empty random-port root. Visual verification first exposed that the empty apps API encoded `null`, which made the JavaScript launcher show its error state; the API and regression helper now enforce `[]`. In the corrected build the same open page changed from `0 apps` to a rendered `Live Canvas` card after the folder appeared, with no reload and zero console errors.
 
+### M3 completion evidence
+
+- Final local `make check`: green with race tests, full golangci-lint, version injection, Windows/Linux/macOS zero-CGO cross-builds, and the shipped-file scan.
+- Shipped binary: `dropserve 0.0.0-dev (a1a05b6)`.
+- The real-binary browser demo verified an empty-to-one-app SSE update on the same open page, with the corrected empty state and zero console errors.
+- Hosted CI [run 33116161221](https://github.com/tanzir71/dropserve/actions/runs/33116161221): Ubuntu gate, Windows gate, golangci-lint, secret scan, platform smoke, watcher bounds, cloud placeholder behavior, and all live HTTP acceptance tests passed.
+
 ## Decisions made this build (beyond the spec)
 
 - 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
@@ -139,7 +137,7 @@
 
 ## Verify on real hardware
 
-- None currently listed for M3.
+- None currently listed for M4.
 
 ## Dependency count
 

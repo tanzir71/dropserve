@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:33:53Z
+**Last updated:** 2026-08-27T21:36:52Z
 **Gate status:** green
-**Iterations completed:** 60
+**Iterations completed:** 61
 
 ## Milestone progress
 
@@ -31,6 +31,13 @@
 - [x] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
 - [x] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
 - [x] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
+
+### M4 completion audit
+
+- [x] Deliverable: detection rules 2–4, 6, and 8 are implemented and tested.
+- [ ] Deliverable: the bounded log API is surfaced in a designed dashboard log viewer for command apps and crashed cards expose their error output.
+- [ ] Deliverable: restart policy also covers a command that exits after becoming healthy, not only failures during initial health checking.
+- [ ] Completion: run the M4 demo, paste its output below, rerun the full gate, commit, and tag `m4-complete`.
 
 ### M0 completion evidence
 
@@ -132,6 +139,7 @@
 - `TestMissingRuntimeMountsFriendlyNeedsRuntimePage` empties `PATH`, registers the real Node package, and first observed the old `crashed` state. Runtime availability is now checked before launch: the app mounts immediately as `needs-runtime`, its dashboard metadata carries that state, and `/node/` returns a status-200 page that names Node.js and says to install it. No futile restart loop or 502 is exposed, and the full gate is green.
 - `TestAutostartFalseStartsOnFirstRequest` creates a temporary Node package with `dropserve.json` setting `autostart: false` and a process-written marker. The failing run proved scanning launched it immediately; manifest autostart is now honored, scan reports `stopped` with no marker, and the first request performs the single serialized cold start, health-checks, returns the exact fixture body, and creates the marker in about 780 ms.
 - The first full gate after lazy start caught an existing atomic-removal edge: an in-flight request could retain the deleted app's old static handler and receive Go's plain 404 after the new empty scan published. All static misses now use Dropserve's friendly designed 404; the exact race test passed 10 consecutive `-race` runs and the full gate is green.
+- `TestCommandDetectionRulesTwoFourAndEight` completes the explicit M4 detection deliverable: it covers `Procfile` `web:` commands (rule 2), package `main` plus `index.js`/`server.js` fallbacks when no start script exists (rule 4), and a sole `.exe`/Unix-executable file (rule 8). Each result records its command, runtime, and friendly detection reason; the pre-implementation run classified all four fixtures as static, and the full gate is now green alongside the rule 3 and 6 integration tests.
 
 ## Decisions made this build (beyond the spec)
 

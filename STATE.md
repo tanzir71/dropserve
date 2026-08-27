@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:06:27Z
+**Last updated:** 2026-08-27T23:09:30Z
 **Gate status:** green
-**Iterations completed:** 82
+**Iterations completed:** 83
 
 ## Milestone progress
 
@@ -182,6 +182,7 @@
 
 - `TestTaskXMLUsesSafePerUserLogonSettings` failed first because no autostart implementation existed, then locked the current-user `LogonTrigger`, interactive token, least privilege, ten-second delay, three one-minute failure restarts, disabled battery restrictions, `PT0S` runtime, and `--background` action. A live first import exposed Task Scheduler's UTF-16 requirement; the task file now uses a UTF-16LE byte-order mark and declaration, with a separate encoding regression test.
 - `scripts/smoke/m6.ps1` enables the real built binary, queries `schtasks /Query /TN Dropserve /XML`, checks the required trigger/runtime/no-elevation contract plus action and retry details, confirms CLI status, and removes the task. It backs up and restores any pre-existing task. The local run left no task behind and the full race/lint/version/cross-build/shipped-file gate is green.
+- The first hosted lint analyzed the non-Windows build and correctly found its temporary `Disable` and `Enabled` error returns made the CLI branches constant. Unsupported platforms now model the truthful idempotent state—nothing to disable and status disabled—while `enable` remains explicit about missing support; Linux receives its real systemd implementation in the dedicated criterion.
 
   ```text
   M6 Windows autostart smoke passed: Dropserve is registered for current-user logon without elevation.

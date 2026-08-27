@@ -19,10 +19,10 @@ func Enable(_ string) error {
 
 // Disable removes the current user's Dropserve startup entry.
 func Disable() error {
-	return unsupportedError()
+	return nil
 }
 
 // Enabled reports the actual presence of Dropserve's startup entry.
 func Enabled() (bool, error) {
-	return false, unsupportedError()
+	return false, nil
 }

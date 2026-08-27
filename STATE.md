@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:32:43Z
+**Last updated:** 2026-08-27T23:44:35Z
 **Gate status:** green
-**Iterations completed:** 89
+**Iterations completed:** 90
 
 ## Milestone progress
 
@@ -27,7 +27,7 @@
 - [x] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
 - [x] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
 - [x] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
-- [ ] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
+- [x] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
 - [ ] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
 
 ### M5 completion audit (closed)
@@ -194,6 +194,7 @@
   M6 Linux autostart smoke passed: the user unit was written, verified, enabled, and removed.
   ```
 - `TestDoctorExitCodesAndCoversSupportSurface` and `TestHealthyReportContainsEverySupportCheck` lock healthy exit 0, required-root failure exit 1, and explicit lines for version, port rationale, Windows excluded ranges and firewall, readable Apps roots, every app and warning, Node/Python/PHP availability, mDNS bind, Tailscale, OS-backed autostart, and error logs. Missing optional integrations are warnings; unreadable configured roots and missing runtimes required by detected apps are failures. `TestErrorLogsReturnOnlyNewestTwentyLines` locks the 20-line cap across chronologically ordered rotated files. A real binary run on this machine printed the full report and correctly exited 1 because the default Apps root does not exist; the full local gate is green.
+- `TestWindowsBuildShipsGUIAndConsoleVariants` failed first with no build plan, then locked `dropserve.exe` as a `-H=windowsgui` binary and `dropserve-cli.exe` as its console counterpart. Terminal smokes now use the CLI variant, while enabling autostart from it deliberately registers the colocated GUI binary. `scripts/smoke/m6-background.ps1` independently parses the PE subsystem and has the launched `--background` process report its own `GetConsoleWindow()` handle; both were respectively `IMAGE_SUBSYSTEM_WINDOWS_GUI` and `0` locally and in hosted Windows CI. Hosted run [33127169169](https://github.com/tanzir71/dropserve/actions/runs/33127169169) passed every Ubuntu/Windows gate, native smoke, lint, and secret-scan job.
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.

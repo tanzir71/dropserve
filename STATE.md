@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:23:10Z
+**Last updated:** 2026-08-27T20:23:42Z
 **Gate status:** green
-**Iterations completed:** 32
+**Iterations completed:** 33
 
 ## Milestone progress
 
@@ -32,6 +32,14 @@
 - [x] Dashboard assets remain under 100 KB.
 - [x] The dashboard handles both zero apps and 200 apps.
 - [x] `/_dropserve/*` cannot be shadowed by an app slug.
+
+### M2 deliverables audit
+
+- [ ] Extract index `<title>`/first `<h1>`, byte size, mtime, favicon, and deterministic monogram metadata.
+- [ ] Complete read-only app detail, status, and health API surfaces used by the dashboard.
+- [ ] Persist the in-memory index atomically as `index.json` for fast cold starts.
+- [ ] Wire sharing, QR, copy-link, and card action interactions into the vanilla dashboard.
+- [ ] Run the real-binary M2 smoke and a browser-rendered launcher demo before tagging.
 
 ### M0 completion evidence
 

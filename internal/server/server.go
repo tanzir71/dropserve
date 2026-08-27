@@ -99,6 +99,11 @@ func (server *Server) RebuildCount() uint64 {
 	return server.rebuilds.Load()
 }
 
+// Reconcile performs one full read-only scan and publishes the resulting routes.
+func (server *Server) Reconcile() error {
+	return server.reconcile()
+}
+
 func (server *Server) reconcile() error {
 	server.reconcileMu.Lock()
 	defer server.reconcileMu.Unlock()

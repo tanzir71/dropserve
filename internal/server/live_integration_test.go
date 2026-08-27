@@ -234,6 +234,45 @@ func TestRapidChangesAreDebounced(t *testing.T) {
 	}
 }
 
+func TestReconcileCatchesChangesWhileWatcherIsStopped(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create live server: %v", err)
+	}
+	if err := server.Close(); err != nil {
+		t.Fatalf("stop live watcher: %v", err)
+	}
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	appRoot := filepath.Join(root, "recovered-notes")
+	if err := os.Mkdir(appRoot, 0o750); err != nil {
+		t.Fatalf("create app folder: %v", err)
+	}
+	const body = "<h1>Recovered notes</h1>"
+	if err := os.WriteFile(filepath.Join(appRoot, "index.html"), []byte(body), 0o600); err != nil {
+		t.Fatalf("write app index: %v", err)
+	}
+	if current := server.Scan(); len(current.Apps) != 0 {
+		t.Fatalf("stopped watcher rebuilt unexpectedly: %#v", current.Apps)
+	}
+
+	if err := server.Reconcile(); err != nil {
+		t.Fatalf("reconcile stopped watcher change: %v", err)
+	}
+	status, gotBody := requestLiveApp(t, httpServer.Client(), httpServer.URL+"/recovered-notes/")
+	if status != http.StatusOK || gotBody != body {
+		t.Fatalf("reconciled app returned %d body=%q", status, gotBody)
+	}
+	current := server.Scan()
+	if len(current.Apps) != 1 || current.Apps[0].Slug != "recovered-notes" {
+		t.Fatalf("reconciled snapshot = %#v", current.Apps)
+	}
+}
+
 func requestLiveApp(t *testing.T, client *http.Client, target string) (int, string) {
 	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)

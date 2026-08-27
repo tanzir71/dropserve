@@ -92,3 +92,55 @@ func TestAbsolutePathsFixturePrefersAndServesOwnPort(t *testing.T) {
 		t.Fatalf("own-port response = %d %q", directResponse.StatusCode, body)
 	}
 }
+
+func TestAssignedCommandPortPersistsAcrossDropserveRestart(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the Node fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "node"))
+	if err != nil {
+		t.Fatalf("resolve Node fixture: %v", err)
+	}
+	options := dropserver.Options{
+		Scanner:   scanner.Options{Registered: []string{fixture}},
+		IndexPath: filepath.Join(t.TempDir(), "index.json"),
+	}
+	first, err := dropserver.NewWithOptions(options)
+	if err != nil {
+		t.Fatalf("start first persistent-port server: %v", err)
+	}
+	firstScan := first.Scan()
+	if len(firstScan.Apps) != 1 || firstScan.Apps[0].Port == 0 {
+		_ = first.Close()
+		t.Fatalf("first assigned port = %#v", firstScan.Apps)
+	}
+	firstPort := firstScan.Apps[0].Port
+	if err := first.Close(); err != nil {
+		t.Fatalf("close first persistent-port server: %v", err)
+	}
+
+	second, err := dropserver.NewWithOptions(options)
+	if err != nil {
+		t.Fatalf("start second persistent-port server: %v", err)
+	}
+	defer func() {
+		if closeErr := second.Close(); closeErr != nil {
+			t.Errorf("close second persistent-port server: %v", closeErr)
+		}
+	}()
+	secondScan := second.Scan()
+	if len(secondScan.Apps) != 1 || secondScan.Apps[0].Port != firstPort {
+		t.Fatalf("port after restart = %#v, want %d", secondScan.Apps, firstPort)
+	}
+	status, body := requestCommandApp(
+		t,
+		&http.Client{},
+		"http://127.0.0.1:"+strconv.Itoa(firstPort)+"/",
+	)
+	if status != http.StatusOK || body != "Dropserve Node fixture" {
+		t.Fatalf("persisted own-port response = %d %q", status, body)
+	}
+}

@@ -53,8 +53,14 @@ func New(options scanner.Options) (*Server, error) {
 // NewWithOptions creates a server and atomically persists its dashboard index when requested.
 func NewWithOptions(options Options) (*Server, error) {
 	supervisorOptions := options.Supervisor
-	if supervisorOptions.LogDirectory == "" && options.IndexPath != "" {
-		supervisorOptions.LogDirectory = filepath.Join(filepath.Dir(options.IndexPath), "logs")
+	if options.IndexPath != "" {
+		stateDirectory := filepath.Dir(options.IndexPath)
+		if supervisorOptions.LogDirectory == "" {
+			supervisorOptions.LogDirectory = filepath.Join(stateDirectory, "logs")
+		}
+		if supervisorOptions.PortPath == "" {
+			supervisorOptions.PortPath = filepath.Join(stateDirectory, "ports.json")
+		}
 	}
 	server := &Server{
 		router:     router.New(nil),

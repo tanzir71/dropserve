@@ -32,6 +32,7 @@ const restartFailureWindow = 10 * time.Minute
 type Options struct {
 	RestartDelays []time.Duration
 	LogDirectory  string
+	PortPath      string
 }
 
 // Snapshot is the observable state and bounded logs for one command app.
@@ -49,6 +50,8 @@ type Manager struct {
 	processes map[string]*Process
 	options   Options
 	closed    bool
+	ports     *portRegistry
+	portErr   error
 }
 
 // NewManager creates an empty process manager.
@@ -56,7 +59,8 @@ func NewManager(options Options) *Manager {
 	if len(options.RestartDelays) == 0 {
 		options.RestartDelays = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
 	}
-	return &Manager{processes: make(map[string]*Process), options: options}
+	ports, err := newPortRegistry(options.PortPath)
+	return &Manager{processes: make(map[string]*Process), options: options, ports: ports, portErr: err}
 }
 
 // Handler returns a process proxy, preserving lazy apps in a stopped state until requested.
@@ -83,9 +87,17 @@ func (manager *Manager) startLocked(
 	failureTimes []time.Time,
 ) (http.Handler, error) {
 	key := filepath.Clean(application.Path)
+	if manager.portErr != nil {
+		return nil, manager.portErr
+	}
+	port, err := manager.ports.assign(application.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("assign port for %s: %w", application.Slug, err)
+	}
 	if len(application.Command) != 0 {
 		if _, err := exec.LookPath(application.Command[0]); err != nil {
 			missing := newProcess(application)
+			missing.port = port
 			missing.status = "needs-runtime"
 			missing.proxy = needsRuntimeHandler(application)
 			return manager.publishLocked(key, missing, mount), nil
@@ -99,6 +111,7 @@ func (manager *Manager) startLocked(
 	attemptLimit := maximumStartAttempts - len(failureTimes)
 	for attempt := 1; attempt <= attemptLimit; attempt++ {
 		process := newProcess(application)
+		process.port = port
 		process.logs = logs.ring
 		process.output = logs
 		process.attempts = len(failureTimes) + attempt
@@ -122,6 +135,7 @@ func (manager *Manager) startLocked(
 		}
 	}
 	crashed := newProcess(application)
+	crashed.port = port
 	crashed.logs = logs.ring
 	crashed.output = logs
 	crashed.logCloser = logs
@@ -297,6 +311,9 @@ func (manager *Manager) Close() error {
 		}
 		delete(manager.processes, key)
 	}
+	if manager.ports != nil {
+		manager.ports.release()
+	}
 	return errors.Join(stopErrors...)
 }
 
@@ -330,9 +347,13 @@ func (process *Process) Start() error {
 	if len(process.application.Command) == 0 {
 		return errors.New("command app has no command")
 	}
-	port, err := availablePort()
-	if err != nil {
-		return err
+	port := process.port
+	if port == 0 {
+		var err error
+		port, err = availablePort()
+		if err != nil {
+			return err
+		}
 	}
 	process.port = port
 	control, err := newProcessControl()

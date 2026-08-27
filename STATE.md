@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T21:49:05Z
+**Last updated:** 2026-08-27T21:51:45Z
 **Gate status:** green
-**Iterations completed:** 64
+**Iterations completed:** 65
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] Assert: a fixture returning a 302 to `/login` produces a client-visible redirect to `/<slug>/login`.
+- [x] Assert: a fixture returning a 302 to `/login` produces a client-visible redirect to `/<slug>/login`.
 - [ ] Assert: a fixture setting `Set-Cookie: s=1; Path=/` yields `Path=/<slug>/`.
 - [ ] Assert: an HTML response with no `<base>` gets `<base href="/<slug>/">` injected directly after `<head>`; one that already has a `<base>` is left byte-identical.
 - [ ] Assert: a non-HTML response (JSON, JS, CSS, PNG) is byte-identical through the proxy — hash in, hash out.
@@ -147,6 +147,10 @@
   ```text
   M4 smoke passed: Node and Python returned 200; broken was isolated after 5 starts with logs at http://127.0.0.1:64225/
   ```
+
+### M5 evidence
+
+- `TestCommandRedirectIsRewrittenUnderSlug` drives the real `subpath` command fixture. Its upstream 302 initially exposed `Location: /login`; the proxy now rewrites root-relative redirects to `/subpath/login` while leaving absolute, protocol-relative, and already-prefixed locations untouched. The focused test and full gate are green.
 
 ## Decisions made this build (beyond the spec)
 

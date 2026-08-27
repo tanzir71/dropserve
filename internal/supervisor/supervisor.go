@@ -368,6 +368,20 @@ func (process *Process) Start() error {
 		return fmt.Errorf("create proxy target: %w", err)
 	}
 	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.ModifyResponse = func(response *http.Response) error {
+		if response.StatusCode < http.StatusMultipleChoices || response.StatusCode >= http.StatusBadRequest {
+			return nil
+		}
+		location := response.Header.Get("Location")
+		prefix := "/" + process.application.Slug
+		if strings.HasPrefix(location, "/") &&
+			!strings.HasPrefix(location, "//") &&
+			location != prefix &&
+			!strings.HasPrefix(location, prefix+"/") {
+			response.Header.Set("Location", prefix+location)
+		}
+		return nil
+	}
 	proxy.ErrorHandler = func(response http.ResponseWriter, _ *http.Request, proxyErr error) {
 		http.Error(response, "Dropserve could not reach this app: "+proxyErr.Error(), http.StatusBadGateway)
 	}

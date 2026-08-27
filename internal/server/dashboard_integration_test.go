@@ -595,6 +595,7 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 		"process-tree":  {name: "process tree", kind: "command", status: "ready"},
 		"python":        {name: "python", kind: "command", status: "ready"},
 		"static":        {name: "static", kind: "static", status: "ready"},
+		"subpath":       {name: "subpath", kind: "command", status: "ready"},
 	}
 	if len(entries) != len(expected) {
 		t.Fatalf("apps API returned %d entries, want every fixture (%d): %#v", len(entries), len(expected), entries)

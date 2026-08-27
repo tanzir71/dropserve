@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -51,11 +52,15 @@ func New(options scanner.Options) (*Server, error) {
 
 // NewWithOptions creates a server and atomically persists its dashboard index when requested.
 func NewWithOptions(options Options) (*Server, error) {
+	supervisorOptions := options.Supervisor
+	if supervisorOptions.LogDirectory == "" && options.IndexPath != "" {
+		supervisorOptions.LogDirectory = filepath.Join(filepath.Dir(options.IndexPath), "logs")
+	}
 	server := &Server{
 		router:     router.New(nil),
 		options:    options,
 		events:     newEventHub(),
-		supervisor: supervisor.NewManager(options.Supervisor),
+		supervisor: supervisor.NewManager(supervisorOptions),
 	}
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/_dropserve/api/events" {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -24,9 +25,10 @@ const healthDeadline = 30 * time.Second
 
 const maximumStartAttempts = 5
 
-// Options controls restart timing. Empty values use the production policy.
+// Options controls restart timing and durable log placement. Empty timing uses the production policy.
 type Options struct {
 	RestartDelays []time.Duration
+	LogDirectory  string
 }
 
 // Snapshot is the observable state and bounded logs for one command app.
@@ -59,15 +61,20 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	if process, found := manager.processes[key]; found {
 		return process.Handler(), nil
 	}
-	logs := newRingBuffer(256 << 10)
+	logs, err := newLogSink(manager.options.LogDirectory, application.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("prepare logs for %s: %w", application.Slug, err)
+	}
 	var lastError error
 	for attempt := 1; attempt <= maximumStartAttempts; attempt++ {
 		process := newProcess(application)
-		process.logs = logs
+		process.logs = logs.ring
+		process.output = logs
 		process.attempts = attempt
-		err := process.Start()
+		err = process.Start()
 		if err == nil {
 			process.status = "ready"
+			process.logCloser = logs
 			manager.processes[key] = process
 			return process.Handler(), nil
 		}
@@ -82,7 +89,9 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 		}
 	}
 	crashed := newProcess(application)
-	crashed.logs = logs
+	crashed.logs = logs.ring
+	crashed.output = logs
+	crashed.logCloser = logs
 	crashed.attempts = maximumStartAttempts
 	crashed.status = "crashed"
 	crashed.proxy = crashedHandler(application, lastError)
@@ -147,6 +156,8 @@ type Process struct {
 	proxy       http.Handler
 	done        chan error
 	logs        *ringBuffer
+	output      io.Writer
+	logCloser   io.Closer
 	closeOnce   sync.Once
 	closeErr    error
 	control     *processControl
@@ -155,7 +166,8 @@ type Process struct {
 }
 
 func newProcess(application app.App) *Process {
-	return &Process{application: application, logs: newRingBuffer(256 << 10)}
+	logs := newRingBuffer(memoryLogBytes)
+	return &Process{application: application, logs: logs, output: logs}
 }
 
 // Start launches the command and waits until its loopback HTTP endpoint is healthy.
@@ -176,8 +188,8 @@ func (process *Process) Start() error {
 	control.configure(command)
 	command.Dir = process.application.Path
 	command.Env = commandEnvironment(process.application, port)
-	command.Stdout = process.logs
-	command.Stderr = process.logs
+	command.Stdout = process.output
+	command.Stderr = process.output
 	if err := command.Start(); err != nil {
 		_ = control.close()
 		return fmt.Errorf("start %s: %w", process.application.Slug, err)
@@ -224,6 +236,14 @@ func (process *Process) Snapshot() Snapshot {
 // Close terminates the command and waits for it to exit.
 func (process *Process) Close() error {
 	process.closeOnce.Do(func() {
+		defer func() {
+			if process.logCloser == nil {
+				return
+			}
+			if err := process.logCloser.Close(); process.closeErr == nil {
+				process.closeErr = err
+			}
+		}()
 		if process.command == nil || process.command.Process == nil {
 			return
 		}
@@ -400,4 +420,10 @@ func (buffer *ringBuffer) String() string {
 	buffer.mu.Lock()
 	defer buffer.mu.Unlock()
 	return string(append([]byte(nil), buffer.contents...))
+}
+
+func (buffer *ringBuffer) Len() int {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return len(buffer.contents)
 }

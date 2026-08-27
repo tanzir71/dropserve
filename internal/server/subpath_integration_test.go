@@ -2,6 +2,8 @@ package server_test
 
 import (
 	"context"
+	"crypto/sha256"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -149,5 +151,61 @@ func TestCommandHTMLBaseInjection(t *testing.T) {
 	status, unchanged := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/subpath/html-with-base")
 	if status != http.StatusOK || unchanged != withBase {
 		t.Fatalf("HTML with existing base changed: %d %q", status, unchanged)
+	}
+}
+
+func TestCommandNonHTMLResponsesAreByteIdentical(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the subpath fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "subpath"))
+	if err != nil {
+		t.Fatalf("resolve subpath fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create subpath server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close subpath server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	tests := map[string][]byte{
+		"asset.json": []byte(`{"markup":"<head>json</head>"}`),
+		"asset.js":   []byte(`window.fixture = "<head>js</head>";`),
+		"asset.css":  []byte(`body::before { content: "<head>css</head>"; }`),
+		"asset.png":  {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52},
+	}
+	for name, source := range tests {
+		request, err := http.NewRequestWithContext(
+			context.Background(),
+			http.MethodGet,
+			httpServer.URL+"/subpath/"+name,
+			nil,
+		)
+		if err != nil {
+			t.Fatalf("create %s request: %v", name, err)
+		}
+		response, err := httpServer.Client().Do(request)
+		if err != nil {
+			t.Fatalf("request %s: %v", name, err)
+		}
+		body, readErr := io.ReadAll(response.Body)
+		_ = response.Body.Close()
+		if readErr != nil {
+			t.Fatalf("read %s: %v", name, readErr)
+		}
+		if got, want := sha256.Sum256(body), sha256.Sum256(source); got != want {
+			t.Fatalf("%s hash = %x, want byte-identical %x", name, got, want)
+		}
 	}
 }

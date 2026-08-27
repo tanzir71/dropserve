@@ -1,6 +1,19 @@
 const http = require("node:http");
 
+const assets = {
+  "/asset.json": ["application/json", Buffer.from('{"markup":"<head>json</head>"}')],
+  "/asset.js": ["application/javascript", Buffer.from('window.fixture = "<head>js</head>";')],
+  "/asset.css": ["text/css", Buffer.from('body::before { content: "<head>css</head>"; }')],
+  "/asset.png": ["image/png", Buffer.from("89504e470d0a1a0a0000000d49484452", "hex")],
+};
+
 http.createServer((request, response) => {
+  if (assets[request.url]) {
+    const [contentType, body] = assets[request.url];
+    response.writeHead(200, { "content-type": contentType, "content-length": body.length });
+    response.end(body);
+    return;
+  }
   if (request.url === "/redirect") {
     response.writeHead(302, { location: "/login" });
     response.end();

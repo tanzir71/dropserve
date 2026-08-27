@@ -88,6 +88,50 @@ func TestSearchFindsREADMEContent(t *testing.T) {
 	}
 }
 
+func TestSearchFindsFilename(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeDashboardFixture(t, root, "atlas", "Atlas", "A quiet tool.")
+	writeDashboardFixture(t, root, "beacon", "Beacon", "A bright tool.")
+	templates := filepath.Join(root, "beacon", "templates")
+	if err := os.Mkdir(templates, 0o750); err != nil {
+		t.Fatalf("create templates folder: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(templates, "copperneedle-invoice.html"), []byte("invoice"), 0o600); err != nil {
+		t.Fatalf("write searchable filename: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create search server: %v", err)
+	}
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"http://dropserve.test/_dropserve/api/search?q=copperneedle",
+		nil,
+	)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	result := response.Result()
+	defer func() {
+		_ = result.Body.Close()
+	}()
+	if result.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(result.Body)
+		t.Fatalf("search API returned %d, want 200; body=%q", result.StatusCode, body)
+	}
+	var entries []struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(result.Body).Decode(&entries); err != nil {
+		t.Fatalf("decode filename search: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Slug != "beacon" {
+		t.Fatalf("filename-only search results = %#v, want beacon only", entries)
+	}
+}
+
 func writeDashboardFixture(t *testing.T, root, name, title, readmeParagraph string) {
 	t.Helper()
 

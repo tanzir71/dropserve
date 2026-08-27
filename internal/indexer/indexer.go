@@ -30,20 +30,23 @@ type Entry struct {
 	Icon        string `json:"icon,omitempty"`
 	Size        int64  `json:"size"`
 	MTime       int64  `json:"mtime"`
+	fileNames   []string
 }
 
 // Build returns an immutable dashboard snapshot in scanner order.
 func Build(applications []app.App) []Entry {
 	entries := make([]Entry, 0, len(applications))
 	for _, application := range applications {
-		entries = append(entries, Entry{
+		entry := Entry{
 			Slug:        application.Slug,
 			Name:        application.Name,
 			Description: readDescription(application.Path, application.LooseFile),
 			Type:        string(application.Kind),
 			Status:      "ready",
 			URLs:        URLs{Path: "/" + strings.Trim(application.Slug, "/") + "/"},
-		})
+			fileNames:   indexFileNames(application.Path, application.LooseFile),
+		}
+		entries = append(entries, entry)
 	}
 	return entries
 }
@@ -67,6 +70,12 @@ func Search(entries []Entry, query string) []Entry {
 		if fieldMatches(entry.Description, query) {
 			score += 3
 		}
+		for _, fileName := range entry.fileNames {
+			if fieldMatches(fileName, query) {
+				score++
+				break
+			}
+		}
 		if score != 0 {
 			scored = append(scored, scoredEntry{entry: entry, score: score})
 		}
@@ -79,6 +88,48 @@ func Search(entries []Entry, query string) []Entry {
 		results[index] = item.entry
 	}
 	return results
+}
+
+func indexFileNames(appPath string, looseFile bool) []string {
+	if looseFile {
+		return []string{filepath.Base(appPath)}
+	}
+	const maximumFiles = 5_000
+	fileNames := make([]string, 0, 32)
+	_ = filepath.WalkDir(appPath, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		relative, err := filepath.Rel(appPath, path)
+		if err != nil || relative == "." {
+			return nil
+		}
+		depth := strings.Count(filepath.ToSlash(relative), "/") + 1
+		if entry.IsDir() {
+			if ignoredIndexDirectory(entry.Name()) || depth >= 3 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if depth > 3 {
+			return nil
+		}
+		fileNames = append(fileNames, entry.Name())
+		if len(fileNames) >= maximumFiles {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return fileNames
+}
+
+func ignoredIndexDirectory(name string) bool {
+	switch strings.ToLower(name) {
+	case ".git", "node_modules", "venv", ".venv", "__pycache__", "vendor":
+		return true
+	default:
+		return strings.HasPrefix(name, ".")
+	}
 }
 
 func fieldMatches(value, query string) bool {

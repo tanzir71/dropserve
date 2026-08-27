@@ -26,6 +26,7 @@ type App struct {
 	Detection        string
 	HealthPath       string
 	PortEnv          string
+	Environment      map[string]string
 	Autostart        bool
 	Status           string
 	Port             int

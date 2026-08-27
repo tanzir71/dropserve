@@ -13,16 +13,17 @@ import (
 
 // Detection is the first matching rule for one app directory.
 type Detection struct {
-	Kind      Kind
-	Command   []string
-	Runtime   string
-	Reason    string
-	Autostart bool
+	Kind        Kind
+	Command     []string
+	Runtime     string
+	Reason      string
+	Environment map[string]string
+	Autostart   bool
 }
 
 // Detect applies the ordered app-detection rules implemented so far.
 func Detect(root string) (Detection, error) {
-	autostart, err := manifestAutostart(root)
+	settings, err := readManifestSettings(root)
 	if err != nil {
 		return Detection{}, err
 	}
@@ -31,7 +32,7 @@ func Detect(root string) (Detection, error) {
 		return Detection{}, err
 	}
 	if found {
-		return withAutostart(procfileDetection, autostart), nil
+		return withManifestSettings(procfileDetection, settings), nil
 	}
 	packagePath := filepath.Join(root, "package.json")
 	// #nosec G304 -- root is an app path from the read-only scanner.
@@ -47,22 +48,22 @@ func Detect(root string) (Detection, error) {
 			return Detection{}, fmt.Errorf("parse %q: %w", packagePath, err)
 		}
 		if manifest.Scripts.Start != "" {
-			return withAutostart(Detection{
+			return withManifestSettings(Detection{
 				Kind:      KindCommand,
 				Command:   packageStartCommand(root),
 				Runtime:   "node",
 				Reason:    "Node app from package.json start script",
 				Autostart: true,
-			}, autostart), nil
+			}, settings), nil
 		}
 		if entry, reason := packageNodeEntry(root, manifest.Main); entry != "" {
-			return withAutostart(Detection{
+			return withManifestSettings(Detection{
 				Kind:      KindCommand,
 				Command:   []string{"node", entry},
 				Runtime:   "node",
 				Reason:    reason,
 				Autostart: true,
-			}, autostart), nil
+			}, settings), nil
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Detection{}, fmt.Errorf("read %q: %w", packagePath, err)
@@ -70,13 +71,13 @@ func Detect(root string) (Detection, error) {
 	for _, candidate := range []string{"app.py", "main.py", "server.py", "wsgi.py"} {
 		info, statErr := os.Stat(filepath.Join(root, candidate))
 		if statErr == nil && info.Mode().IsRegular() {
-			return withAutostart(Detection{
+			return withManifestSettings(Detection{
 				Kind:      KindCommand,
 				Command:   []string{"python", candidate},
 				Runtime:   "python",
 				Reason:    "Python app from " + candidate,
 				Autostart: true,
-			}, autostart), nil
+			}, settings), nil
 		}
 		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
 			return Detection{}, fmt.Errorf("inspect %q: %w", filepath.Join(root, candidate), statErr)
@@ -85,15 +86,15 @@ func Detect(root string) (Detection, error) {
 	if executable, found, executableErr := singleExecutable(root); executableErr != nil {
 		return Detection{}, executableErr
 	} else if found {
-		return withAutostart(Detection{
+		return withManifestSettings(Detection{
 			Kind:      KindCommand,
 			Command:   []string{executable},
 			Reason:    "Command app from single executable " + filepath.Base(executable),
 			Autostart: true,
-		}, autostart), nil
+		}, settings), nil
 	}
 
-	return withAutostart(Detection{Kind: KindStatic, Autostart: true}, autostart), nil
+	return withManifestSettings(Detection{Kind: KindStatic, Autostart: true}, settings), nil
 }
 
 func detectProcfile(root string) (Detection, bool, error) {
@@ -200,28 +201,37 @@ func commandRuntime(command string) string {
 	}
 }
 
-func manifestAutostart(root string) (*bool, error) {
+type manifestSettings struct {
+	Autostart   *bool             `json:"autostart"`
+	Environment map[string]string `json:"env"`
+}
+
+func readManifestSettings(root string) (manifestSettings, error) {
 	manifestPath := filepath.Join(root, "dropserve.json")
 	// #nosec G304 -- root is an app path from the read-only scanner.
 	content, err := os.ReadFile(manifestPath)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
+		return manifestSettings{}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read %q: %w", manifestPath, err)
+		return manifestSettings{}, fmt.Errorf("read %q: %w", manifestPath, err)
 	}
-	var manifest struct {
-		Autostart *bool `json:"autostart"`
+	var settings manifestSettings
+	if err := json.Unmarshal(content, &settings); err != nil {
+		return manifestSettings{}, fmt.Errorf("parse %q: %w", manifestPath, err)
 	}
-	if err := json.Unmarshal(content, &manifest); err != nil {
-		return nil, fmt.Errorf("parse %q: %w", manifestPath, err)
-	}
-	return manifest.Autostart, nil
+	return settings, nil
 }
 
-func withAutostart(detection Detection, autostart *bool) Detection {
-	if autostart != nil {
-		detection.Autostart = *autostart
+func withManifestSettings(detection Detection, settings manifestSettings) Detection {
+	if settings.Autostart != nil {
+		detection.Autostart = *settings.Autostart
+	}
+	if settings.Environment != nil {
+		detection.Environment = make(map[string]string, len(settings.Environment))
+		for name, value := range settings.Environment {
+			detection.Environment[name] = value
+		}
 	}
 	return detection
 }

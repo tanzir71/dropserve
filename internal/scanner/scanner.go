@@ -209,6 +209,7 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		application.Command = detection.Command
 		application.Runtime = detection.Runtime
 		application.Detection = detection.Reason
+		application.Environment = detection.Environment
 		application.Autostart = detection.Autostart
 		if application.Kind == app.KindStatic {
 			application.Index, err = findIndex(fullPath)

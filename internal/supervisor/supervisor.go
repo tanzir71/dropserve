@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -572,24 +573,62 @@ func commandEnvironment(application app.App, port int) []string {
 	if portVariable == "" {
 		portVariable = "PORT"
 	}
+	basePath := "/" + application.Slug + "/"
 	overrides := map[string]string{
 		strings.ToUpper(portVariable): strconv.Itoa(port),
 		"HOST":                        "127.0.0.1",
-		"DROPSERVE_BASE_PATH":         "/" + application.Slug + "/",
-		"DROPSERVE_BASE_URL":          "http://127.0.0.1/" + application.Slug + "/",
+		"DROPSERVE_BASE_PATH":         basePath,
+		"DROPSERVE_BASE_URL":          "http://127.0.0.1" + basePath,
 	}
-	environment := make([]string, 0, len(os.Environ())+len(overrides))
+	defaults := map[string]string{
+		"BASE_PATH":             basePath,
+		"PUBLIC_URL":            basePath,
+		"VITE_BASE":             basePath,
+		"NEXT_PUBLIC_BASE_PATH": basePath,
+	}
+	type environmentValue struct {
+		name  string
+		value string
+	}
+	appEnvironment := make(map[string]environmentValue, len(application.Environment))
+	for name, value := range application.Environment {
+		appEnvironment[environmentNameKey(name)] = environmentValue{name: name, value: value}
+	}
+	present := make(map[string]struct{}, len(os.Environ())+len(appEnvironment))
+	environment := make([]string, 0, len(os.Environ())+len(appEnvironment)+len(overrides)+len(defaults))
 	for _, item := range os.Environ() {
 		name, _, found := strings.Cut(item, "=")
-		if _, replaced := overrides[strings.ToUpper(name)]; found && replaced {
+		normalizedName := environmentNameKey(name)
+		present[normalizedName] = struct{}{}
+		_, replacedByApp := appEnvironment[normalizedName]
+		_, replacedByDropserve := overrides[normalizedName]
+		if found && (replacedByApp || replacedByDropserve) {
 			continue
 		}
 		environment = append(environment, item)
 	}
+	for key, item := range appEnvironment {
+		present[key] = struct{}{}
+		if _, reserved := overrides[key]; !reserved {
+			environment = append(environment, item.name+"="+item.value)
+		}
+	}
 	for name, value := range overrides {
 		environment = append(environment, name+"="+value)
 	}
+	for name, value := range defaults {
+		if _, exists := present[name]; !exists {
+			environment = append(environment, name+"="+value)
+		}
+	}
 	return environment
+}
+
+func environmentNameKey(name string) string {
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(name)
+	}
+	return name
 }
 
 func rewriteRootCookiePath(cookie, prefix string) string {

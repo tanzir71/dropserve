@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -427,5 +428,66 @@ func TestWebSocketUpgradeThroughCommandProxy(t *testing.T) {
 	}
 	if !bytes.Equal(echoed, payload) {
 		t.Fatalf("WebSocket echo = %q, want %q", echoed, payload)
+	}
+}
+
+func TestCommandManifestEnvironmentOverridesFrameworkDefault(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	root := t.TempDir()
+	fixture := filepath.Join(root, "environment")
+	if err := os.Mkdir(fixture, 0o750); err != nil {
+		t.Fatalf("create environment fixture: %v", err)
+	}
+	files := map[string]string{
+		"package.json":   `{"scripts":{"start":"node server.js"}}`,
+		"dropserve.json": `{"env":{"PUBLIC_URL":"/manifest-owned/"}}`,
+		"server.js": `const http = require("node:http");
+http.createServer((_request, response) => {
+  response.setHeader("content-type", "application/json");
+  response.end(JSON.stringify({
+    basePath: process.env.BASE_PATH,
+    publicUrl: process.env.PUBLIC_URL,
+    viteBase: process.env.VITE_BASE,
+    nextBasePath: process.env.NEXT_PUBLIC_BASE_PATH,
+  }));
+}).listen(Number(process.env.PORT), process.env.HOST);`,
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(fixture, name), []byte(content), 0o600); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	t.Setenv("PUBLIC_URL", "")
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create environment server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close environment server: %v", closeErr)
+		}
+	}()
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/environment/", nil)
+	recorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("environment status = %d, body = %q", recorder.Code, recorder.Body.String())
+	}
+	var environment struct {
+		BasePath     string `json:"basePath"`
+		PublicURL    string `json:"publicUrl"`
+		ViteBase     string `json:"viteBase"`
+		NextBasePath string `json:"nextBasePath"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &environment); err != nil {
+		t.Fatalf("decode environment response: %v", err)
+	}
+	if environment.BasePath != "/environment/" ||
+		environment.PublicURL != "/manifest-owned/" ||
+		environment.ViteBase != "/environment/" ||
+		environment.NextBasePath != "/environment/" {
+		t.Fatalf("child framework environment = %#v", environment)
 	}
 }

@@ -5,8 +5,10 @@ import (
 	"embed"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 
+	qrcode "github.com/skip2/go-qrcode"
 	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/indexer"
 )
@@ -64,6 +66,9 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	case "/_dropserve/api/urls":
 		dashboard.serveAdvertisedURLs(response, request)
 		return
+	case "/_dropserve/api/qr":
+		dashboard.serveQR(response, request)
+		return
 	default:
 		http.NotFound(response, request)
 		return
@@ -93,6 +98,30 @@ func (dashboard *handler) serveAdvertisedURLs(response http.ResponseWriter, requ
 	}
 	currentURL := scheme + "://" + request.Host + "/"
 	dashboard.serveJSON(response, request, []advertisedURL{{Kind: "current", URL: currentURL}})
+}
+
+func (dashboard *handler) serveQR(response http.ResponseWriter, request *http.Request) {
+	const maximumURLLength = 2_048
+	target := request.URL.Query().Get("url")
+	parsed, err := url.ParseRequestURI(target)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || len(target) > maximumURLLength {
+		http.Error(response, "Choose a valid HTTP or HTTPS address for the QR code.", http.StatusBadRequest)
+		return
+	}
+	content, err := qrcode.Encode(target, qrcode.Medium, 256)
+	if err != nil {
+		http.Error(response, "Dropserve could not create that QR code.", http.StatusInternalServerError)
+		return
+	}
+	response.Header().Set("Content-Type", "image/png")
+	response.Header().Set("Cache-Control", "private, max-age=300")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusOK)
+	if request.Method == http.MethodHead {
+		return
+	}
+	// #nosec G705 -- qrcode.Encode returns a binary PNG and the response is explicitly image/png.
+	_, _ = response.Write(content)
 }
 
 func (dashboard *handler) serveJSON(response http.ResponseWriter, request *http.Request, value any) {

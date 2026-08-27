@@ -1,11 +1,14 @@
 package server_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -45,6 +48,66 @@ func TestDashboardAtRoot(t *testing.T) {
 			t.Fatalf("dashboard body does not contain %q: %s", expected, body)
 		}
 	}
+}
+
+func TestQREndpointReturnsPNG(t *testing.T) {
+	t.Parallel()
+
+	server, err := dropserver.New(scanner.Options{Roots: []string{t.TempDir()}})
+	if err != nil {
+		t.Fatalf("create QR server: %v", err)
+	}
+	firstURL := "http://example.test/static/"
+	first := requestQR(t, server.Handler(), firstURL)
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("QR endpoint returned %d, want 200; body=%q", first.StatusCode, first.Body)
+	}
+	if contentType := first.Header.Get("Content-Type"); contentType != "image/png" {
+		t.Fatalf("QR Content-Type = %q, want image/png", contentType)
+	}
+	if !bytes.HasPrefix(first.Body, []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("QR response does not have PNG signature: %x", first.Body[:min(len(first.Body), 16)])
+	}
+	configuration, err := png.DecodeConfig(bytes.NewReader(first.Body))
+	if err != nil {
+		t.Fatalf("decode QR PNG: %v", err)
+	}
+	if configuration.Width < 128 || configuration.Height < 128 || len(first.Body) < 300 {
+		t.Fatalf("QR PNG is not substantial: %dx%d, %d bytes", configuration.Width, configuration.Height, len(first.Body))
+	}
+
+	second := requestQR(t, server.Handler(), "http://example.test/another-app/")
+	if bytes.Equal(first.Body, second.Body) {
+		t.Fatal("different URLs produced identical QR PNGs")
+	}
+}
+
+type qrResponse struct {
+	StatusCode int
+	Header     http.Header
+	Body       []byte
+}
+
+func requestQR(t *testing.T, handler http.Handler, targetURL string) qrResponse {
+	t.Helper()
+
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"http://dropserve.test/_dropserve/api/qr?url="+url.QueryEscape(targetURL),
+		nil,
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	result := recorder.Result()
+	defer func() {
+		_ = result.Body.Close()
+	}()
+	body, err := io.ReadAll(result.Body)
+	if err != nil {
+		t.Fatalf("read QR response: %v", err)
+	}
+	return qrResponse{StatusCode: result.StatusCode, Header: result.Header, Body: body}
 }
 
 func TestSearchFindsREADMEContent(t *testing.T) {

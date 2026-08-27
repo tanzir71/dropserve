@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:18:04Z
+**Last updated:** 2026-08-27T20:20:15Z
 **Gate status:** green
-**Iterations completed:** 28
+**Iterations completed:** 29
 
 ## Milestone progress
 
@@ -28,7 +28,7 @@
 - [x] Search finds a fixture app by text that appears only in a filename.
 - [x] A name match ranks above a filename-only match.
 - [x] Every URL advertised by `GET /_dropserve/api/urls` returns a status below 400 (I3).
-- [ ] The QR endpoint returns a valid PNG for the requested URL.
+- [x] The QR endpoint returns a valid PNG for the requested URL.
 - [ ] Dashboard assets remain under 100 KB.
 - [ ] The dashboard handles both zero apps and 200 apps.
 - [ ] `/_dropserve/*` cannot be shadowed by an app slug.
@@ -78,6 +78,7 @@
 - `TestSearchFindsFilename`: file names are indexed read-only to a hard cap of 5,000 files and three levels per app, with dependency/cache directories pruned; a term present only in a nested filename returns the owning app.
 - `TestSearchRanksNameAboveFilename`: the explicit 5× name, 3× description, and 1× filename weights place an app named for the query above an app matching only through a file.
 - `TestEveryAdvertisedURLWorks` (**I3**): the URLs API advertises the exact origin through which the client reached Dropserve; every returned URL is fetched through a real random-port HTTP server and returns below 400.
+- `TestQREndpointReturnsPNG`: validated HTTP(S) input is passed to the handover-approved pure-Go QR encoder; the response independently decodes as a substantial 256×256 PNG and distinct URLs produce distinct images. The test does not decode the QR symbols back to text, avoiding a second decoder dependency; this is the explicit acceptance-criterion fallback limitation.
 
 ## Decisions made this build (beyond the spec)
 
@@ -99,4 +100,4 @@
 
 ## Dependency count
 
-1 direct external dependency (the handover-approved TOML parser); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 2 modules including the main module.
+2 direct external dependencies (the handover-approved TOML parser and pure-Go QR encoder); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 3 modules including the main module.

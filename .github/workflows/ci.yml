@@ -27,6 +27,15 @@ jobs:
         run: choco install make --no-progress -y
       - name: Run the gate
         run: make check
+      - name: Build and run the M2 smoke (Unix)
+        if: runner.os != 'Windows'
+        run: make build && ./scripts/smoke/m2.sh ./bin/dropserve
+      - name: Build and run the M2 smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          make build
+          ./scripts/smoke/m2.ps1 -Binary ./bin/dropserve.exe
 
   golangci:
     name: golangci-lint

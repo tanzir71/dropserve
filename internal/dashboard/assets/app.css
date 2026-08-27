@@ -164,4 +164,5 @@ footer a { color: var(--muted); }
   kbd { background: #1b2521; }
   .notice { color: #f1e6bd; background: #392f13; border-color: #6e5a1e; }
   .notice button { background: #211d12; }
+  .count-pill, .sharing-row { background: rgba(255,255,255,.045); }
 }

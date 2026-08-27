@@ -567,14 +567,22 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 	if err := json.NewDecoder(result.Body).Decode(&entries); err != nil {
 		t.Fatalf("decode apps API: %v", err)
 	}
-	if len(entries) != 1 {
-		t.Fatalf("apps API returned %d entries, want every fixture (1): %#v", len(entries), entries)
+	expectedNames := map[string]string{
+		"field-notes":   "field notes",
+		"invoice-desk":  "invoice desk",
+		"kitchen-timer": "kitchen timer",
+		"static":        "static",
 	}
-	entry := entries[0]
-	if entry.Slug != "static" || entry.Name != "static" || entry.Type != "static" || entry.Status != "ready" {
-		t.Fatalf("static fixture metadata is incorrect: %#v", entry)
+	if len(entries) != len(expectedNames) {
+		t.Fatalf("apps API returned %d entries, want every fixture (%d): %#v", len(entries), len(expectedNames), entries)
 	}
-	if entry.URLs.Path != "/static/" {
-		t.Fatalf("static fixture path URL = %q, want /static/", entry.URLs.Path)
+	for _, entry := range entries {
+		expectedName, found := expectedNames[entry.Slug]
+		if !found || entry.Name != expectedName || entry.Type != "static" || entry.Status != "ready" {
+			t.Fatalf("fixture metadata is incorrect: %#v", entry)
+		}
+		if entry.URLs.Path != "/"+entry.Slug+"/" {
+			t.Fatalf("%s path URL = %q, want /%s/", entry.Slug, entry.URLs.Path, entry.Slug)
+		}
 	}
 }

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:33:28Z
+**Last updated:** 2026-08-27T20:39:42Z
 **Gate status:** green
-**Iterations completed:** 38
+**Iterations completed:** 39
 
 ## Milestone progress
 
@@ -39,7 +39,7 @@
 - [x] Complete read-only app detail, status, and health API surfaces used by the dashboard.
 - [x] Persist the in-memory index atomically as `index.json` for fast cold starts.
 - [x] Wire sharing, QR, copy-link, and card action interactions into the vanilla dashboard.
-- [ ] Run the real-binary M2 smoke and a browser-rendered launcher demo before tagging.
+- [x] Run the real-binary M2 smoke and a browser-rendered launcher demo before tagging.
 
 ### M0 completion evidence
 
@@ -87,13 +87,15 @@
 - `TestSearchRanksNameAboveFilename`: the explicit 5× name, 3× description, and 1× filename weights place an app named for the query above an app matching only through a file.
 - `TestEveryAdvertisedURLWorks` (**I3**): the URLs API advertises the exact origin through which the client reached Dropserve; every returned URL is fetched through a real random-port HTTP server and returns below 400.
 - `TestQREndpointReturnsPNG`: validated HTTP(S) input is passed to the handover-approved pure-Go QR encoder; the response independently decodes as a substantial 256×256 PNG and distinct URLs produce distinct images. The test does not decode the QR symbols back to text, avoiding a second decoder dependency; this is the explicit acceptance-criterion fallback limitation.
-- `TestEmbeddedAssetsStayUnderBudget`: the exact embedded files currently total 22,943 of the strict 100,000-byte budget (CSS 10,581; JavaScript 8,456; HTML 3,906), enforced on every gate run.
+- `TestEmbeddedAssetsStayUnderBudget`: the exact embedded files currently total 23,011 of the strict 100,000-byte budget (CSS 10,649; JavaScript 8,456; HTML 3,906), enforced on every gate run.
 - `TestDashboardHandlesZeroAndTwoHundredApps`: an empty scan serializes as a real empty list that activates the designed invitation state; a generated 200-app scan returns all 200 unique cards in one unpaginated snapshot. The client filters once and maps that snapshot once per render (linear work, no nested app scan).
 - `TestDropserveNamespaceCannotBeShadowed`: an actual `_dropserve` folder is refused by the scanner, absent from the apps API, and cannot replace the dashboard root, embedded assets, or system API responses.
 - `TestBuildExtractsDashboardMetadata` and `TestBuildGeneratesDeterministicMonogram`: the read-only index captures `<title>`, first `<h1>`, total regular-file bytes, newest file mtime, direct favicon/icon URLs, and stable initials/colours; the dashboard renders image icons or monograms from that metadata.
 - `TestDashboardReadOnlyOperationalAPIs`: `healthz` returns plain `ok`; status exposes version/commit, live uptime, request listener port, a non-nil warnings list, and a cryptographically random CSRF token; per-app detail exposes the full path and detection reason while unknown slugs return 404.
 - `TestIndexCacheRoundTripsAtomically` and `TestServerPersistsIndexOutsideAppRoot`: the complete public metadata plus private filename-search fields round-trip through versioned JSON and an fsynced sibling-temp replacement; normal serving writes only `index.json` beside machine state, with load support for cold-start reuse and no app-folder changes.
 - `TestDashboardInteractionSurfaceIsWired`: the shipped assets connect the verified-URL sharing panel, clipboard with fallback, local QR dialog, and each card's Open/Copy/Show QR menu with accessible expanded state. `node --check` passes and the full asset bundle remains 77% below budget.
+- `scripts/smoke/m2.ps1`: the real binary served four fixture apps at `http://127.0.0.1:53508/`; dashboard HTML, apps API, README-only search, and local QR PNG all passed. Matching PowerShell/POSIX smoke scripts are now run by hosted CI.
+- Browser-rendered demo: the in-app Browser fallback was used because the skill-prescribed standalone executable was not installed. Four cards rendered with the search box focused; typing `fie` left one result and Enter opened `/field-notes/`; verified sharing, card actions, and a loaded 256×256 QR worked with zero console errors or overlays. Visual review found an unreadable dark-mode app-count pill; its contrast was fixed and the corrected `4 apps` pill was re-verified in a fresh build.
 
 ## Decisions made this build (beyond the spec)
 

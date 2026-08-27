@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T22:49:25Z
+**Current milestone:** M6 — Always there
+**Last updated:** 2026-08-27T22:52:26Z
 **Gate status:** green
-**Iterations completed:** 79
+**Iterations completed:** 80
 
 ## Milestone progress
 
@@ -12,7 +12,7 @@
 - [x] M2 — The index (tag: `m2-complete`)
 - [x] M3 — Live (tag: `m3-complete`)
 - [x] M4 — Running things (tag: `m4-complete`)
-- [ ] M5 — The subpath survival kit
+- [x] M5 — The subpath survival kit (tag: `m5-complete`)
 - [ ] M6 — Always there
 - [ ] M7 — Findable
 - [ ] M8 — HTTPS
@@ -22,22 +22,20 @@
 
 ## Current milestone criteria
 
-- [x] Assert: a fixture returning a 302 to `/login` produces a client-visible redirect to `/<slug>/login`.
-- [x] Assert: a fixture setting `Set-Cookie: s=1; Path=/` yields `Path=/<slug>/`.
-- [x] Assert: an HTML response with no `<base>` gets `<base href="/<slug>/">` injected directly after `<head>`; one that already has a `<base>` is left byte-identical.
-- [x] Assert: a non-HTML response (JSON, JS, CSS, PNG) is byte-identical through the proxy — hash in, hash out.
-- [x] Assert: a 5 MB HTML response is **not** rewritten (over the 2 MB cap) and passes through unmodified.
-- [x] Assert: `testdata/fixtures/absolute-paths/` is flagged `prefers_own_port`, its dashboard card links to `http://127.0.0.1:<port>/`, and that URL serves the app correctly at its root.
-- [x] Assert: assigned per-app ports are stable across a restart of Dropserve (persisted in state).
-- [x] Assert: `X-Forwarded-Prefix`, `X-Forwarded-Host`, `X-Forwarded-Proto` arrive at a command app with the right values.
-- [x] Assert: WebSocket upgrade through the proxy works for a command app (a fixture echo server).
+- [ ] Script (Windows, CI): `dropserve autostart enable` then `schtasks /Query /TN Dropserve /XML` succeeds and the XML contains `<LogonTrigger>`, `ExecutionTimeLimit` set to `PT0S`, and no `<RunLevel>HighestAvailable</RunLevel>`.
+- [ ] Assert: `dropserve autostart status` after an external `schtasks /Delete` reports **disabled** — proving it reads the OS, not a stored flag.
+- [ ] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
+- [ ] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
+- [ ] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
+- [ ] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
+- [ ] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
 
-### M5 completion audit (open)
+### M5 completion audit (closed)
 
 - [x] Deliverable: command apps receive `BASE_PATH`, `PUBLIC_URL`, `VITE_BASE`, and `NEXT_PUBLIC_BASE_PATH` without overriding values already supplied by the app environment.
 - [x] Deliverable: manifest `base_href: auto | always | never` controls HTML base injection and defaults to `auto`.
 - [x] Deliverable: own-port cards explain the automatic fallback and expose an explicit own-port/path URL action.
-- [ ] Completion: run the M5 demo, paste its output below, rerun the full gate, commit, and tag `m5-complete`.
+- [x] Completion: ran both native M5 demos, pasted the local output below, reran the full gate, committed, and tagged `m5-complete`.
 
 ### M4 completion audit (closed)
 
@@ -176,6 +174,7 @@
   M5 smoke passed: rewrites, headers, WebSocket echo, own-port rescue, and stable port 7400 worked at http://127.0.0.1:50777/
   ```
 - The first hosted M5 run [33123512219](https://github.com/tanzir71/dropserve/actions/runs/33123512219) passed the Windows gate and full PowerShell demo but exposed silent POSIX smoke assertions. Named file-based checks and a raw RFC 6455 client now make failures portable and actionable. The diagnostic restart also revealed that the executable did not translate `SIGTERM`/Ctrl+C into context cancellation, so real Unix shutdown skipped deferred command-tree cleanup. `serve` now uses a signal-aware context; its signal-set regression test failed first, then passed, as did the real Windows M5 demo and the full 39.3-second local gate.
+- Final hosted CI [run 33124023875](https://github.com/tanzir71/dropserve/actions/runs/33124023875) passed the Ubuntu and Windows gates, lint, secret scan, both platform-native M2 smokes, and both platform-native M5 smokes. The Unix demo specifically proved the real executable handles `SIGTERM`, releases its command processes and stable ports, restarts, and reclaims the persisted own port.
 
 ## Decisions made this build (beyond the spec)
 

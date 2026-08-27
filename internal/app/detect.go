@@ -43,6 +43,21 @@ func Detect(root string) (Detection, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Detection{}, fmt.Errorf("read %q: %w", packagePath, err)
 	}
+	for _, candidate := range []string{"app.py", "main.py", "server.py", "wsgi.py"} {
+		info, statErr := os.Stat(filepath.Join(root, candidate))
+		if statErr == nil && info.Mode().IsRegular() {
+			return Detection{
+				Kind:      KindCommand,
+				Command:   []string{"python", candidate},
+				Runtime:   "python",
+				Reason:    "Python app from " + candidate,
+				Autostart: true,
+			}, nil
+		}
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return Detection{}, fmt.Errorf("inspect %q: %w", filepath.Join(root, candidate), statErr)
+		}
+	}
 
 	return Detection{Kind: KindStatic, Autostart: true}, nil
 }

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:10:44Z
+**Last updated:** 2026-08-27T21:12:32Z
 **Gate status:** green
-**Iterations completed:** 52
+**Iterations completed:** 53
 
 ## Milestone progress
 
@@ -23,7 +23,7 @@
 ## Current milestone criteria
 
 - [x] Assert: fixture `testdata/fixtures/node/` (a 20-line `http` server reading `process.env.PORT`) is detected as `command`, started, health-checked, and `GET /node/` proxies to it with the correct body. Skip with a clear message if `node` is absent from the runner, and ensure CI installs Node so it does not skip.
-- [ ] Assert: same for a Python fixture.
+- [x] Assert: same for a Python fixture.
 - [ ] Assert: a fixture that exits immediately with code 1 is restarted with backoff, gives up after 5 attempts inside the window, ends in `crashed`, and its logs contain the error output.
 - [ ] Assert (**I4**): with a crashed app and a healthy app both present, the healthy app still returns 200 and the dashboard still renders.
 - [ ] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
@@ -123,6 +123,7 @@
 - `TestNodeFixtureIsDetectedStartedHealthyAndProxied` exercises the real `testdata/fixtures/node/` package: rule 3 records `Node app from package.json start script`, runs `npm start` with an allocated `PORT` and loopback `HOST`, waits through TCP plus HTTP health checks, and proxies `/node/` to the exact fixture body in about 770 ms locally.
 - The first passing request exposed that killing npm alone left its `cmd.exe` and Node descendants alive. ADR-012 records the native fix: each Windows app is assigned to a `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` Job Object through `x/sys/windows`, while Unix uses a separate process group. The rerun left no fixture process behind, and the zero-CGO cross-build gate passes all three targets.
 - CI now installs Node 24 explicitly with the official `actions/setup-node` action on both gate runners, so the M4 acceptance test cannot silently rely on runner image state.
+- `TestPythonFixtureIsDetectedStartedHealthyAndProxied` exercises the real `testdata/fixtures/python/server.py`: rule 6 records `Python app from server.py`, runs it with allocated loopback environment, health-checks it, and proxies `/python/` to the exact fixture body in about 330 ms locally. CI installs Python 3.13 explicitly with the official setup action.
 
 ## Decisions made this build (beyond the spec)
 

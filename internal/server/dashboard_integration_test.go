@@ -583,6 +583,7 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 		"invoice-desk":  {name: "invoice desk", kind: "static"},
 		"kitchen-timer": {name: "kitchen timer", kind: "static"},
 		"node":          {name: "node", kind: "command"},
+		"python":        {name: "python", kind: "command"},
 		"static":        {name: "static", kind: "static"},
 	}
 	if len(entries) != len(expected) {

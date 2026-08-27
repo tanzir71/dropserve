@@ -25,6 +25,9 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.13'
       - name: Install Make on Windows
         if: runner.os == 'Windows'
         shell: pwsh

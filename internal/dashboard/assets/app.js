@@ -231,7 +231,8 @@ fetch('/_dropserve/api/status')
     warningNotice.querySelector('button').addEventListener('click', () => {
       window.location.assign('/_dropserve/api/status');
     });
-  });
+  })
+  .catch(() => {});
 
 fetch('/_dropserve/api/urls')
   .then(response => {

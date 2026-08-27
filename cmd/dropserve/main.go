@@ -201,6 +201,9 @@ func serveCommandContext(
 		}
 		return 1
 	}
+	defer func() {
+		_ = handler.Close()
+	}()
 
 	listener, err := acquireMainListener(ctx, *listenAddress, *bindAddress, *statePath, configuration)
 	if err != nil {

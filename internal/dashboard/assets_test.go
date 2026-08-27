@@ -59,6 +59,9 @@ func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
 	for _, marker := range []string{
 		"/_dropserve/api/urls",
 		"/_dropserve/api/qr?url=",
+		"/_dropserve/api/events",
+		"/_dropserve/api/status",
+		"new EventSource",
 		"navigator.clipboard",
 		"showModal",
 		"data-action",

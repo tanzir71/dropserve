@@ -260,6 +260,9 @@ func fetchAppSlugs(t *testing.T, handler http.Handler) []string {
 	if err := json.NewDecoder(result.Body).Decode(&entries); err != nil {
 		t.Fatalf("decode dashboard entries: %v", err)
 	}
+	if entries == nil {
+		t.Fatal("dashboard apps API encoded null, want an empty JSON list")
+	}
 	slugs := make([]string, len(entries))
 	for index, entry := range entries {
 		slugs[index] = entry.Slug

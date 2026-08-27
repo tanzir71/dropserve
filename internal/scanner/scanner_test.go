@@ -170,6 +170,34 @@ func TestScannerWalksLongPaths(t *testing.T) {
 	}
 }
 
+func TestSyncRootWarningNamesAllKnownProviders(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []string{"OneDrive", "Dropbox", "Google Drive", "iCloud Drive"} {
+		provider := provider
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			root := filepath.Join(t.TempDir(), provider, "Apps")
+			if err := os.MkdirAll(root, 0o750); err != nil {
+				t.Fatalf("create %s root: %v", provider, err)
+			}
+			result, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+			if err != nil {
+				t.Fatalf("scan %s root: %v", provider, err)
+			}
+			warnings := make([]string, 0, len(result.Warnings))
+			for _, warning := range result.Warnings {
+				warnings = append(warnings, warning.Message)
+			}
+			combined := strings.Join(warnings, "\n")
+			if !strings.Contains(combined, root) || !strings.Contains(combined, provider) ||
+				!strings.Contains(combined, `%USERPROFILE%\Dropserve`) {
+				t.Fatalf("%s warnings = %q", provider, combined)
+			}
+		})
+	}
+}
+
 func TestReservedSlugsAreRefusedWithWarnings(t *testing.T) {
 	t.Parallel()
 

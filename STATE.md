@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:57:10Z
+**Last updated:** 2026-08-27T21:01:06Z
 **Gate status:** green
-**Iterations completed:** 49
+**Iterations completed:** 50
 
 ## Milestone progress
 
@@ -31,6 +31,15 @@
 - [x] Assert: watching a root that does not exist yet does not crash; when the directory appears, it is picked up.
 - [x] Assert (**hazard 5**): a file marked with the cloud-placeholder attribute (`FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`, simulated in the test via an injected stat interface) is listed in the index by name but never opened by the indexer, so a cloud-only folder cannot stall the scan. On non-Windows this test asserts the interface is wired and skips the attribute check.
 - [x] Assert (**hazard 5**): if a configured Apps root resolves inside a known sync folder (`OneDrive`, `Dropbox`, `Google Drive`, `iCloud Drive` in the path), a warning is recorded and surfaced in `doctor` and the dashboard, naming the root and recommending `%USERPROFILE%\Dropserve`.
+
+### M3 deliverables audit
+
+- [x] Watch each existing Apps root with fsnotify and debounce native change bursts for 500 ms.
+- [x] Recursively watch app directories to a three-level cap, a 256-watch per-app default budget, and prune dependency/cache directories before watching.
+- [x] Run the same full read-only reconcile every 30 seconds as the event-loss safety net.
+- [x] Stream bounded `apps-changed` SSE notifications and have the open launcher reload its immutable apps snapshot without a page refresh.
+- [x] Handle missing roots, cloud-only placeholder content, and known sync-folder warnings without stalling or crashing.
+- [x] Run the real shipped binary and browser-rendered empty-to-one-app live demo before tagging.
 
 ### M0 completion evidence
 
@@ -108,6 +117,8 @@
 - `TestCloudPlaceholderIsNamedButNeverOpened` injects the indexer's read-only file-access/stat boundary and marks the declared HTML index with simulated `FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS`. On Windows the filename remains searchable while any attempted `Open` fails the test; non-Windows runners assert the interface is consulted. The production Windows adapter reads the native attribute from `Win32FileAttributeData` without hydrating content.
 - `TestSyncRootWarningAppearsInDashboardStatus` configures an actual root under a `OneDrive` path and requires the dashboard warning to name the absolute root and recommend `%USERPROFILE%\Dropserve`; the launcher turns the status warning into a visible notice. `TestDoctorReportsSyncRootWarning` proves the same information appears in `dropserve doctor` for a Dropbox-backed root. Segment detection also covers Google Drive, iCloud Drive, and organisation-suffixed OneDrive names.
 - The dashboard now opens `/_dropserve/api/events` with `EventSource` and reloads its immutable apps API snapshot after every `apps-changed` event, completing the live open-dashboard path without a frontend build step.
+- `TestWatchDepthAndPerAppBudgetAreBounded` constructs a deep and wide app with `node_modules`, then inspects the real native watch set: no fourth-level or dependency path is watched, and the configured four-watch test budget is exact. `TestSyncRootWarningNamesAllKnownProviders` locks all four named sync providers.
+- Real-binary browser demo: `dropserve 0.0.0-dev (d8dc490)` started against an empty random-port root. Visual verification first exposed that the empty apps API encoded `null`, which made the JavaScript launcher show its error state; the API and regression helper now enforce `[]`. In the corrected build the same open page changed from `0 apps` to a rendered `Live Canvas` card after the folder appeared, with no reload and zero console errors.
 
 ## Decisions made this build (beyond the spec)
 

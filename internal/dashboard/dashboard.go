@@ -55,7 +55,7 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		index:      index,
 		stylesheet: stylesheet,
 		script:     script,
-		apps:       append([]indexer.Entry(nil), applications...),
+		apps:       append([]indexer.Entry{}, applications...),
 		started:    time.Now(),
 		csrfToken:  hex.EncodeToString(tokenBytes),
 		warnings:   append([]string{}, options.Warnings...),

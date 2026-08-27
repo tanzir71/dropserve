@@ -3,7 +3,9 @@ package server
 
 import (
 	"net/http"
+	"strings"
 
+	"github.com/tanzir71/dropserve/internal/dashboard"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
@@ -13,6 +15,7 @@ import (
 type Server struct {
 	router *router.Router
 	scan   scanner.Result
+	http   http.Handler
 }
 
 // New scans the configured roots and registered apps, then mounts every app.
@@ -28,12 +31,21 @@ func New(options scanner.Options) (*Server, error) {
 			Handler: staticserver.New(application),
 		})
 	}
-	return &Server{router: router.New(mounts), scan: result}, nil
+	appRouter := router.New(mounts)
+	dashboardHandler := dashboard.New()
+	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/" || strings.HasPrefix(request.URL.Path, "/_dropserve/") {
+			dashboardHandler.ServeHTTP(response, request)
+			return
+		}
+		appRouter.ServeHTTP(response, request)
+	})
+	return &Server{router: appRouter, scan: result, http: handler}, nil
 }
 
 // Handler returns the live HTTP handler.
 func (server *Server) Handler() http.Handler {
-	return server.router
+	return server.http
 }
 
 // Scan returns the discovery snapshot used to build the current mount table.

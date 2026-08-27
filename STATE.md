@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T13:19:16Z
+**Last updated:** 2026-08-27T13:19:38Z
 **Gate status:** green
-**Iterations completed:** 21
+**Iterations completed:** 22
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] `GET /` returns the dashboard HTML with a 200 and `Content-Type: text/html`.
+- [x] `GET /` returns the dashboard HTML with a 200 and `Content-Type: text/html`.
 - [ ] `GET /_dropserve/api/apps` lists every fixture app with the correct type and status.
 - [ ] Search finds a fixture app by text that appears only in its `README.md`.
 - [ ] Search finds a fixture app by text that appears only in a filename.
@@ -68,6 +68,10 @@
 - Shipped binary: `dropserve 0.0.0-dev (8263b2a)`.
 - Final `scripts/smoke/m1.ps1`: `http://127.0.0.1:54826/static/` returned 200 with the fixture heading.
 - Hosted Windows CI revealed that its image reserves port 80 with `WSAEACCES` before the test can own it. The acceptance test now treats that failed real bind as proof the port is unavailable, while still using its own listener wherever Windows permits; local Windows continues to exercise owned listeners on both 80 and 8080.
+
+### M2 evidence
+
+- `TestDashboardAtRoot`: the composed server reserves `/` for an embedded vanilla dashboard and returns 200 HTML with the focused launcher search. The responsive light/dark shell, empty/error states, cards, and keyboard controls total 13,409 bytes with no frontend build step.
 
 ## Decisions made this build (beyond the spec)
 

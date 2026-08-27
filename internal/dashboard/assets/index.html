@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Dropserve</title>
+  <link rel="stylesheet" href="/_dropserve/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Dropserve home">
+      <span class="brand-mark" aria-hidden="true">D</span>
+      <span><strong>Dropserve</strong><small>Yours, from this computer.</small></span>
+    </a>
+    <button class="sharing-button" type="button" aria-label="Open sharing options">
+      <span class="online-dot" aria-hidden="true"></span>
+      This device
+    </button>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="page-title">
+      <p class="eyebrow">Your local launchpad</p>
+      <h1 id="page-title">What do you want to open?</h1>
+      <label class="search-shell" for="app-search">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 21-4.4-4.4m2.4-5.1a7.5 7.5 0 1 1-15 0 7.5 7.5 0 0 1 15 0Z"/></svg>
+        <input id="app-search" type="search" placeholder="Search your apps" autocomplete="off" autofocus>
+        <kbd>/</kbd>
+      </label>
+      <p id="search-help" class="search-help">Use ↑ ↓ to choose, then Enter to open.</p>
+    </section>
+
+    <aside id="port-warning" class="notice" hidden>
+      <span aria-hidden="true">!</span>
+      <p></p>
+      <button type="button">Diagnose</button>
+    </aside>
+
+    <section class="apps-section" aria-labelledby="apps-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">On this computer</p>
+          <h2 id="apps-title">Your apps</h2>
+        </div>
+        <span id="app-count" class="count-pill">Checking…</span>
+      </div>
+      <div id="app-grid" class="app-grid" aria-live="polite" aria-busy="true"></div>
+      <div id="empty-state" class="empty-state" hidden>
+        <div class="empty-icon" aria-hidden="true">＋</div>
+        <h2>Drop in your first app</h2>
+        <p>Put any folder with an <code>index.html</code> into your Dropserve Apps folder. It will appear here automatically.</p>
+        <button type="button" id="open-apps-folder">Open Apps Folder</button>
+      </div>
+      <div id="error-state" class="empty-state error-state" hidden>
+        <div class="empty-icon" aria-hidden="true">↻</div>
+        <h2>We couldn’t refresh your apps</h2>
+        <p>Your sites are still available. Try refreshing this page in a moment.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <span><span class="online-dot" aria-hidden="true"></span> Dropserve is running</span>
+    <a href="/_dropserve/api/status">Status</a>
+  </footer>
+  <script src="/_dropserve/app.js" defer></script>
+</body>
+</html>

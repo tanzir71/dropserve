@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M0 — Repository, CI, and the gate
-**Last updated:** 2026-08-27T12:33:05Z
+**Last updated:** 2026-08-27T12:34:15Z
 **Gate status:** green
-**Iterations completed:** 3
+**Iterations completed:** 4
 
 ## Milestone progress
 
@@ -25,7 +25,7 @@
 - [x] `make check` exits 0 on a clean checkout.
 - [x] Zero-CGO cross-builds pass for Windows amd64, Linux amd64, and Darwin arm64.
 - [x] `dropserve version` prints a semver and injected Git SHA.
-- [ ] CI is green on Ubuntu and Windows runners.
+- [ ] CI is green on Ubuntu and Windows runners — **BLOCKED:** see `BLOCKED-m0-hosted-ci.md`.
 - [x] The module dependency baseline is recorded.
 - [x] The shipped-file scan returns no unfinished text.
 - [x] The module path and MIT licence are correct.

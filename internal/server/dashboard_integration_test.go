@@ -85,6 +85,44 @@ func TestDashboardHandlesZeroAndTwoHundredApps(t *testing.T) {
 	}
 }
 
+func TestDropserveNamespaceCannotBeShadowed(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	writeDashboardFixture(t, root, "_dropserve", "Impostor", "This app must never mount.")
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create reserved-route server: %v", err)
+	}
+
+	apps := fetchAppSlugs(t, server.Handler())
+	if len(apps) != 0 {
+		t.Fatalf("reserved app appeared in API: %#v", apps)
+	}
+	for _, requestPath := range []string{"/", "/_dropserve/app.css", "/_dropserve/api/apps"} {
+		request := httptest.NewRequestWithContext(
+			context.Background(),
+			http.MethodGet,
+			"http://dropserve.test"+requestPath,
+			nil,
+		)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		result := response.Result()
+		body, readErr := io.ReadAll(result.Body)
+		_ = result.Body.Close()
+		if readErr != nil {
+			t.Fatalf("read %s: %v", requestPath, readErr)
+		}
+		if result.StatusCode != http.StatusOK {
+			t.Fatalf("system route %s returned %d, want 200", requestPath, result.StatusCode)
+		}
+		if bytes.Contains(body, []byte("Impostor")) {
+			t.Fatalf("reserved app shadowed system route %s: %q", requestPath, body)
+		}
+	}
+}
+
 func fetchAppSlugs(t *testing.T, handler http.Handler) []string {
 	t.Helper()
 

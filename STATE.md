@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T20:22:12Z
+**Last updated:** 2026-08-27T20:23:10Z
 **Gate status:** green
-**Iterations completed:** 31
+**Iterations completed:** 32
 
 ## Milestone progress
 
@@ -31,7 +31,7 @@
 - [x] The QR endpoint returns a valid PNG for the requested URL.
 - [x] Dashboard assets remain under 100 KB.
 - [x] The dashboard handles both zero apps and 200 apps.
-- [ ] `/_dropserve/*` cannot be shadowed by an app slug.
+- [x] `/_dropserve/*` cannot be shadowed by an app slug.
 
 ### M0 completion evidence
 
@@ -81,6 +81,7 @@
 - `TestQREndpointReturnsPNG`: validated HTTP(S) input is passed to the handover-approved pure-Go QR encoder; the response independently decodes as a substantial 256×256 PNG and distinct URLs produce distinct images. The test does not decode the QR symbols back to text, avoiding a second decoder dependency; this is the explicit acceptance-criterion fallback limitation.
 - `TestEmbeddedAssetsStayUnderBudget`: the exact embedded files total 13,409 of the strict 100,000-byte budget (CSS 7,187; JavaScript 3,444; HTML 2,778), enforced on every gate run.
 - `TestDashboardHandlesZeroAndTwoHundredApps`: an empty scan serializes as a real empty list that activates the designed invitation state; a generated 200-app scan returns all 200 unique cards in one unpaginated snapshot. The client filters once and maps that snapshot once per render (linear work, no nested app scan).
+- `TestDropserveNamespaceCannotBeShadowed`: an actual `_dropserve` folder is refused by the scanner, absent from the apps API, and cannot replace the dashboard root, embedded assets, or system API responses.
 
 ## Decisions made this build (beyond the spec)
 
@@ -95,6 +96,7 @@
 - Build-loop process only: the minimal trailing-slash dispatch branch landed with the first router slice, so its dedicated acceptance test passed when added in the following iteration instead of failing first. The product behavior and gate match the criterion.
 - On Windows only, the gate retries the full race suite once when every package test passed but Go itself reports an `unlinkat` sharing violation for its completed temporary test executable. Real test failures are never retried. This handles transient antivirus/indexer locks without hiding product failures.
 - Build-loop process only: the ranking assertion passed immediately because the weighted scorer was introduced alongside the preceding README/filename search slices. The dedicated acceptance test and full gate now lock the required order.
+- Build-loop process only: the namespace-shadowing assertion passed immediately because M1 already refused reserved slugs and the first M2 server composition reserved system paths before app routing. The explicit end-to-end test now locks both layers together.
 
 ## Verify on real hardware
 

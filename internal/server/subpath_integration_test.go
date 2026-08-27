@@ -112,3 +112,42 @@ func TestCommandCookiePathIsRewrittenUnderSlug(t *testing.T) {
 		t.Fatalf("cookie Path = %q, want /subpath/", cookies[0].Path)
 	}
 }
+
+func TestCommandHTMLBaseInjection(t *testing.T) {
+	t.Parallel()
+
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the subpath fixture requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "subpath"))
+	if err != nil {
+		t.Fatalf("resolve subpath fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create subpath server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close subpath server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	const withoutBase = "<!doctype html><html><head><title>No base</title></head><body>plain</body></html>"
+	const wantInjected = "<!doctype html><html><head><base href=\"/subpath/\"><title>No base</title></head><body>plain</body></html>"
+	status, injected := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/subpath/html-no-base")
+	if status != http.StatusOK || injected != wantInjected {
+		t.Fatalf("HTML without base = %d %q; source=%q", status, injected, withoutBase)
+	}
+
+	const withBase = "<!doctype html><html><head><base href=\"/custom/\"><title>Base</title></head><body>kept</body></html>"
+	status, unchanged := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/subpath/html-with-base")
+	if status != http.StatusOK || unchanged != withBase {
+		t.Fatalf("HTML with existing base changed: %d %q", status, unchanged)
+	}
+}

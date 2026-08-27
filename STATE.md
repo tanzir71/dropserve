@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T21:54:20Z
+**Last updated:** 2026-08-27T21:57:07Z
 **Gate status:** green
-**Iterations completed:** 66
+**Iterations completed:** 67
 
 ## Milestone progress
 
@@ -24,7 +24,7 @@
 
 - [x] Assert: a fixture returning a 302 to `/login` produces a client-visible redirect to `/<slug>/login`.
 - [x] Assert: a fixture setting `Set-Cookie: s=1; Path=/` yields `Path=/<slug>/`.
-- [ ] Assert: an HTML response with no `<base>` gets `<base href="/<slug>/">` injected directly after `<head>`; one that already has a `<base>` is left byte-identical.
+- [x] Assert: an HTML response with no `<base>` gets `<base href="/<slug>/">` injected directly after `<head>`; one that already has a `<base>` is left byte-identical.
 - [ ] Assert: a non-HTML response (JSON, JS, CSS, PNG) is byte-identical through the proxy — hash in, hash out.
 - [ ] Assert: a 5 MB HTML response is **not** rewritten (over the 2 MB cap) and passes through unmodified.
 - [ ] Assert: `testdata/fixtures/absolute-paths/` is flagged `prefers_own_port`, its dashboard card links to `http://127.0.0.1:<port>/`, and that URL serves the app correctly at its root.
@@ -152,6 +152,7 @@
 
 - `TestCommandRedirectIsRewrittenUnderSlug` drives the real `subpath` command fixture. Its upstream 302 initially exposed `Location: /login`; the proxy now rewrites root-relative redirects to `/subpath/login` while leaving absolute, protocol-relative, and already-prefixed locations untouched. The focused test and full gate are green.
 - `TestCommandCookiePathIsRewrittenUnderSlug` drives `s=1; Path=/; HttpOnly` through the same real command proxy. The pre-implementation response exposed `/`; the response hook now changes only an exact root `Path` attribute to `/subpath/`, preserving the cookie and its other attributes. The focused test and full gate are green.
+- `TestCommandHTMLBaseInjection` first observed the no-base document unchanged. The proxy now injects `<base href="/subpath/">` directly after its opening `<head>` while an existing-base control remains byte-for-byte identical. Rewriting is limited to unencoded `text/html`, buffers at most 2 MB plus one byte, preserves oversized streams, and clears stale body validators only when bytes change. The focused test and full gate are green.
 
 ## Decisions made this build (beyond the spec)
 

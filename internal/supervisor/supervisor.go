@@ -376,17 +376,16 @@ func (process *Process) Start() error {
 				response.Header.Add("Set-Cookie", rewriteRootCookiePath(cookie, prefix))
 			}
 		}
-		if response.StatusCode < http.StatusMultipleChoices || response.StatusCode >= http.StatusBadRequest {
-			return nil
+		if response.StatusCode >= http.StatusMultipleChoices && response.StatusCode < http.StatusBadRequest {
+			location := response.Header.Get("Location")
+			if strings.HasPrefix(location, "/") &&
+				!strings.HasPrefix(location, "//") &&
+				location != prefix &&
+				!strings.HasPrefix(location, prefix+"/") {
+				response.Header.Set("Location", prefix+location)
+			}
 		}
-		location := response.Header.Get("Location")
-		if strings.HasPrefix(location, "/") &&
-			!strings.HasPrefix(location, "//") &&
-			location != prefix &&
-			!strings.HasPrefix(location, prefix+"/") {
-			response.Header.Set("Location", prefix+location)
-		}
-		return nil
+		return rewriteHTMLResponse(response, prefix)
 	}
 	proxy.ErrorHandler = func(response http.ResponseWriter, _ *http.Request, proxyErr error) {
 		http.Error(response, "Dropserve could not reach this app: "+proxyErr.Error(), http.StatusBadGateway)

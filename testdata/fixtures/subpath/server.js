@@ -15,5 +15,15 @@ http.createServer((request, response) => {
     response.end("cookie set");
     return;
   }
+  if (request.url === "/html-no-base") {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    response.end("<!doctype html><html><head><title>No base</title></head><body>plain</body></html>");
+    return;
+  }
+  if (request.url === "/html-with-base") {
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    response.end("<!doctype html><html><head><base href=\"/custom/\"><title>Base</title></head><body>kept</body></html>");
+    return;
+  }
   response.end("subpath fixture");
 }).listen(Number(process.env.PORT), process.env.HOST);

@@ -19,6 +19,7 @@ import (
 
 	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
+	"github.com/tanzir71/dropserve/internal/doctor"
 	"github.com/tanzir71/dropserve/internal/ports"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
@@ -419,9 +420,21 @@ func statusCommand(arguments []string, stdout, stderr io.Writer) int {
 }
 
 func doctorCommand(arguments []string, stdout, stderr io.Writer, injectedConfigPath string) int {
+	return doctorCommandWithProbes(arguments, stdout, stderr, injectedConfigPath, doctor.Probes{})
+}
+
+func doctorCommandWithProbes(
+	arguments []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	injectedConfigPath string,
+	probes doctor.Probes,
+) int {
 	flags := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", injectedConfigPath, "configuration file")
+	statePath := flags.String("state", "", "runtime state file")
+	logDirectory := flags.String("logs", "", "application log directory")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}
@@ -441,35 +454,18 @@ func doctorCommand(arguments []string, stdout, stderr io.Writer, injectedConfigP
 			return 1
 		}
 	}
-	configuration, err := config.Load(*configPath)
-	if err != nil {
-		if _, writeErr := fmt.Fprintf(stderr, "Dropserve doctor could not read its config: %v\n", err); writeErr != nil {
-			return 1
-		}
+	report := doctor.Diagnose(doctor.Options{
+		ConfigPath:   *configPath,
+		StatePath:    *statePath,
+		LogDirectory: *logDirectory,
+		Version:      version.Version,
+		Commit:       version.Commit,
+	}, probes)
+	if err := report.Write(stdout); err != nil {
 		return 1
 	}
-	result, err := scanner.Scan(scanner.Options{
-		Roots:      configuration.Server.AppsRoots,
-		Registered: configuration.Server.RegisteredApps,
-	})
-	if err != nil {
-		if _, writeErr := fmt.Fprintf(stderr, "Dropserve doctor could not scan your app folders: %v\n", err); writeErr != nil {
-			return 1
-		}
+	if report.RequiredFailure() {
 		return 1
-	}
-	if _, err := fmt.Fprintf(stdout, "OK config %s\n", *configPath); err != nil {
-		return 1
-	}
-	for _, warning := range result.Warnings {
-		if _, err := fmt.Fprintf(stdout, "WARN %s\n", warning.Message); err != nil {
-			return 1
-		}
-	}
-	if len(result.Warnings) == 0 {
-		if _, err := fmt.Fprintln(stdout, "OK app folders"); err != nil {
-			return 1
-		}
 	}
 	return 0
 }

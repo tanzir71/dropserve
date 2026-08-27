@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:27:18Z
+**Last updated:** 2026-08-27T23:32:43Z
 **Gate status:** green
-**Iterations completed:** 88
+**Iterations completed:** 89
 
 ## Milestone progress
 
@@ -26,7 +26,7 @@
 - [x] Assert: `dropserve autostart status` after an external `schtasks /Delete` reports **disabled** — proving it reads the OS, not a stored flag.
 - [x] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
 - [x] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
-- [ ] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
+- [x] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
 - [ ] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
 - [ ] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
 
@@ -193,6 +193,7 @@
   ```text
   M6 Linux autostart smoke passed: the user unit was written, verified, enabled, and removed.
   ```
+- `TestDoctorExitCodesAndCoversSupportSurface` and `TestHealthyReportContainsEverySupportCheck` lock healthy exit 0, required-root failure exit 1, and explicit lines for version, port rationale, Windows excluded ranges and firewall, readable Apps roots, every app and warning, Node/Python/PHP availability, mDNS bind, Tailscale, OS-backed autostart, and error logs. Missing optional integrations are warnings; unreadable configured roots and missing runtimes required by detected apps are failures. `TestErrorLogsReturnOnlyNewestTwentyLines` locks the 20-line cap across chronologically ordered rotated files. A real binary run on this machine printed the full report and correctly exited 1 because the default Apps root does not exist; the full local gate is green.
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.

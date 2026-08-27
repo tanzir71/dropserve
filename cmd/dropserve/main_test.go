@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/tanzir71/dropserve/internal/config"
+	"github.com/tanzir71/dropserve/internal/doctor"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	"github.com/tanzir71/dropserve/internal/state"
@@ -87,6 +88,67 @@ func TestDoctorReportsSyncRootWarning(t *testing.T) {
 	output := stdout.String()
 	if !strings.Contains(output, root) || !strings.Contains(output, `%USERPROFILE%\Dropserve`) {
 		t.Fatalf("doctor output = %q, want root and recommended location", output)
+	}
+}
+
+func TestDoctorExitCodesAndCoversSupportSurface(t *testing.T) {
+	t.Parallel()
+
+	sandbox := t.TempDir()
+	appsRoot := filepath.Join(sandbox, "Apps")
+	appRoot := filepath.Join(appsRoot, "sample")
+	if err := os.MkdirAll(appRoot, 0o750); err != nil {
+		t.Fatalf("create sample app: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "index.html"), []byte("<h1>Sample</h1>"), 0o600); err != nil {
+		t.Fatalf("write sample app: %v", err)
+	}
+	configuration := config.Default()
+	configuration.Server.AppsRoots = []string{appsRoot}
+	configPath := filepath.Join(sandbox, "config.toml")
+	if err := config.Save(configPath, configuration); err != nil {
+		t.Fatalf("save doctor config: %v", err)
+	}
+	statePath := filepath.Join(sandbox, "state.json")
+	if err := state.Save(statePath, state.State{HTTPPort: 8000}); err != nil {
+		t.Fatalf("save doctor state: %v", err)
+	}
+	probes := doctor.Probes{
+		OS: "linux",
+		LookPath: func(name string) (string, error) {
+			return "/usr/bin/" + name, nil
+		},
+		RunCommand: func(string, ...string) ([]byte, error) {
+			return []byte("healthy"), nil
+		},
+		ProbeMDNS:        func() error { return nil },
+		AutostartEnabled: func() (bool, error) { return true, nil },
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	arguments := []string{"--config", configPath, "--state", statePath}
+	if code := doctorCommandWithProbes(arguments, &stdout, &stderr, "", probes); code != 0 {
+		t.Fatalf("healthy doctor returned %d; stderr=%q\n%s", code, stderr.String(), stdout.String())
+	}
+	for _, label := range []string{
+		"Version:", "HTTP port:", "Windows excluded TCP port ranges:", "Windows firewall rule:",
+		"Apps root:", "App sample:", "App warnings:", "Runtime node:", "Runtime python:",
+		"Runtime php:", "mDNS bind:", "Tailscale:", "Autostart:", "Error logs:",
+	} {
+		if !strings.Contains(stdout.String(), label) {
+			t.Errorf("doctor output does not contain %q:\n%s", label, stdout.String())
+		}
+	}
+
+	configuration.Server.AppsRoots = []string{filepath.Join(sandbox, "missing-root")}
+	if err := config.Save(configPath, configuration); err != nil {
+		t.Fatalf("save failing doctor config: %v", err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if code := doctorCommandWithProbes(arguments, &stdout, &stderr, "", probes); code != 1 {
+		t.Fatalf("doctor with missing required root returned %d, want 1; stderr=%q\n%s", code, stderr.String(), stdout.String())
 	}
 }
 

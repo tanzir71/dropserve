@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T12:53:21Z
+**Last updated:** 2026-08-27T12:54:53Z
 **Gate status:** green
-**Iterations completed:** 10
+**Iterations completed:** 11
 
 ## Milestone progress
 
@@ -26,7 +26,7 @@
 - [x] `GET /static` redirects permanently to `/static/`.
 - [x] Slug sanitisation handles spaces, Unicode, unsafe prefixes, and ignored names.
 - [x] Path traversal is refused for encoded, absolute, UNC, and escaping-symlink paths.
-- [ ] Slug collisions across roots produce stable suffixes and both apps remain reachable.
+- [x] Slug collisions across roots produce stable suffixes and both apps remain reachable.
 - [ ] Case-insensitive collisions and case-only renames behave correctly.
 - [ ] Scanner walks a path deeper than 260 characters.
 - [ ] Reserved slugs are refused with a warning.
@@ -53,6 +53,7 @@
 - `TestMissingTrailingSlashRedirects`: `GET /static` returns 301 with `Location: /static/` and preserves the query string.
 - `TestSlugSanitisation`: spaces normalize to hyphens, Unicode names produce deterministic ASCII, `..evil` is rejected with an actionable warning, and dot/underscore convenience folders remain silently ignored.
 - `TestPathTraversalIsRefused`: raw and encoded parent traversal, Windows backslashes, absolute paths, UNC paths, and an escaping symlink all return `ErrUnsafePath`. The symlink assertion passed on this Windows machine without a platform skip.
+- `TestSlugCollisionsRemainReachable`: ordered roots produce `notes` and `notes-2`; each URL serves the correct source, and the warning names both full paths.
 
 ## Decisions made this build (beyond the spec)
 

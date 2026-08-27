@@ -53,6 +53,7 @@ type Result struct {
 func Scan(options Options) (Result, error) {
 	var result Result
 	slugUses := make(map[string]int)
+	slugOwners := make(map[string]string)
 
 	for _, configuredRoot := range options.Roots {
 		root, err := filepath.Abs(configuredRoot)
@@ -79,11 +80,12 @@ func Scan(options Options) (Result, error) {
 				continue
 			}
 
+			fullPath := filepath.Join(root, entry.Name())
 			baseSlug := Slug(entry.Name())
 			if baseSlug == "" {
 				result.Warnings = append(result.Warnings, Warning{
 					Code:    "invalid_slug",
-					Path:    filepath.Join(root, entry.Name()),
+					Path:    fullPath,
 					Message: fmt.Sprintf("%q does not have a URL-safe name and was not mounted", entry.Name()),
 				})
 				continue
@@ -91,19 +93,32 @@ func Scan(options Options) (Result, error) {
 			if _, reserved := reservedSlugs[baseSlug]; reserved {
 				result.Warnings = append(result.Warnings, Warning{
 					Code:    "reserved_slug",
-					Path:    filepath.Join(root, entry.Name()),
+					Path:    fullPath,
 					Message: fmt.Sprintf("%q is reserved by Dropserve and was not mounted", baseSlug),
 				})
 				continue
 			}
 
-			slugUses[strings.ToLower(baseSlug)]++
+			slugKey := strings.ToLower(baseSlug)
+			slugUses[slugKey]++
 			slug := baseSlug
-			if use := slugUses[strings.ToLower(baseSlug)]; use > 1 {
+			if use := slugUses[slugKey]; use > 1 {
 				slug = fmt.Sprintf("%s-%d", baseSlug, use)
+				result.Warnings = append(result.Warnings, Warning{
+					Code: "slug_collision",
+					Path: fullPath,
+					Message: fmt.Sprintf(
+						"Apps at %s and %s share the address %q; the later app is available as %q",
+						slugOwners[slugKey],
+						fullPath,
+						baseSlug,
+						slug,
+					),
+				})
+			} else {
+				slugOwners[slugKey] = fullPath
 			}
 
-			fullPath := filepath.Join(root, entry.Name())
 			application := app.App{
 				Slug:      slug,
 				Name:      displayName(entry.Name()),

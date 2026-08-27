@@ -116,7 +116,9 @@ function appCard(item, index) {
   article.className = 'app-card';
   article.dataset.selected = String(index === selected);
   article.dataset.status = item.status || 'ready';
-  const targetURL = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
+  const targetURL = item.prefers_own_port && item.urls?.own
+    ? item.urls.own
+    : (item.urls?.path || `/${encodeURIComponent(item.slug)}/`);
   const link = document.createElement('a');
   link.href = targetURL;
   link.dataset.appLink = '';

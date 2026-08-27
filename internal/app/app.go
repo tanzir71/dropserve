@@ -28,4 +28,6 @@ type App struct {
 	PortEnv          string
 	Autostart        bool
 	Status           string
+	Port             int
+	PrefersOwnPort   bool
 }

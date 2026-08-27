@@ -36,9 +36,11 @@ type Options struct {
 
 // Snapshot is the observable state and bounded logs for one command app.
 type Snapshot struct {
-	Status   string `json:"status"`
-	Attempts int    `json:"attempts"`
-	Logs     string `json:"logs"`
+	Status         string `json:"status"`
+	Attempts       int    `json:"attempts"`
+	Logs           string `json:"logs"`
+	Port           int    `json:"port"`
+	PrefersOwnPort bool   `json:"prefers_own_port"`
 }
 
 // Manager preserves healthy command processes across scanner reconciliations.
@@ -300,21 +302,22 @@ func (manager *Manager) Close() error {
 
 // Process is one healthy command app and its reverse proxy.
 type Process struct {
-	application  app.App
-	command      *exec.Cmd
-	port         int
-	proxy        http.Handler
-	done         chan error
-	logs         *ringBuffer
-	output       io.Writer
-	logCloser    io.Closer
-	closeOnce    sync.Once
-	closeErr     error
-	control      *processControl
-	mount        *managedHandler
-	status       string
-	attempts     int
-	failureTimes []time.Time
+	application    app.App
+	command        *exec.Cmd
+	port           int
+	proxy          http.Handler
+	done           chan error
+	logs           *ringBuffer
+	output         io.Writer
+	logCloser      io.Closer
+	closeOnce      sync.Once
+	closeErr       error
+	control        *processControl
+	mount          *managedHandler
+	status         string
+	attempts       int
+	failureTimes   []time.Time
+	prefersOwnPort bool
 }
 
 func newProcess(application app.App) *Process {
@@ -391,6 +394,7 @@ func (process *Process) Start() error {
 		http.Error(response, "Dropserve could not reach this app: "+proxyErr.Error(), http.StatusBadGateway)
 	}
 	process.proxy = proxy
+	process.prefersOwnPort = probeRootAbsoluteReferences(target.String())
 	return nil
 }
 
@@ -404,7 +408,13 @@ func (process *Process) Handler() http.Handler {
 
 // Snapshot returns this process's current state and bounded logs.
 func (process *Process) Snapshot() Snapshot {
-	return Snapshot{Status: process.status, Attempts: process.attempts, Logs: process.logs.String()}
+	return Snapshot{
+		Status:         process.status,
+		Attempts:       process.attempts,
+		Logs:           process.logs.String(),
+		Port:           process.port,
+		PrefersOwnPort: process.prefersOwnPort,
+	}
 }
 
 // Close terminates the command and waits for it to exit.

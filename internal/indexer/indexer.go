@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -18,26 +19,29 @@ import (
 // URLs contains verified ways to reach an app.
 type URLs struct {
 	Path string `json:"path"`
+	Own  string `json:"own,omitempty"`
 }
 
 // Entry is the stable public dashboard representation of one app.
 type Entry struct {
-	Slug        string `json:"slug"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Description string `json:"description"`
-	Title       string `json:"title,omitempty"`
-	Heading     string `json:"heading,omitempty"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	Detection   string `json:"detection"`
-	URLs        URLs   `json:"urls"`
-	Icon        string `json:"icon,omitempty"`
-	IconKind    string `json:"icon_kind"`
-	IconColor   string `json:"icon_color,omitempty"`
-	Size        int64  `json:"size"`
-	MTime       int64  `json:"mtime"`
-	fileNames   []string
+	Slug           string `json:"slug"`
+	Name           string `json:"name"`
+	Path           string `json:"path"`
+	Description    string `json:"description"`
+	Title          string `json:"title,omitempty"`
+	Heading        string `json:"heading,omitempty"`
+	Type           string `json:"type"`
+	Status         string `json:"status"`
+	Detection      string `json:"detection"`
+	URLs           URLs   `json:"urls"`
+	Icon           string `json:"icon,omitempty"`
+	IconKind       string `json:"icon_kind"`
+	IconColor      string `json:"icon_color,omitempty"`
+	Size           int64  `json:"size"`
+	MTime          int64  `json:"mtime"`
+	Port           int    `json:"port,omitempty"`
+	PrefersOwnPort bool   `json:"prefers_own_port,omitempty"`
+	fileNames      []string
 }
 
 // FileAccess is the read-only I/O boundary used while building an index.
@@ -88,23 +92,29 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 		if status == "" {
 			status = "ready"
 		}
+		urls := URLs{Path: "/" + strings.Trim(application.Slug, "/") + "/"}
+		if application.Port != 0 {
+			urls.Own = "http://127.0.0.1:" + strconv.Itoa(application.Port) + "/"
+		}
 		entry := Entry{
-			Slug:        application.Slug,
-			Name:        application.Name,
-			Path:        application.Path,
-			Description: readDescription(files, application.Path, application.LooseFile),
-			Title:       title,
-			Heading:     heading,
-			Type:        string(application.Kind),
-			Status:      status,
-			Detection:   detectionReason(application),
-			URLs:        URLs{Path: "/" + strings.Trim(application.Slug, "/") + "/"},
-			Icon:        icon,
-			IconKind:    iconKind,
-			IconColor:   iconColor,
-			Size:        size,
-			MTime:       modified,
-			fileNames:   indexFileNames(application.Path, application.LooseFile),
+			Slug:           application.Slug,
+			Name:           application.Name,
+			Path:           application.Path,
+			Description:    readDescription(files, application.Path, application.LooseFile),
+			Title:          title,
+			Heading:        heading,
+			Type:           string(application.Kind),
+			Status:         status,
+			Detection:      detectionReason(application),
+			URLs:           urls,
+			Icon:           icon,
+			IconKind:       iconKind,
+			IconColor:      iconColor,
+			Size:           size,
+			MTime:          modified,
+			Port:           application.Port,
+			PrefersOwnPort: application.PrefersOwnPort,
+			fileNames:      indexFileNames(application.Path, application.LooseFile),
 		}
 		entries = append(entries, entry)
 	}

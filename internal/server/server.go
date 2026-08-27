@@ -150,7 +150,11 @@ func (server *Server) reconcile() error {
 			applicationHandler, err = server.supervisor.Handler(application)
 			if commandState, found := server.supervisor.Snapshot(application.Slug); found {
 				application.Status = commandState.Status
+				application.Port = commandState.Port
+				application.PrefersOwnPort = commandState.PrefersOwnPort
 				result.Apps[applicationIndex].Status = commandState.Status
+				result.Apps[applicationIndex].Port = commandState.Port
+				result.Apps[applicationIndex].PrefersOwnPort = commandState.PrefersOwnPort
 			}
 		default:
 			applicationHandler = staticserver.New(application)

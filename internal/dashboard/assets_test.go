@@ -65,6 +65,7 @@ func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
 		"navigator.clipboard",
 		"showModal",
 		"data-action",
+		"item.prefers_own_port && item.urls?.own",
 	} {
 		if !strings.Contains(string(script), marker) {
 			t.Fatalf("dashboard JavaScript does not contain interaction marker %q", marker)

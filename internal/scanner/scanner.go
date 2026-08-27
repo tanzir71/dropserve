@@ -188,20 +188,34 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 	}
 
 	application := app.App{
-		Slug:      slug,
-		Name:      displayName(entry.Name()),
-		Path:      fullPath,
-		Kind:      app.KindStatic,
-		LooseFile: !entry.IsDir(),
-		FileCount: 1,
+		Slug:       slug,
+		Name:       displayName(entry.Name()),
+		Path:       fullPath,
+		Kind:       app.KindStatic,
+		LooseFile:  !entry.IsDir(),
+		FileCount:  1,
+		Autostart:  true,
+		HealthPath: "/",
+		PortEnv:    "PORT",
 	}
 	var err error
 	if entry.IsDir() {
-		application.Index, err = findIndex(fullPath)
+		detection, detectionErr := app.Detect(fullPath)
+		if detectionErr != nil {
+			return detectionErr
+		}
+		application.Kind = detection.Kind
+		application.Command = detection.Command
+		application.Runtime = detection.Runtime
+		application.Detection = detection.Reason
+		application.Autostart = detection.Autostart
+		if application.Kind == app.KindStatic {
+			application.Index, err = findIndex(fullPath)
+		}
 		if err != nil {
 			return err
 		}
-		application.DirectoryListing = application.Index == ""
+		application.DirectoryListing = application.Kind == app.KindStatic && application.Index == ""
 		application.FileCount, err = countFiles(fullPath)
 		if err != nil {
 			return fmt.Errorf("walk app %q: %w", fullPath, err)

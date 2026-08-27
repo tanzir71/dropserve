@@ -2,16 +2,19 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/dashboard"
 	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
+	"github.com/tanzir71/dropserve/internal/supervisor"
 	"github.com/tanzir71/dropserve/internal/watcher"
 )
 
@@ -30,6 +33,7 @@ type Server struct {
 	reconcileMu sync.Mutex
 	rebuilds    atomic.Uint64
 	events      *eventHub
+	supervisor  *supervisor.Manager
 }
 
 // Options configures scanning and optional machine-state persistence.
@@ -45,7 +49,12 @@ func New(options scanner.Options) (*Server, error) {
 
 // NewWithOptions creates a server and atomically persists its dashboard index when requested.
 func NewWithOptions(options Options) (*Server, error) {
-	server := &Server{router: router.New(nil), options: options, events: newEventHub()}
+	server := &Server{
+		router:     router.New(nil),
+		options:    options,
+		events:     newEventHub(),
+		supervisor: supervisor.NewManager(),
+	}
 	handler := http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/_dropserve/api/events" {
 			server.events.serveHTTP(response, request)
@@ -93,10 +102,14 @@ func (server *Server) Scan() scanner.Result {
 
 // Close stops live filesystem watching.
 func (server *Server) Close() error {
-	if server.watcher == nil {
-		return nil
+	var closeErrors []error
+	if server.watcher != nil {
+		closeErrors = append(closeErrors, server.watcher.Close())
 	}
-	return server.watcher.Close()
+	if server.supervisor != nil {
+		closeErrors = append(closeErrors, server.supervisor.Close())
+	}
+	return errors.Join(closeErrors...)
 }
 
 // RebuildCount returns the number of successfully published mount snapshots.
@@ -119,10 +132,23 @@ func (server *Server) reconcile() error {
 	}
 	mounts := make([]router.Mount, 0, len(result.Apps))
 	for _, application := range result.Apps {
+		var applicationHandler http.Handler
+		switch application.Kind {
+		case app.KindCommand:
+			applicationHandler, err = server.supervisor.Handler(application)
+		default:
+			applicationHandler = staticserver.New(application)
+		}
+		if err != nil {
+			return err
+		}
 		mounts = append(mounts, router.Mount{
 			App:     application,
-			Handler: staticserver.New(application),
+			Handler: applicationHandler,
 		})
+	}
+	if err := server.supervisor.Reconcile(result.Apps); err != nil {
+		return err
 	}
 	entries := indexer.Build(result.Apps)
 	if server.options.IndexPath != "" {

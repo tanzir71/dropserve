@@ -539,6 +539,11 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create fixture server: %v", err)
 	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close fixture server: %v", closeErr)
+		}
+	}()
 	request := httptest.NewRequestWithContext(
 		context.Background(),
 		http.MethodGet,
@@ -570,18 +575,22 @@ func TestAppsAPIListsEveryFixture(t *testing.T) {
 	if err := json.NewDecoder(result.Body).Decode(&entries); err != nil {
 		t.Fatalf("decode apps API: %v", err)
 	}
-	expectedNames := map[string]string{
-		"field-notes":   "field notes",
-		"invoice-desk":  "invoice desk",
-		"kitchen-timer": "kitchen timer",
-		"static":        "static",
+	expected := map[string]struct {
+		name string
+		kind string
+	}{
+		"field-notes":   {name: "field notes", kind: "static"},
+		"invoice-desk":  {name: "invoice desk", kind: "static"},
+		"kitchen-timer": {name: "kitchen timer", kind: "static"},
+		"node":          {name: "node", kind: "command"},
+		"static":        {name: "static", kind: "static"},
 	}
-	if len(entries) != len(expectedNames) {
-		t.Fatalf("apps API returned %d entries, want every fixture (%d): %#v", len(entries), len(expectedNames), entries)
+	if len(entries) != len(expected) {
+		t.Fatalf("apps API returned %d entries, want every fixture (%d): %#v", len(entries), len(expected), entries)
 	}
 	for _, entry := range entries {
-		expectedName, found := expectedNames[entry.Slug]
-		if !found || entry.Name != expectedName || entry.Type != "static" || entry.Status != "ready" {
+		want, found := expected[entry.Slug]
+		if !found || entry.Name != want.name || entry.Type != want.kind || entry.Status != "ready" {
 			t.Fatalf("fixture metadata is incorrect: %#v", entry)
 		}
 		if entry.URLs.Path != "/"+entry.Slug+"/" {

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:03:24Z
+**Last updated:** 2026-08-27T21:10:44Z
 **Gate status:** green
-**Iterations completed:** 51
+**Iterations completed:** 52
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] Assert: fixture `testdata/fixtures/node/` (a 20-line `http` server reading `process.env.PORT`) is detected as `command`, started, health-checked, and `GET /node/` proxies to it with the correct body. Skip with a clear message if `node` is absent from the runner, and ensure CI installs Node so it does not skip.
+- [x] Assert: fixture `testdata/fixtures/node/` (a 20-line `http` server reading `process.env.PORT`) is detected as `command`, started, health-checked, and `GET /node/` proxies to it with the correct body. Skip with a clear message if `node` is absent from the runner, and ensure CI installs Node so it does not skip.
 - [ ] Assert: same for a Python fixture.
 - [ ] Assert: a fixture that exits immediately with code 1 is restarted with backoff, gives up after 5 attempts inside the window, ends in `crashed`, and its logs contain the error output.
 - [ ] Assert (**I4**): with a crashed app and a healthy app both present, the healthy app still returns 200 and the dashboard still renders.
@@ -118,10 +118,17 @@
 - The real-binary browser demo verified an empty-to-one-app SSE update on the same open page, with the corrected empty state and zero console errors.
 - Hosted CI [run 33116161221](https://github.com/tanzir71/dropserve/actions/runs/33116161221): Ubuntu gate, Windows gate, golangci-lint, secret scan, platform smoke, watcher bounds, cloud placeholder behavior, and all live HTTP acceptance tests passed.
 
+### M4 evidence
+
+- `TestNodeFixtureIsDetectedStartedHealthyAndProxied` exercises the real `testdata/fixtures/node/` package: rule 3 records `Node app from package.json start script`, runs `npm start` with an allocated `PORT` and loopback `HOST`, waits through TCP plus HTTP health checks, and proxies `/node/` to the exact fixture body in about 770 ms locally.
+- The first passing request exposed that killing npm alone left its `cmd.exe` and Node descendants alive. ADR-012 records the native fix: each Windows app is assigned to a `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` Job Object through `x/sys/windows`, while Unix uses a separate process group. The rerun left no fixture process behind, and the zero-CGO cross-build gate passes all three targets.
+- CI now installs Node 24 explicitly with the official `actions/setup-node` action on both gate runners, so the M4 acceptance test cannot silently rely on runner image state.
+
 ## Decisions made this build (beyond the spec)
 
 - 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
 - 2026-08-28 — ADR-011 records the handover-prescribed fsnotify watcher paired with periodic reconciliation. fsnotify adds one direct module plus its platform syscall module while preserving zero-CGO cross-builds.
+- 2026-08-28 — ADR-012 records native command-app process-tree isolation. The already-transitive pure-Go `golang.org/x/sys` module becomes direct so Windows Job Objects can kill npm and every descendant when the supervisor closes.
 
 ## Open questions for the human
 
@@ -141,4 +148,4 @@
 
 ## Dependency count
 
-3 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, and fsnotify); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 5 modules including the main module.
+4 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, and Windows syscall bridge); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 5 modules including the main module.

@@ -108,6 +108,9 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 }
 
 func detectionReason(application app.App) string {
+	if application.Detection != "" {
+		return application.Detection
+	}
 	if application.LooseFile {
 		return "Static HTML file"
 	}

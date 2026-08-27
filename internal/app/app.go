@@ -7,6 +7,8 @@ type Kind string
 const (
 	// KindStatic serves files directly from the app path.
 	KindStatic Kind = "static"
+	// KindCommand runs a supervised loopback HTTP process.
+	KindCommand Kind = "command"
 )
 
 // App is the read-only result of scanning one app folder or loose HTML file.
@@ -19,4 +21,10 @@ type App struct {
 	LooseFile        bool
 	DirectoryListing bool
 	FileCount        int64
+	Command          []string
+	Runtime          string
+	Detection        string
+	HealthPath       string
+	PortEnv          string
+	Autostart        bool
 }

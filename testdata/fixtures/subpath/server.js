@@ -38,5 +38,15 @@ http.createServer((request, response) => {
     response.end("<!doctype html><html><head><base href=\"/custom/\"><title>Base</title></head><body>kept</body></html>");
     return;
   }
+  if (request.url === "/large-html") {
+    const prefix = Buffer.from("<!doctype html><html><head><title>Large</title></head><body>");
+    const suffix = Buffer.from("</body></html>");
+    const fillBytes = (5 << 20) - prefix.length - suffix.length;
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.write(prefix);
+    response.write(Buffer.alloc(fillBytes, "x"));
+    response.end(suffix);
+    return;
+  }
   response.end("subpath fixture");
 }).listen(Number(process.env.PORT), process.env.HOST);

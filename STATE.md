@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M5 — The subpath survival kit
-**Last updated:** 2026-08-27T21:59:24Z
+**Last updated:** 2026-08-27T22:01:59Z
 **Gate status:** green
-**Iterations completed:** 68
+**Iterations completed:** 69
 
 ## Milestone progress
 
@@ -26,7 +26,7 @@
 - [x] Assert: a fixture setting `Set-Cookie: s=1; Path=/` yields `Path=/<slug>/`.
 - [x] Assert: an HTML response with no `<base>` gets `<base href="/<slug>/">` injected directly after `<head>`; one that already has a `<base>` is left byte-identical.
 - [x] Assert: a non-HTML response (JSON, JS, CSS, PNG) is byte-identical through the proxy — hash in, hash out.
-- [ ] Assert: a 5 MB HTML response is **not** rewritten (over the 2 MB cap) and passes through unmodified.
+- [x] Assert: a 5 MB HTML response is **not** rewritten (over the 2 MB cap) and passes through unmodified.
 - [ ] Assert: `testdata/fixtures/absolute-paths/` is flagged `prefers_own_port`, its dashboard card links to `http://127.0.0.1:<port>/`, and that URL serves the app correctly at its root.
 - [ ] Assert: assigned per-app ports are stable across a restart of Dropserve (persisted in state).
 - [ ] Assert: `X-Forwarded-Prefix`, `X-Forwarded-Host`, `X-Forwarded-Proto` arrive at a command app with the right values.
@@ -154,6 +154,7 @@
 - `TestCommandCookiePathIsRewrittenUnderSlug` drives `s=1; Path=/; HttpOnly` through the same real command proxy. The pre-implementation response exposed `/`; the response hook now changes only an exact root `Path` attribute to `/subpath/`, preserving the cookie and its other attributes. The focused test and full gate are green.
 - `TestCommandHTMLBaseInjection` first observed the no-base document unchanged. The proxy now injects `<base href="/subpath/">` directly after its opening `<head>` while an existing-base control remains byte-for-byte identical. Rewriting is limited to unencoded `text/html`, buffers at most 2 MB plus one byte, preserves oversized streams, and clears stale body validators only when bytes change. The focused test and full gate are green.
 - `TestCommandNonHTMLResponsesAreByteIdentical` hashes JSON, JavaScript, CSS, and PNG payloads before and after the real proxy; each payload deliberately includes HTML-like bytes where applicable. All four SHA-256 values match exactly and the full gate is green.
+- `TestFiveMegabyteHTMLResponseIsNotRewritten` streams a truly chunked 5 MB `text/html` document with an injectable `<head>`. The proxy reads only the 2 MB cap plus one byte to decide, reconstructs the stream, and the client still receives chunked transfer, exactly 5,242,880 bytes, and the source SHA-256. The focused test and full gate are green.
 
 ## Decisions made this build (beyond the spec)
 
@@ -174,6 +175,7 @@
 - Build-loop process only: the M4 I4 assertion passed immediately because the preceding restart-policy slice had to retain a crashed handler instead of aborting reconciliation. The dedicated mixed-health end-to-end test now locks dashboard and healthy-app availability together.
 - Build-loop process only: the mandatory Windows grandchild assertion passed immediately because native Job Object containment was added when the first Node proxy test exposed the leak. The dedicated PID-liveness test now guards the full `npm → node → grandchild` tree and its five-second deadline on every Windows gate.
 - Build-loop process only: the M5 non-HTML hash assertion passed immediately because the preceding HTML injection slice already gated rewriting on parsed `text/html`. The explicit JSON/JS/CSS/PNG hashes now guard that corruption boundary.
+- Build-loop process only: the M5 5 MB HTML assertion passed immediately because the preceding injection implementation included its cap+1 streaming fallback. The dedicated chunked-response size and hash assertions now lock the memory/corruption boundary.
 - Build-loop process only: the M3 rename assertion passed when first added because the preceding live-create slice deliberately reconciles the entire immutable scan and mount table, which already treats a filesystem rename as one removal plus one addition. The dedicated two-URL deadline test now locks that behavior.
 
 ## Verify on real hardware

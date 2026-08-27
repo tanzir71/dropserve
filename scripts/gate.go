@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -112,7 +113,32 @@ func lint() error {
 }
 
 func test() error {
-	return runGo("test", "-race", "./...")
+	transcript, err := runTestsOnce()
+	if err == nil {
+		return nil
+	}
+	if runtime.GOOS != "windows" ||
+		!strings.Contains(transcript, "go: unlinkat ") ||
+		!strings.Contains(transcript, "used by another process") ||
+		strings.Contains(transcript, "--- FAIL:") {
+		return err
+	}
+	fmt.Println("Windows briefly retained a completed Go test executable; retrying the test suite once")
+	_, retryErr := runTestsOnce()
+	return retryErr
+}
+
+func runTestsOnce() (string, error) {
+	var transcript bytes.Buffer
+	// #nosec G204 -- executable and arguments are fixed by the repository gate.
+	cmd := exec.CommandContext(context.Background(), "go", "test", "-race", "./...")
+	cmd.Stdout = io.MultiWriter(os.Stdout, &transcript)
+	cmd.Stderr = io.MultiWriter(os.Stderr, &transcript)
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		return transcript.String(), fmt.Errorf("go test -race ./...: %w", err)
+	}
+	return transcript.String(), nil
 }
 
 func crossBuild() error {

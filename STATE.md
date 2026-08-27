@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M2 — The index
-**Last updated:** 2026-08-27T13:19:38Z
+**Last updated:** 2026-08-27T20:12:57Z
 **Gate status:** green
-**Iterations completed:** 22
+**Iterations completed:** 23
 
 ## Milestone progress
 
@@ -84,6 +84,7 @@
 ## Deviations from the spec
 
 - Build-loop process only: the minimal trailing-slash dispatch branch landed with the first router slice, so its dedicated acceptance test passed when added in the following iteration instead of failing first. The product behavior and gate match the criterion.
+- On Windows only, the gate retries the full race suite once when every package test passed but Go itself reports an `unlinkat` sharing violation for its completed temporary test executable. Real test failures are never retried. This handles transient antivirus/indexer locks without hiding product failures.
 
 ## Verify on real hardware
 

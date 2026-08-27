@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:24:30Z
+**Last updated:** 2026-08-27T23:27:18Z
 **Gate status:** green
-**Iterations completed:** 87
+**Iterations completed:** 88
 
 ## Milestone progress
 
@@ -25,7 +25,7 @@
 - [x] Script (Windows, CI): `dropserve autostart enable` then `schtasks /Query /TN Dropserve /XML` succeeds and the XML contains `<LogonTrigger>`, `ExecutionTimeLimit` set to `PT0S`, and no `<RunLevel>HighestAvailable</RunLevel>`.
 - [x] Assert: `dropserve autostart status` after an external `schtasks /Delete` reports **disabled** — proving it reads the OS, not a stored flag.
 - [x] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
-- [ ] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
+- [x] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
 - [ ] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
 - [ ] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
 - [ ] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
@@ -188,6 +188,11 @@
 - Hosted CI [run 33125666236](https://github.com/tanzir71/dropserve/actions/runs/33125666236) passed the double-enable/double-disable sequence on the real Windows scheduler alongside every other job.
 - `TestSystemdUnitRunsInBackgroundAndRestartsOnFailure` failed first with no unit generator, then locked a quoted `--background` action, network-online ordering, `Restart=on-failure`, a 60-second restart delay, and the default-user install target. Linux now atomically installs `~/.config/systemd/user/dropserve.service`, drives `systemctl --user`, and queries `is-enabled` for actual state. The Linux test binary cross-compiles with zero CGO, `scripts/smoke/m6.sh` passes `sh -n`, and the full local gate is green; the real `systemd-analyze verify` assertion is pending its Ubuntu run.
 - Hosted run [33125973637](https://github.com/tanzir71/dropserve/actions/runs/33125973637) passed every gate, Windows smoke, lint, and secret scan but exposed a harness-only Linux issue before unit verification: POSIX `command -v true` returned the shell builtin name, creating a broken relative `systemctl` shim, so Go found the host's real tool. The isolated smoke now points its shim directly to `/bin/true`; production systemctl lookup is unchanged.
+- Hosted CI [run 33126184436](https://github.com/tanzir71/dropserve/actions/runs/33126184436) passed every job and the Linux smoke's real `systemd-analyze verify`. The smoke proved the CLI writes the isolated per-user unit, invokes the enable path, emits the required background/restart/install settings, and removes the unit on disable.
+
+  ```text
+  M6 Linux autostart smoke passed: the user unit was written, verified, enabled, and removed.
+  ```
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.

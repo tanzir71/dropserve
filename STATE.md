@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T12:59:58Z
+**Last updated:** 2026-08-27T13:03:40Z
 **Gate status:** green
-**Iterations completed:** 15
+**Iterations completed:** 16
 
 ## Milestone progress
 
@@ -31,7 +31,7 @@
 - [x] Scanner walks a path deeper than 260 characters.
 - [x] Reserved slugs are refused with a warning.
 - [x] A full scan-and-serve cycle leaves every app file and directory mtime unchanged (I2).
-- [ ] `dropserve add <path>` writes only a registered-path config entry and serves it.
+- [x] `dropserve add <path>` writes only a registered-path config entry and serves it.
 - [ ] M1 smoke script starts the server on a random port and fetches a mounted fixture.
 - [ ] Port fallback skips occupied 80 and 8080, binds 8000, and reports the warning.
 
@@ -58,6 +58,7 @@
 - `TestScannerWalksLongPaths`: the scanner counts a generated payload whose Windows path exceeds 280 characters, using extended-length walk roots on Windows.
 - `TestReservedSlugsAreRefusedWithWarnings`: `_dropserve`, `api`, `health`, and `.well-known` are never mounted and each produces a named, actionable warning.
 - `TestAppFolderIsReadOnlyToUs`: SHA-256, size, mode, and nanosecond mtime snapshots for every app file and directory are identical before and after scan plus HTTP serving.
+- `TestAddRegistersPathWithoutChangingApp`: the CLI atomically writes one `registered_apps` TOML entry, leaves no temp/symlink/copy/marker files, preserves the app snapshot, and the registered path serves at its slug.
 
 ## Decisions made this build (beyond the spec)
 
@@ -77,4 +78,4 @@
 
 ## Dependency count
 
-0 direct external dependencies; `go list -m all` baseline: 1 module including the main module.
+1 direct external dependency (the handover-approved TOML parser); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 2 modules including the main module.

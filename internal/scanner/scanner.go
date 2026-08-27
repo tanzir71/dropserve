@@ -32,7 +32,8 @@ var ignoredNames = map[string]struct{}{
 
 // Options controls one scan.
 type Options struct {
-	Roots []string
+	Roots      []string
+	Registered []string
 }
 
 // Warning describes an app that could not be mounted exactly as discovered.
@@ -51,10 +52,7 @@ type Result struct {
 // Scan reads each root in order and discovers immediate child directories and
 // loose HTML files. It never writes below a root.
 func Scan(options Options) (Result, error) {
-	var result Result
-	slugUses := make(map[string]int)
-	slugOwners := make(map[string]string)
-
+	collector := newCollector()
 	for _, configuredRoot := range options.Roots {
 		root, err := filepath.Abs(configuredRoot)
 		if err != nil {
@@ -65,91 +63,133 @@ func Scan(options Options) (Result, error) {
 			return Result{}, fmt.Errorf("read Apps root %q: %w", root, err)
 		}
 		for _, entry := range entries {
-			if reservedName(entry.Name()) {
-				result.Warnings = append(result.Warnings, Warning{
-					Code:    "reserved_slug",
-					Path:    filepath.Join(root, entry.Name()),
-					Message: fmt.Sprintf("Rename %q because Dropserve reserves that address for its own features", entry.Name()),
-				})
-				continue
+			if err := collector.add(root, entry); err != nil {
+				return Result{}, err
 			}
-			if unsafeName(entry.Name()) {
-				result.Warnings = append(result.Warnings, Warning{
-					Code:    "unsafe_name",
-					Path:    filepath.Join(root, entry.Name()),
-					Message: fmt.Sprintf("Rename %q without a leading '..' before Dropserve can serve it", entry.Name()),
-				})
-				continue
-			}
-			if ignored(entry.Name()) {
-				continue
-			}
-			if !entry.IsDir() && !looseHTML(entry) {
-				continue
-			}
-
-			fullPath := filepath.Join(root, entry.Name())
-			baseSlug := Slug(entry.Name())
-			if baseSlug == "" {
-				result.Warnings = append(result.Warnings, Warning{
-					Code:    "invalid_slug",
-					Path:    fullPath,
-					Message: fmt.Sprintf("%q does not have a URL-safe name and was not mounted", entry.Name()),
-				})
-				continue
-			}
-			if _, reserved := reservedSlugs[baseSlug]; reserved {
-				result.Warnings = append(result.Warnings, Warning{
-					Code:    "reserved_slug",
-					Path:    fullPath,
-					Message: fmt.Sprintf("%q is reserved by Dropserve and was not mounted", baseSlug),
-				})
-				continue
-			}
-
-			slugKey := strings.ToLower(baseSlug)
-			slugUses[slugKey]++
-			slug := baseSlug
-			if use := slugUses[slugKey]; use > 1 {
-				slug = fmt.Sprintf("%s-%d", baseSlug, use)
-				result.Warnings = append(result.Warnings, Warning{
-					Code: "slug_collision",
-					Path: fullPath,
-					Message: fmt.Sprintf(
-						"Apps at %s and %s share the address %q; the later app is available as %q",
-						slugOwners[slugKey],
-						fullPath,
-						baseSlug,
-						slug,
-					),
-				})
-			} else {
-				slugOwners[slugKey] = fullPath
-			}
-
-			application := app.App{
-				Slug:      slug,
-				Name:      displayName(entry.Name()),
-				Path:      fullPath,
-				Kind:      app.KindStatic,
-				LooseFile: !entry.IsDir(),
-				FileCount: 1,
-			}
-			if entry.IsDir() {
-				application.Index, err = findIndex(fullPath)
-				if err != nil {
-					return Result{}, err
-				}
-				application.DirectoryListing = application.Index == ""
-				application.FileCount, err = countFiles(fullPath)
-				if err != nil {
-					return Result{}, fmt.Errorf("walk app %q: %w", fullPath, err)
-				}
-			}
-			result.Apps = append(result.Apps, application)
 		}
 	}
-	return result, nil
+
+	for _, registeredPath := range options.Registered {
+		absolute, err := filepath.Abs(registeredPath)
+		if err != nil {
+			return Result{}, fmt.Errorf("resolve registered app %q: %w", registeredPath, err)
+		}
+		info, err := os.Stat(absolute)
+		if err != nil {
+			return Result{}, fmt.Errorf("open registered app %q: %w", absolute, err)
+		}
+		if err := collector.add(filepath.Dir(absolute), fs.FileInfoToDirEntry(info)); err != nil {
+			return Result{}, err
+		}
+	}
+	return collector.result, nil
+}
+
+type collector struct {
+	result     Result
+	slugUses   map[string]int
+	slugOwners map[string]string
+	seenPaths  map[string]struct{}
+}
+
+func newCollector() *collector {
+	return &collector{
+		slugUses:   make(map[string]int),
+		slugOwners: make(map[string]string),
+		seenPaths:  make(map[string]struct{}),
+	}
+}
+
+func (collector *collector) add(root string, entry fs.DirEntry) error {
+	fullPath := filepath.Join(root, entry.Name())
+	if _, seen := collector.seenPaths[filepath.Clean(fullPath)]; seen {
+		return nil
+	}
+	collector.seenPaths[filepath.Clean(fullPath)] = struct{}{}
+
+	if reservedName(entry.Name()) {
+		collector.result.Warnings = append(collector.result.Warnings, Warning{
+			Code:    "reserved_slug",
+			Path:    fullPath,
+			Message: fmt.Sprintf("Rename %q because Dropserve reserves that address for its own features", entry.Name()),
+		})
+		return nil
+	}
+	if unsafeName(entry.Name()) {
+		collector.result.Warnings = append(collector.result.Warnings, Warning{
+			Code:    "unsafe_name",
+			Path:    fullPath,
+			Message: fmt.Sprintf("Rename %q without a leading '..' before Dropserve can serve it", entry.Name()),
+		})
+		return nil
+	}
+	if ignored(entry.Name()) {
+		return nil
+	}
+	if !entry.IsDir() && !looseHTML(entry) {
+		return nil
+	}
+
+	baseSlug := Slug(entry.Name())
+	if baseSlug == "" {
+		collector.result.Warnings = append(collector.result.Warnings, Warning{
+			Code:    "invalid_slug",
+			Path:    fullPath,
+			Message: fmt.Sprintf("%q does not have a URL-safe name and was not mounted", entry.Name()),
+		})
+		return nil
+	}
+	if _, reserved := reservedSlugs[baseSlug]; reserved {
+		collector.result.Warnings = append(collector.result.Warnings, Warning{
+			Code:    "reserved_slug",
+			Path:    fullPath,
+			Message: fmt.Sprintf("%q is reserved by Dropserve and was not mounted", baseSlug),
+		})
+		return nil
+	}
+
+	slugKey := strings.ToLower(baseSlug)
+	collector.slugUses[slugKey]++
+	slug := baseSlug
+	if use := collector.slugUses[slugKey]; use > 1 {
+		slug = fmt.Sprintf("%s-%d", baseSlug, use)
+		collector.result.Warnings = append(collector.result.Warnings, Warning{
+			Code: "slug_collision",
+			Path: fullPath,
+			Message: fmt.Sprintf(
+				"Apps at %s and %s share the address %q; the later app is available as %q",
+				collector.slugOwners[slugKey],
+				fullPath,
+				baseSlug,
+				slug,
+			),
+		})
+	} else {
+		collector.slugOwners[slugKey] = fullPath
+	}
+
+	application := app.App{
+		Slug:      slug,
+		Name:      displayName(entry.Name()),
+		Path:      fullPath,
+		Kind:      app.KindStatic,
+		LooseFile: !entry.IsDir(),
+		FileCount: 1,
+	}
+	var err error
+	if entry.IsDir() {
+		application.Index, err = findIndex(fullPath)
+		if err != nil {
+			return err
+		}
+		application.DirectoryListing = application.Index == ""
+		application.FileCount, err = countFiles(fullPath)
+		if err != nil {
+			return fmt.Errorf("walk app %q: %w", fullPath, err)
+		}
+	}
+	collector.result.Apps = append(collector.result.Apps, application)
+	return nil
 }
 
 // Slug returns a stable lowercase ASCII URL segment derived from a file name.

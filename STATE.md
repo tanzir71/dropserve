@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M1 — Scan, mount, serve
-**Last updated:** 2026-08-27T13:03:40Z
+**Last updated:** 2026-08-27T13:06:48Z
 **Gate status:** green
-**Iterations completed:** 16
+**Iterations completed:** 17
 
 ## Milestone progress
 
@@ -32,7 +32,7 @@
 - [x] Reserved slugs are refused with a warning.
 - [x] A full scan-and-serve cycle leaves every app file and directory mtime unchanged (I2).
 - [x] `dropserve add <path>` writes only a registered-path config entry and serves it.
-- [ ] M1 smoke script starts the server on a random port and fetches a mounted fixture.
+- [x] M1 smoke script starts the server on a random port and fetches a mounted fixture.
 - [ ] Port fallback skips occupied 80 and 8080, binds 8000, and reports the warning.
 
 ### M0 completion evidence
@@ -59,6 +59,7 @@
 - `TestReservedSlugsAreRefusedWithWarnings`: `_dropserve`, `api`, `health`, and `.well-known` are never mounted and each produces a named, actionable warning.
 - `TestAppFolderIsReadOnlyToUs`: SHA-256, size, mode, and nanosecond mtime snapshots for every app file and directory are identical before and after scan plus HTTP serving.
 - `TestAddRegistersPathWithoutChangingApp`: the CLI atomically writes one `registered_apps` TOML entry, leaves no temp/symlink/copy/marker files, preserves the app snapshot, and the registered path serves at its slug.
+- `scripts/smoke/m1.ps1`: built and launched the real binary on `127.0.0.1:0`; `http://127.0.0.1:60348/static/` returned 200 with the fixture heading. A matching POSIX smoke script is included.
 
 ## Decisions made this build (beyond the spec)
 

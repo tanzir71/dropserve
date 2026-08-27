@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M4 — Running things
-**Last updated:** 2026-08-27T21:46:04Z
+**Current milestone:** M5 — The subpath survival kit
+**Last updated:** 2026-08-27T21:49:05Z
 **Gate status:** green
-**Iterations completed:** 63
+**Iterations completed:** 64
 
 ## Milestone progress
 
@@ -11,7 +11,7 @@
 - [x] M1 — Scan, mount, serve (tag: `m1-complete`)
 - [x] M2 — The index (tag: `m2-complete`)
 - [x] M3 — Live (tag: `m3-complete`)
-- [ ] M4 — Running things
+- [x] M4 — Running things (tag: `m4-complete`)
 - [ ] M5 — The subpath survival kit
 - [ ] M6 — Always there
 - [ ] M7 — Findable
@@ -22,22 +22,22 @@
 
 ## Current milestone criteria
 
-- [x] Assert: fixture `testdata/fixtures/node/` (a 20-line `http` server reading `process.env.PORT`) is detected as `command`, started, health-checked, and `GET /node/` proxies to it with the correct body. Skip with a clear message if `node` is absent from the runner, and ensure CI installs Node so it does not skip.
-- [x] Assert: same for a Python fixture.
-- [x] Assert: a fixture that exits immediately with code 1 is restarted with backoff, gives up after 5 attempts inside the window, ends in `crashed`, and its logs contain the error output.
-- [x] Assert (**I4**): with a crashed app and a healthy app both present, the healthy app still returns 200 and the dashboard still renders.
-- [x] Assert (**process tree**): start a fixture that spawns a grandchild process; stop the app; assert the grandchild's PID is gone within 5 seconds. This is the Job Object test and it is mandatory on Windows.
-- [x] Assert: on Dropserve shutdown, no child processes survive.
-- [x] Assert: a 10 MB burst of log output does not grow process memory beyond the ring buffer bound, and the on-disk log rotates rather than growing unbounded.
-- [x] Assert: an app whose runtime is missing from `PATH` mounts in `needs-runtime` state and serves the explanation page with status 200 (not 502).
-- [x] Assert: lazy start — an app with `autostart: false` is not running until the first request, then starts and serves.
+- [ ] Assert: a fixture returning a 302 to `/login` produces a client-visible redirect to `/<slug>/login`.
+- [ ] Assert: a fixture setting `Set-Cookie: s=1; Path=/` yields `Path=/<slug>/`.
+- [ ] Assert: an HTML response with no `<base>` gets `<base href="/<slug>/">` injected directly after `<head>`; one that already has a `<base>` is left byte-identical.
+- [ ] Assert: a non-HTML response (JSON, JS, CSS, PNG) is byte-identical through the proxy — hash in, hash out.
+- [ ] Assert: a 5 MB HTML response is **not** rewritten (over the 2 MB cap) and passes through unmodified.
+- [ ] Assert: `testdata/fixtures/absolute-paths/` is flagged `prefers_own_port`, its dashboard card links to `http://127.0.0.1:<port>/`, and that URL serves the app correctly at its root.
+- [ ] Assert: assigned per-app ports are stable across a restart of Dropserve (persisted in state).
+- [ ] Assert: `X-Forwarded-Prefix`, `X-Forwarded-Host`, `X-Forwarded-Proto` arrive at a command app with the right values.
+- [ ] Assert: WebSocket upgrade through the proxy works for a command app (a fixture echo server).
 
-### M4 completion audit
+### M4 completion audit (closed)
 
 - [x] Deliverable: detection rules 2–4, 6, and 8 are implemented and tested.
 - [x] Deliverable: the bounded log API is surfaced in a designed dashboard log viewer for command apps and crashed cards expose their error output.
 - [x] Deliverable: restart policy also covers a command that exits after becoming healthy, not only failures during initial health checking.
-- [ ] Completion: run the M4 demo, paste its output below, rerun the full gate, commit, and tag `m4-complete`.
+- [x] Completion: ran the M4 demo, pasted its output below, reran the full gate, committed, and tagged `m4-complete`.
 
 ### M0 completion evidence
 
@@ -142,6 +142,11 @@
 - `TestCommandDetectionRulesTwoFourAndEight` completes the explicit M4 detection deliverable: it covers `Procfile` `web:` commands (rule 2), package `main` plus `index.js`/`server.js` fallbacks when no start script exists (rule 4), and a sole `.exe`/Unix-executable file (rule 8). Each result records its command, runtime, and friendly detection reason; the pre-implementation run classified all four fixtures as static, and the full gate is now green alongside the rule 3 and 6 integration tests.
 - `TestDashboardCommandLogSurfaceIsWired` locks an accessible app-log dialog, command-card action, crashed preview, and status styling while the dashboard asset budget remains 28,823/100,000 bytes. A real browser check against all fixtures showed the amber crashed card with the last five failure outputs, opened “broken logs” with `crashed · 5 starts`, refreshed the bounded tail, and produced zero console warnings/errors; the temporary demo shutdown left no fixture processes.
 - `TestHealthyCommandIsRestartedAfterLaterExit` runs a Node app that becomes healthy, exits only on run 1, and records its run count. The failing run returned 502 for the full five-second window; a stable managed route now switches to a friendly status-200 starting page during backoff and serves run 2 through the same URL in about two seconds. Post-health exits share the same five-failure/ten-minute budget with failed restart attempts. The restart, initial-crash, shutdown, and Windows process-tree tests passed twice together under `-race`; the full gate is green and no restart fixture process survived.
+- Repeatable demos are `scripts/smoke/m4.ps1` and `scripts/smoke/m4.sh`. The PowerShell demo built the binary, ran all fixtures with isolated state, verified exact Node and Python responses, the dashboard log viewer, broken-app isolation, five attempts, and captured error logs, then left no fixture process behind. The POSIX script passed `sh -n` locally.
+
+  ```text
+  M4 smoke passed: Node and Python returned 200; broken was isolated after 5 starts with logs at http://127.0.0.1:64225/
+  ```
 
 ## Decisions made this build (beyond the spec)
 

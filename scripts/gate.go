@@ -1,7 +1,9 @@
+// Command gate runs Dropserve's portable build and verification targets.
 package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -72,7 +74,8 @@ func format() error {
 		return errors.New("no Go files found")
 	}
 	args := append([]string{"-l"}, files...)
-	output, err := exec.Command("gofmt", args...).CombinedOutput()
+	// #nosec G204 -- gofmt is fixed and the arguments are repository Go files discovered above.
+	output, err := exec.CommandContext(context.Background(), "gofmt", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("gofmt: %w: %s", err, output)
 	}
@@ -116,7 +119,7 @@ func crossBuild() error {
 	targets := [][2]string{{"windows", "amd64"}, {"linux", "amd64"}, {"darwin", "arm64"}}
 	for _, target := range targets {
 		fmt.Printf("    %s/%s\n", target[0], target[1])
-		cmd := exec.Command("go", "build", "./...")
+		cmd := exec.CommandContext(context.Background(), "go", "build", "./...")
 		cmd.Env = withEnv(os.Environ(), map[string]string{
 			"CGO_ENABLED": "0",
 			"GOOS":        target[0],
@@ -132,7 +135,7 @@ func crossBuild() error {
 }
 
 func build(outputDir string) error {
-	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+	if err := os.MkdirAll(outputDir, 0o750); err != nil {
 		return err
 	}
 	name := "dropserve"
@@ -150,7 +153,9 @@ func testVersionInjection() error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(dir)
+	defer func() {
+		_ = os.RemoveAll(dir)
+	}()
 	name := "dropserve"
 	if runtime.GOOS == "windows" {
 		name += ".exe"
@@ -159,7 +164,8 @@ func testVersionInjection() error {
 	if err := runGo("build", "-ldflags", linkFlags("1.2.3", "abc1234"), "-o", binary, "./cmd/dropserve"); err != nil {
 		return err
 	}
-	output, err := exec.Command(binary, "version").CombinedOutput()
+	// #nosec G204 -- binary is the executable built into the private temporary directory above.
+	output, err := exec.CommandContext(context.Background(), binary, "version").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("run version command: %w: %s", err, output)
 	}
@@ -192,6 +198,7 @@ func scanShippedFiles() error {
 		if entry.Name() == "DROPSERVE-HANDOVER.md" || entry.Name() == "STATE.md" {
 			return nil
 		}
+		// #nosec G304,G122 -- the scan intentionally follows the checked-out shipped tree; matches are advisory build failures only.
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return err
@@ -219,7 +226,8 @@ func runGo(args ...string) error {
 }
 
 func command(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	// #nosec G204 -- callers supply a fixed allowlist of development tools and internally constructed arguments.
+	cmd := exec.CommandContext(context.Background(), name, args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
@@ -251,7 +259,7 @@ func linkFlags(version, commit string) string {
 }
 
 func gitCommit() string {
-	output, err := exec.Command("git", "rev-parse", "--short", "HEAD").Output()
+	output, err := exec.CommandContext(context.Background(), "git", "rev-parse", "--short", "HEAD").Output()
 	if err != nil {
 		return "unknown"
 	}

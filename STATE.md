@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M0 — Repository, CI, and the gate
-**Last updated:** 2026-08-27T12:30:31Z
+**Last updated:** 2026-08-27T12:33:05Z
 **Gate status:** green
-**Iterations completed:** 2
+**Iterations completed:** 3
 
 ## Milestone progress
 
@@ -46,6 +46,16 @@ ok github.com/tanzir71/dropserve/cmd/dropserve
     darwin/arm64
 ==> shipped-file scan
 gate: green
+```
+
+### Local CI readiness evidence
+
+The workflow cannot run remotely until the repository exists, but each locally reproducible job is green:
+
+```text
+actionlint v1.7.12: no findings
+golangci-lint v2.13.1: 0 issues
+gitleaks v8.30.1: 2 commits scanned, no leaks found
 ```
 
 ## Decisions made this build (beyond the spec)

@@ -1,3 +1,4 @@
+// Command dropserve is the Dropserve command-line entry point.
 package main
 
 import (
@@ -21,16 +22,22 @@ func main() {
 
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprint(stdout, usage)
+		if _, err := fmt.Fprint(stdout, usage); err != nil {
+			return 1
+		}
 		return 0
 	}
 
 	switch args[0] {
 	case "version", "--version", "-v":
-		fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit)
+		if _, err := fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit); err != nil {
+			return 1
+		}
 		return 0
 	default:
-		fmt.Fprintf(stderr, "Unknown command %q. Run 'dropserve help' to see the available commands.\n", args[0])
+		if _, err := fmt.Fprintf(stderr, "Unknown command %q. Run 'dropserve help' to see the available commands.\n", args[0]); err != nil {
+			return 1
+		}
 		return 2
 	}
 }

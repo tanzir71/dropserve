@@ -119,6 +119,57 @@ func TestDeletedFolderIsRemovedWithinTwoSeconds(t *testing.T) {
 	}
 }
 
+func TestRenamedFolderChangesSlugWithinTwoSeconds(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	beforeRoot := filepath.Join(root, "draft-notes")
+	if err := os.Mkdir(beforeRoot, 0o750); err != nil {
+		t.Fatalf("create app folder: %v", err)
+	}
+	const appBody = "<h1>Renamed notes</h1>"
+	if err := os.WriteFile(filepath.Join(beforeRoot, "index.html"), []byte(appBody), 0o600); err != nil {
+		t.Fatalf("write app index: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("create live server: %v", err)
+	}
+	defer func() {
+		if closeErr := server.Close(); closeErr != nil {
+			t.Errorf("close live server: %v", closeErr)
+		}
+	}()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	afterRoot := filepath.Join(root, "published-notes")
+	if err := os.Rename(beforeRoot, afterRoot); err != nil {
+		t.Fatalf("rename app folder: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		oldStatus, _ := requestLiveApp(t, httpServer.Client(), httpServer.URL+"/draft-notes/")
+		newStatus, newBody := requestLiveApp(t, httpServer.Client(), httpServer.URL+"/published-notes/")
+		current := server.Scan()
+		if oldStatus == http.StatusNotFound && newStatus == http.StatusOK && newBody == appBody &&
+			len(current.Apps) == 1 && current.Apps[0].Slug == "published-notes" {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf(
+				"rename did not settle before deadline: old=%d new=%d body=%q scan=%#v",
+				oldStatus,
+				newStatus,
+				newBody,
+				current.Apps,
+			)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
 func requestLiveApp(t *testing.T, client *http.Client, target string) (int, string) {
 	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)

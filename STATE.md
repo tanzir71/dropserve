@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M3 — Live
-**Last updated:** 2026-08-27T20:47:35Z
+**Last updated:** 2026-08-27T20:48:23Z
 **Gate status:** green
-**Iterations completed:** 42
+**Iterations completed:** 43
 
 ## Milestone progress
 
@@ -24,7 +24,7 @@
 
 - [x] Assert (**I1**): create a directory with an `index.html` inside a temp Apps root; within **2 seconds**, `GET /<slug>/` returns 200. Use a polling helper with a deadline, not a fixed sleep.
 - [x] Assert: deleting an app removes the route within 2 seconds and returns 404 with the friendly not-found page, not a panic.
-- [ ] Assert: renaming an app changes the slug and the old slug 404s.
+- [x] Assert: renaming an app changes the slug and the old slug 404s.
 - [ ] Assert: rapid changes (create 20 folders in a tight loop) settle to a correct final state and trigger **at most 3** index rebuilds — proving debounce works.
 - [ ] Assert: the reconcile sweep catches a change made while the watcher was deliberately stopped (simulate by disabling the watcher, mutating the tree, then invoking reconcile directly).
 - [ ] Assert: the SSE stream emits an `apps-changed` event on a change and the connection survives at least 3 events.
@@ -100,6 +100,7 @@
 - `TestFolderAddedIsServedWithinTwoSeconds` starts from an empty real Apps root and HTTP server, creates `live-notes/index.html`, and polls requests against a two-second deadline. The new fsnotify path debounces the native events for 500 ms, rescans read-only, swaps immutable router/dashboard snapshots, and served the exact body in about 660 ms on Windows.
 - `internal/watcher` watches each existing root plus app subdirectories to a three-level cap and 256-watch per-app budget, skips dependency/cache directories, and invokes the same full reconcile path every 30 seconds as an event-loss safety net.
 - `TestDeletedFolderIsRemovedWithinTwoSeconds` deletes a mounted app, then accepts the result only after the immutable scan snapshot is empty and the URL returns the friendly Dropserve HTML 404. The native removal path settled in about 650 ms without a panic.
+- `TestRenamedFolderChangesSlugWithinTwoSeconds` renames a real mounted folder and polls both URLs plus the immutable scan snapshot. Within about 650 ms the old slug returned 404 while the new slug served the exact original body and was the sole indexed app.
 
 ## Decisions made this build (beyond the spec)
 
@@ -116,6 +117,7 @@
 - On Windows only, the gate retries the full race suite once when every package test passed but Go itself reports an `unlinkat` sharing violation for its completed temporary test executable. Real test failures are never retried. This handles transient antivirus/indexer locks without hiding product failures.
 - Build-loop process only: the ranking assertion passed immediately because the weighted scorer was introduced alongside the preceding README/filename search slices. The dedicated acceptance test and full gate now lock the required order.
 - Build-loop process only: the namespace-shadowing assertion passed immediately because M1 already refused reserved slugs and the first M2 server composition reserved system paths before app routing. The explicit end-to-end test now locks both layers together.
+- Build-loop process only: the M3 rename assertion passed when first added because the preceding live-create slice deliberately reconciles the entire immutable scan and mount table, which already treats a filesystem rename as one removal plus one addition. The dedicated two-URL deadline test now locks that behavior.
 
 ## Verify on real hardware
 

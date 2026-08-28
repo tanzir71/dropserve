@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:21:25Z
+**Last updated:** 2026-08-28T02:23:57Z
 **Gate status:** green
-**Iterations completed:** 131
+**Iterations completed:** 132
 
 ## Milestone progress
 
@@ -61,7 +61,7 @@
 - [x] Assert: the FastCGI request parameters are correct — `SCRIPT_FILENAME`, `DOCUMENT_ROOT`, `REQUEST_URI`, `SCRIPT_NAME` reflect the app root and the `/slug/` prefix.
 - [x] Assert: a PHP fatal error produces a readable error page and does not take down the pool.
 - [x] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
-- [ ] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
+- [x] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
 - [ ] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
 - [ ] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
 - [ ] Assert: with no packs installed, the binary and all tests still pass — packs are genuinely optional.
@@ -322,6 +322,7 @@
 - That full race run also exposed an unrelated nondeterministic test-only race: the HTTPS-degradation test read a `bytes.Buffer` while the best-effort mDNS startup path could still log to it. Its test writer is now synchronized; the formerly racy case passed ten race-detector runs before the full green gate.
 - The fatal-error extension to the PHP fixture failed against both the hermetic worker and official PHP 8.5.10: the real runtime rendered the expected `Fatal error`, function name, file, line, and stack trace but incorrectly labeled the response HTTP 200. Dropserve now inspects only the first bounded 256 KiB of a PHP response, preserves PHP's diagnostic body, marks recognizable uncaught-fatal output HTTP 500 with `X-Dropserve-PHP-Error: fatal`, and streams larger responses without unbounded buffering. Three hermetic pool runs and the official runtime both returned the readable 500 page, followed immediately by a healthy 200 request through the same pool; the full gate is green.
 - `TestPoolRestartsKilledWorkerWithinFiveSeconds` failed first after an externally killed FastCGI worker retained its dead process slot for the full deadline. Each pool slot now monitors its process handle, waits 100 ms after an unexpected exit, launches a verified replacement on the same loopback address so existing app handlers remain valid, and retries failed starts at 250 ms without blocking healthy slots. Ten repeated external-kill cycles returned a new PID and a real FastCGI response, three focused race-detector runs passed, and the full gate is green.
+- `TestRemovingPHPPackLeavesAppFixtureByteIdentical` failed first because the installer had no removal boundary. `Installer.Remove` now resolves and confines the exact `<runtime-root>/<name>/<version>/<os>-<arch>` target before recursive deletion, prunes only empty version/name parents, and leaves other installed versions intact. The acceptance hashes every file in `testdata/fixtures/php` before and after removal and observes an identical path/hash map; three focused runs and the full gate pass (**I2**).
 
 ## Decisions made this build (beyond the spec)
 

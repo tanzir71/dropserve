@@ -114,6 +114,33 @@ func (installer Installer) Install(ctx context.Context, pack Pack) (Installation
 	return Installation{Pack: pack, Path: destination}, nil
 }
 
+// Remove deletes only one registered runtime artifact. App files are outside
+// this boundary and are never accepted as a removal target.
+func (installer Installer) Remove(pack Pack) error {
+	if err := validatePackIdentity(pack); err != nil {
+		return err
+	}
+	root, err := filepath.Abs(installer.Root)
+	if err != nil {
+		return fmt.Errorf("resolve runtime directory: %w", err)
+	}
+	target, err := filepath.Abs(filepath.Join(root, pack.Name, pack.Version, pack.OS+"-"+pack.Arch))
+	if err != nil {
+		return fmt.Errorf("resolve runtime pack %s: %w", pack.Name, err)
+	}
+	relative, err := filepath.Rel(root, target)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("refuse to remove runtime pack %s outside the runtime directory", pack.Name)
+	}
+	if err := os.RemoveAll(target); err != nil {
+		return fmt.Errorf("remove runtime pack %s: %w", pack.Name, err)
+	}
+	// Prune only empty registration parents; other versions and platforms remain.
+	_ = os.Remove(filepath.Dir(target))
+	_ = os.Remove(filepath.Dir(filepath.Dir(target)))
+	return nil
+}
+
 func (installer Installer) download(ctx context.Context, pack Pack, path string) ([]byte, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, pack.URL, nil)
 	if err != nil {
@@ -150,12 +177,8 @@ func (installer Installer) download(ctx context.Context, pack Pack, path string)
 }
 
 func validatePack(pack Pack) error {
-	for label, value := range map[string]string{
-		"name": pack.Name, "version": pack.Version, "OS": pack.OS, "architecture": pack.Arch,
-	} {
-		if value == "" || value == "." || value == ".." || strings.ContainsAny(value, `/\\:`) {
-			return fmt.Errorf("runtime pack has an invalid %s %q", label, value)
-		}
+	if err := validatePackIdentity(pack); err != nil {
+		return err
 	}
 	if pack.URL == "" {
 		return fmt.Errorf("runtime pack %s has no download URL", pack.Name)
@@ -166,6 +189,17 @@ func validatePack(pack Pack) error {
 	default:
 		return fmt.Errorf("runtime pack %s has unsupported format %q", pack.Name, pack.Format)
 	}
+}
+
+func validatePackIdentity(pack Pack) error {
+	for label, value := range map[string]string{
+		"name": pack.Name, "version": pack.Version, "OS": pack.OS, "architecture": pack.Arch,
+	} {
+		if value == "" || value == "." || value == ".." || strings.ContainsAny(value, `/\\:`) {
+			return fmt.Errorf("runtime pack has an invalid %s %q", label, value)
+		}
+	}
+	return nil
 }
 
 type progressReader struct {

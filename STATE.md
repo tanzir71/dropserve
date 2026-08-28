@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
-**Last updated:** 2026-08-28T02:59:25Z
+**Last updated:** 2026-08-28T03:09:10Z
 **Gate status:** green
-**Iterations completed:** 137
+**Iterations completed:** 138
 
 ## Milestone progress
 
@@ -86,6 +86,9 @@
 ### M10 evidence
 
 - GoReleaser 2.18.0 validated `.goreleaser.yaml`, then the exact handover command completed locally in 1m21s. It built six target archives plus `checksums.txt`: Linux and macOS archives contain the zero-CGO headless binary; each Windows archive groups the console-free tray binary and CLI companion. The Windows/amd64 CLI reported injected version `0.0.0-next` and commit `c568a8efcdcf2e6dc7adc94367bf03beb893be9f`; all six archives have entries in the generated checksum file. Snapshot naming is intentionally independent of historical non-semver milestone tags, while real releases still use their semver tag.
+- `TestHealthzCommandChecksTheRunningServer` failed first with no CLI health command. `dropserve healthz` now loads the persisted HTTP port, bypasses proxies, bounds the loopback request to two seconds and 16 response bytes, requires the exact internal health endpoint's 200 `ok`, prints only `ok` on success, and reports an actionable failure for a stopped process.
+- Inno Setup 7.1.0 compiled the first installer locally from the same console-free desktop and CLI binaries. `scripts/release/m10-installer.ps1 -CurrentUser` then performed a real `/VERYSILENT` install, observed both files, served an app, received `ok` from the installed CLI, created the real per-user Scheduled Task, ran the real silent uninstaller, and found no process, task, firewall rule, or install directory. The new `windows-installer` hosted job repeats this without the non-admin override and additionally requires the exact private-network firewall rule to exist before uninstalling; its first hosted result is pending.
+- Hosted CI [run 33137369097](https://github.com/tanzir71/dropserve/actions/runs/33137369097) passed both operating-system gates, lint, secret scanning, and native smokes for the final M9 commit `c568a8e`; the Windows ACL email regression remains closed.
 
 ### M6 completion audit (closed)
 

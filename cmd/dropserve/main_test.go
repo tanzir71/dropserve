@@ -274,6 +274,40 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestHealthzCommandChecksTheRunningServer(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/_dropserve/healthz" {
+			http.NotFound(response, request)
+			return
+		}
+		_, _ = io.WriteString(response, "ok")
+	}))
+	address := strings.TrimPrefix(server.URL, "http://")
+	_, portText, err := net.SplitHostPort(address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(t.TempDir(), "state.json")
+	if err := state.Save(statePath, state.State{HTTPPort: port}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := healthzCommand([]string{"--state", statePath}, &stdout, &stderr); code != 0 || stdout.String() != "ok\n" {
+		t.Fatalf("live healthz = %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	server.Close()
+	stdout.Reset()
+	stderr.Reset()
+	if code := healthzCommand([]string{"--state", statePath}, &stdout, &stderr); code == 0 || !strings.Contains(stderr.String(), "not healthy") {
+		t.Fatalf("stopped healthz = %d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+}
+
 func TestUnknownCommandNamesTheFix(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

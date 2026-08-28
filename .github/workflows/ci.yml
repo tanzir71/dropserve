@@ -87,3 +87,32 @@ jobs:
       - uses: gitleaks/gitleaks-action@v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Build Dropserve binaries
+        shell: pwsh
+        run: go run ./scripts/gate.go build
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem -Path ${env:ProgramFiles(x86)},$env:ProgramFiles -Recurse -Filter ISCC.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $iscc) { throw 'ISCC.exe was not installed' }
+          $sourceDir = (Resolve-Path bin).Path
+          $outputDir = Join-Path (Resolve-Path .).Path 'dist\installer'
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          & $iscc.FullName "/DSourceDir=$sourceDir" "/DOutputDir=$outputDir" '/DAppVersion=0.0.0-ci' '/DNumericVersion=0.0.0.0' /Q packaging/windows/dropserve.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+      - name: Silent install and uninstall smoke
+        shell: pwsh
+        run: ./scripts/release/m10-installer.ps1 -Installer ./dist/installer/dropserve-0.0.0-ci-windows-amd64-setup.exe

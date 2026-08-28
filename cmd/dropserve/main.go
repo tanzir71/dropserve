@@ -40,6 +40,7 @@ const usage = `Dropserve hosts folders as local websites.
 Usage:
   dropserve serve      run in the foreground
   dropserve status     print the current runtime state as JSON
+  dropserve healthz    verify the running local server
   dropserve doctor     check this computer's Dropserve setup
   dropserve autostart  manage starting Dropserve when you log in
   dropserve trust      explicitly install or remove local HTTPS trust
@@ -81,6 +82,8 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return serveCommand(args[1:], stdout, stderr, configPath)
 	case "status":
 		return statusCommand(args[1:], stdout, stderr)
+	case "healthz":
+		return healthzCommand(args[1:], stdout, stderr)
 	case "doctor":
 		return doctorCommand(args[1:], stdout, stderr, configPath)
 	case "autostart":
@@ -730,6 +733,61 @@ func statusCommand(arguments []string, stdout, stderr io.Writer) int {
 		Warnings: snapshot.Warnings,
 	}
 	if err := json.NewEncoder(stdout).Encode(output); err != nil {
+		return 1
+	}
+	return 0
+}
+
+func healthzCommand(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("healthz", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	statePath := flags.String("state", "", "runtime state file")
+	if err := flags.Parse(arguments); err != nil {
+		return 2
+	}
+	if flags.NArg() != 0 {
+		_, _ = fmt.Fprintln(stderr, "The healthz command accepts flags only.")
+		return 2
+	}
+	if *statePath == "" {
+		var err error
+		*statePath, err = state.DefaultPath()
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not find its state folder: %v\n", err)
+			return 1
+		}
+	}
+	snapshot, err := state.Load(*statePath)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve could not read its runtime state: %v\n", err)
+		return 1
+	}
+	if snapshot.HTTPPort < 1 || snapshot.HTTPPort > 65535 {
+		_, _ = fmt.Fprintln(stderr, "Dropserve is not healthy: no running HTTP port is recorded.")
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	requestURL := fmt.Sprintf("http://127.0.0.1:%d/_dropserve/healthz", snapshot.HTTPPort)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve is not healthy: %v\n", err)
+		return 1
+	}
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	response, err := (&http.Client{Transport: transport}).Do(request)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve is not healthy: %v\n", err)
+		return 1
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 16))
+	if err != nil || response.StatusCode != http.StatusOK || strings.TrimSpace(string(body)) != "ok" {
+		_, _ = fmt.Fprintf(stderr, "Dropserve is not healthy: local health check returned HTTP %d.\n", response.StatusCode)
+		return 1
+	}
+	if _, err := fmt.Fprintln(stdout, "ok"); err != nil {
 		return 1
 	}
 	return 0

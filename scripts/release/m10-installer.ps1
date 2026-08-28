@@ -115,3 +115,8 @@ finally {
         Remove-Item -LiteralPath $resolvedSandbox -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+
+# Expected negative native probes above can leave $LASTEXITCODE non-zero even
+# after every assertion passes. Return success explicitly; terminating errors
+# thrown in the try block still propagate after finally and never reach here.
+exit 0

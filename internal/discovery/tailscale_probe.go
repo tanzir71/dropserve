@@ -21,15 +21,7 @@ type TailscaleProbes struct {
 // Absence is a normal explained state, not an application error.
 func ProbeTailscale(ctx context.Context, probes TailscaleProbes) (TailscaleStatus, error) {
 	probes = defaultTailscaleProbes(probes)
-	binary, err := probes.LookPath("tailscale")
-	if err != nil || binary == "" {
-		for _, candidate := range tailscaleCandidates(probes.GOOS) {
-			if probes.Exists(candidate) {
-				binary = candidate
-				break
-			}
-		}
-	}
+	binary := locateTailscale(probes)
 	if binary == "" {
 		return TailscaleStatus{
 			BackendState: "NotInstalled",
@@ -41,6 +33,19 @@ func ProbeTailscale(ctx context.Context, probes TailscaleProbes) (TailscaleStatu
 		return TailscaleStatus{}, fmt.Errorf("read Tailscale status: %w", err)
 	}
 	return ParseTailscaleStatus(output)
+}
+
+func locateTailscale(probes TailscaleProbes) string {
+	binary, err := probes.LookPath("tailscale")
+	if err == nil && binary != "" {
+		return binary
+	}
+	for _, candidate := range tailscaleCandidates(probes.GOOS) {
+		if probes.Exists(candidate) {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func defaultTailscaleProbes(probes TailscaleProbes) TailscaleProbes {

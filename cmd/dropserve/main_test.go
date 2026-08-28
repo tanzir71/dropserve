@@ -55,6 +55,15 @@ func TestCommandSignalsIncludeInterruptAndTerminate(t *testing.T) {
 	}
 }
 
+func TestLoopbackListenerNeverPublishesLANAddress(t *testing.T) {
+	if !listenerExcludesLAN(&net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8000}) {
+		t.Fatal("loopback-only listener was treated as reachable from the LAN")
+	}
+	if listenerExcludesLAN(&net.TCPAddr{IP: net.IPv4zero, Port: 8000}) {
+		t.Fatal("wildcard listener was treated as loopback-only")
+	}
+}
+
 func TestVersionCommand(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

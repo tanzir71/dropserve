@@ -27,22 +27,25 @@ import (
 var assets embed.FS
 
 type handler struct {
-	index      []byte
-	stylesheet []byte
-	script     []byte
-	apps       []indexer.Entry
-	started    time.Time
-	csrfToken  string
-	warnings   []string
-	discovery  func() discovery.Snapshot
-	funnel     *discovery.FunnelManager
+	index                []byte
+	stylesheet           []byte
+	script               []byte
+	dhcpHelp             []byte
+	apps                 []indexer.Entry
+	started              time.Time
+	csrfToken            string
+	warnings             []string
+	discovery            func() discovery.Snapshot
+	funnel               *discovery.FunnelManager
+	dismissNetworkChange func() error
 }
 
 // Options supplies runtime information displayed by the dashboard.
 type Options struct {
-	Warnings  []string
-	Discovery func() discovery.Snapshot
-	Funnel    *discovery.FunnelManager
+	Warnings             []string
+	Discovery            func() discovery.Snapshot
+	Funnel               *discovery.FunnelManager
+	DismissNetworkChange func() error
 }
 
 // New returns the embedded dashboard handler.
@@ -55,26 +58,33 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 	index, _ := assets.ReadFile("assets/index.html")
 	stylesheet, _ := assets.ReadFile("assets/app.css")
 	script, _ := assets.ReadFile("assets/app.js")
+	dhcpHelp, _ := assets.ReadFile("assets/dhcp.html")
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("create dashboard security token: %w", err)
 	}
 	return &handler{
-		index:      index,
-		stylesheet: stylesheet,
-		script:     script,
-		apps:       append([]indexer.Entry{}, applications...),
-		started:    time.Now(),
-		csrfToken:  hex.EncodeToString(tokenBytes),
-		warnings:   append([]string{}, options.Warnings...),
-		discovery:  options.Discovery,
-		funnel:     options.Funnel,
+		index:                index,
+		stylesheet:           stylesheet,
+		script:               script,
+		dhcpHelp:             dhcpHelp,
+		apps:                 append([]indexer.Entry{}, applications...),
+		started:              time.Now(),
+		csrfToken:            hex.EncodeToString(tokenBytes),
+		warnings:             append([]string{}, options.Warnings...),
+		discovery:            options.Discovery,
+		funnel:               options.Funnel,
+		dismissNetworkChange: options.DismissNetworkChange,
 	}, nil
 }
 
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/sharing/funnel/") {
 		dashboard.serveFunnelEnable(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/network-change/dismiss" {
+		dashboard.serveNetworkChangeDismiss(response, request)
 		return
 	}
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
@@ -97,6 +107,10 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		response.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 		response.Header().Set("Cache-Control", "public, max-age=300")
 		content = dashboard.script
+	case "/_dropserve/help/dhcp-reservation":
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		response.Header().Set("Cache-Control", "public, max-age=3600")
+		content = dashboard.dhcpHelp
 	case "/_dropserve/api/apps":
 		dashboard.serveJSON(response, request, dashboard.apps)
 		return
@@ -134,6 +148,22 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = response.Write(content)
+}
+
+func (dashboard *handler) serveNetworkChangeDismiss(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
+		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return
+	}
+	if dashboard.dismissNetworkChange == nil {
+		http.Error(response, "Address-change notices are not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.dismissNetworkChange(); err != nil {
+		http.Error(response, "Dropserve could not dismiss this notice.", http.StatusInternalServerError)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (dashboard *handler) serveFunnelEnable(response http.ResponseWriter, request *http.Request) {
@@ -195,6 +225,18 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 	type ports struct {
 		HTTP int `json:"http"`
 	}
+	type networkStatus struct {
+		LANIP  string               `json:"lan_ip,omitempty"`
+		Change *discovery.LANChange `json:"change,omitempty"`
+	}
+	network := networkStatus{}
+	if dashboard.discovery != nil {
+		snapshot := dashboard.discovery()
+		if snapshot.LANIP.IsValid() {
+			network.LANIP = snapshot.LANIP.String()
+		}
+		network.Change = snapshot.LANChange
+	}
 	warnings := append([]string{}, dashboard.warnings...)
 	if dashboard.funnel != nil {
 		active := dashboard.funnel.ActiveEntries()
@@ -212,17 +254,19 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		}
 	}
 	payload := struct {
-		Version       string   `json:"version"`
-		Commit        string   `json:"commit"`
-		UptimeSeconds int64    `json:"uptime_seconds"`
-		Ports         ports    `json:"ports"`
-		Warnings      []string `json:"warnings"`
-		CSRFToken     string   `json:"csrf_token"`
+		Version       string        `json:"version"`
+		Commit        string        `json:"commit"`
+		UptimeSeconds int64         `json:"uptime_seconds"`
+		Ports         ports         `json:"ports"`
+		Network       networkStatus `json:"network"`
+		Warnings      []string      `json:"warnings"`
+		CSRFToken     string        `json:"csrf_token"`
 	}{
 		Version:       version.Version,
 		Commit:        version.Commit,
 		UptimeSeconds: int64(time.Since(dashboard.started).Seconds()),
 		Ports:         ports{HTTP: requestHTTPPort(request)},
+		Network:       network,
 		Warnings:      warnings,
 		CSRFToken:     dashboard.csrfToken,
 	}

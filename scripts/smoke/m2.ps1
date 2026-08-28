@@ -43,6 +43,21 @@ try {
     if ($dashboard.StatusCode -ne 200 -or $dashboard.Content -notmatch 'id="app-search"') {
         throw "Dashboard returned an unexpected response"
     }
+    $advertisedURLs = Invoke-RestMethod -Uri "$address/_dropserve/api/urls"
+    $workingURLs = @($advertisedURLs | Where-Object { $_.PSObject.Properties["url"] -and $_.url })
+    if ($workingURLs.Count -lt 1) {
+        throw "Sharing did not expose any verified address: $($advertisedURLs | ConvertTo-Json -Compress)"
+    }
+    foreach ($entry in $workingURLs) {
+        $advertisedURI = [Uri]$entry.url
+        if (-not $advertisedURI.IsLoopback) {
+            throw "A loopback-only server advertised an unreachable LAN address: $($entry.url)"
+        }
+        $advertisedResponse = Invoke-WebRequest -Uri $entry.url -UseBasicParsing
+        if ($advertisedResponse.StatusCode -ge 400) {
+            throw "Advertised address $($entry.url) returned $($advertisedResponse.StatusCode)"
+        }
+    }
     $apps = Invoke-RestMethod -Uri "$address/_dropserve/api/apps"
     foreach ($requiredSlug in @("field-notes", "invoice-desk", "kitchen-timer", "static")) {
         if ($requiredSlug -notin $apps.slug) {

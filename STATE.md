@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M7 — Findable
-**Last updated:** 2026-08-28T00:46:49Z
+**Last updated:** 2026-08-28T01:03:52Z
 **Gate status:** green
-**Iterations completed:** 106
+**Iterations completed:** 111
 
 ## Milestone progress
 
@@ -31,8 +31,8 @@
 - [x] Assert (**I5**): enabling Funnel requires a confirmation token that matches the app slug; a request without it is refused with 400 and no `tailscale funnel` process is spawned (verify with an injected fake executor).
 - [x] Assert: Funnel state is persisted with a timestamp and auto-expires after 8 hours (test with an injected clock).
 - [x] Assert: while Funnel is active, `/api/status` includes a `public_sharing_active` warning and it is non-dismissible in the UI.
-- [ ] Assert (**hazard 11**): simulate resume-from-sleep by injecting a network-change event with a different LAN IP and a listener that has been closed underneath the server. Within one monitor interval the server re-probes the network, re-establishes any dead listener, updates every advertised URL, and `/api/status` reports the new address. No restart, no lost apps.
-- [ ] Assert (**hazard 12**): when the LAN IP changes, the dashboard raises a persistent-until-dismissed notice naming the old and new addresses and linking to the DHCP-reservation explainer.
+- [x] Assert (**hazard 11**): simulate resume-from-sleep by injecting a network-change event with a different LAN IP and a listener that has been closed underneath the server. Within one monitor interval the server re-probes the network, re-establishes any dead listener, updates every advertised URL, and `/api/status` reports the new address. No restart, no lost apps.
+- [x] Assert (**hazard 12**): when the LAN IP changes, the dashboard raises a persistent-until-dismissed notice naming the old and new addresses and linking to the DHCP-reservation explainer.
 - [ ] Manual (record in `STATE.md`): on a real tailnet, `tailscale serve` produces a working HTTPS URL and `unserve` cleanly removes it. Use a throwaway tailnet or do it once — repeated toggling burns Let's Encrypt rate limits (**hazard 14**).
 
 ### M6 completion audit (closed)
@@ -246,6 +246,10 @@
 - `TestFunnelStatePersistsAndAutoExpiresAfterEightHours` enables one confirmed app at an injected UTC instant, atomically reloads its `enabled_at` and `expires_at` timestamps, advances the clock just past eight hours, and observes the exact matching disable action plus persisted removal. Repeat enables within the active window are idempotent, and a persistence failure rolls back the external enable.
 - `TestActiveFunnelProducesNonDismissiblePublicSharingWarning` requires `/api/status` to contain the literal `public_sharing_active` code and an expiry for every active app. The dashboard separates those warnings into a dedicated `role=alert` public-sharing banner with no button or dismiss path while retaining the existing diagnostic notice for ordinary warnings.
 - The first full gate with zeroconf exposed its 2021 transitive `golang.org/x/net` release referring to a syscall symbol removed by modern Darwin linking. Pinning `x/net` v0.43.0—whose own module declares Go 1.23—also raised `x/sys` to v0.35.0; the corrected full gate passes every race test plus zero-CGO Windows, Linux, Darwin, and tray builds.
+- `TestNetworkChangeRecoversClosedListenerAndRefreshesAddresses` closes a real TCP listener underneath the running HTTP server, injects a synthetic LAN change, and requires the same handler and app snapshot to resume on a replacement listener within the 250 ms monitor interval. The app body survives, every advertised LAN/mDNS/Tailscale URL uses the new address state, and `/api/status` reports the new LAN IP without a process restart.
+- `TestLANIPChangeNoticePersistsUntilDismissed` changes a synthetic LAN address, reloads the atomic `network.json` state, and requires the dashboard notice to name both addresses and link to the embedded DHCP-reservation explainer. Its CSRF-protected Dismiss action removes the persisted notice, and another reload proves it stays dismissed.
+- `TestTailscaleSharingCommandsAreScopedAndReversible` locks the installed-CLI boundary to reversible, scoped commands: tailnet-only HTTPS proxies the Dropserve root through `tailscale serve`, while Funnel maps only the confirmed app path and disables that exact path. The production server now probes LAN/Tailscale state, starts mDNS only after HTTP is ready, refreshes discovery and expires Funnel grants every 30 seconds, and can replace a dead listener without replacing the live app/router state.
+- `TestLoopbackListenerNeverPublishesLANAddress` and the strengthened real-binary M2 smoke guard the production wiring form of I3. A server explicitly bound to `127.0.0.1:0` suppresses the physical-adapter address; the smoke fetched every surfaced URL below 400 while retaining the no-URL Tailscale explanation row, then passed fixture serving, search, and local QR at `http://127.0.0.1:60082/`.
 
 - Raw Linux run used the same source with the checksum-verified official Go 1.27.0 Linux/amd64 toolchain under WSL2's Linux kernel. The temporary toolchain did not modify the distro and was removed after the run.
 

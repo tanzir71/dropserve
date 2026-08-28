@@ -28,6 +28,7 @@ type ManagerOptions struct {
 	LANIP        netip.Addr
 	HTTPPort     int
 	MDNSHostname string
+	NoticePath   string
 	Logf         func(string, ...any)
 	RegisterMDNS func(MDNSRegistration) (MDNSResponder, error)
 }
@@ -42,6 +43,8 @@ type Manager struct {
 	registerMDNS func(MDNSRegistration) (MDNSResponder, error)
 	responder    MDNSResponder
 	closed       bool
+	noticePath   string
+	lastLANIP    string
 }
 
 // NewManager creates a discovery manager without starting optional network
@@ -66,13 +69,16 @@ func NewManager(options ManagerOptions) *Manager {
 	if register == nil {
 		register = registerZeroconf
 	}
-	return &Manager{
+	manager := &Manager{
 		snapshot:     Snapshot{LANIP: options.LANIP},
 		httpPort:     port,
 		mdnsHostname: hostname,
 		logf:         logf,
 		registerMDNS: register,
+		noticePath:   options.NoticePath,
 	}
+	manager.initializeNetworkState()
+	return manager
 }
 
 // StartMDNS starts best-effort local-name advertising. Every failure is
@@ -117,7 +123,61 @@ func (manager *Manager) StartMDNS() {
 func (manager *Manager) Snapshot() Snapshot {
 	manager.mu.RLock()
 	defer manager.mu.RUnlock()
-	return manager.snapshot
+	snapshot := manager.snapshot
+	if snapshot.LANChange != nil {
+		change := *snapshot.LANChange
+		snapshot.LANChange = &change
+	}
+	return snapshot
+}
+
+// UpdateLANIP publishes a newly verified LAN address and re-advertises mDNS
+// when an active responder was bound to the old address.
+func (manager *Manager) UpdateLANIP(address netip.Addr) {
+	manager.mu.Lock()
+	if manager.snapshot.LANIP == address {
+		manager.mu.Unlock()
+		return
+	}
+	oldAddress := manager.snapshot.LANIP
+	manager.snapshot.LANIP = address
+	if oldAddress.IsValid() && address.IsValid() && oldAddress != address {
+		manager.snapshot.LANChange = &LANChange{OldLANIP: oldAddress.String(), NewLANIP: address.String()}
+	}
+	if address.IsValid() {
+		manager.lastLANIP = address.String()
+	}
+	if err := manager.saveNetworkStateLocked(); err != nil {
+		manager.logf("persist LAN address change: %v", err)
+	}
+	responder := manager.responder
+	manager.responder = nil
+	manager.snapshot.MDNSHostname = ""
+	manager.mu.Unlock()
+	if responder != nil {
+		responder.Shutdown()
+		manager.StartMDNS()
+	}
+}
+
+// UpdateTailscale publishes the latest installed-client status.
+func (manager *Manager) UpdateTailscale(status TailscaleStatus) {
+	manager.mu.Lock()
+	manager.snapshot.Tailscale = status
+	manager.mu.Unlock()
+}
+
+// DismissNetworkChange removes the persisted DHCP/address notice.
+func (manager *Manager) DismissNetworkChange() error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	previous := manager.snapshot.LANChange
+	manager.snapshot.LANChange = nil
+	if err := manager.saveNetworkStateLocked(); err != nil {
+		manager.snapshot.LANChange = previous
+		return err
+	}
+	return nil
 }
 
 // Close stops any active mDNS responder.

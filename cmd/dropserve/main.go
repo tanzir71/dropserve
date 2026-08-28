@@ -9,16 +9,18 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
+	"github.com/tanzir71/dropserve/internal/discovery"
 	"github.com/tanzir71/dropserve/internal/doctor"
 	"github.com/tanzir71/dropserve/internal/firstrun"
 	"github.com/tanzir71/dropserve/internal/launch"
@@ -371,26 +373,14 @@ func serveCommandContextWithReady(
 		}
 	}
 	indexPath := ""
+	networkStatePath := ""
+	funnelStatePath := ""
 	if *statePath != "" {
-		indexPath = filepath.Join(filepath.Dir(*statePath), "index.json")
+		stateDirectory := filepath.Dir(*statePath)
+		indexPath = filepath.Join(stateDirectory, "index.json")
+		networkStatePath = filepath.Join(stateDirectory, "network.json")
+		funnelStatePath = filepath.Join(stateDirectory, "funnel.json")
 	}
-
-	handler, err := dropserver.NewWithOptions(dropserver.Options{
-		Scanner: scanner.Options{
-			Roots:      configuration.Server.AppsRoots,
-			Registered: configuration.Server.RegisteredApps,
-		},
-		IndexPath: indexPath,
-	})
-	if err != nil {
-		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not scan your app folders: %v\n", err); writeErr != nil {
-			return 1
-		}
-		return 1
-	}
-	defer func() {
-		_ = handler.Close()
-	}()
 
 	listener, err := acquireMainListener(ctx, *listenAddress, *bindAddress, *statePath, configuration)
 	if err != nil {
@@ -399,9 +389,97 @@ func serveCommandContextWithReady(
 		}
 		return 1
 	}
-	defer func() {
+	mainPort, err := listenerPort(listener.Addr())
+	if err != nil {
 		_ = listener.Close()
-	}()
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not read its HTTP listener: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	lanIP, probeErr := discovery.ProbeLANIP()
+	if listenerExcludesLAN(listener.Addr()) {
+		lanIP = netip.Addr{}
+		probeErr = nil
+	}
+	if probeErr != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve could not select a LAN address; loopback remains available: %v\n", probeErr)
+	}
+	discoveryManager := discovery.NewManager(discovery.ManagerOptions{
+		LANIP:      lanIP,
+		HTTPPort:   mainPort,
+		NoticePath: networkStatePath,
+		Logf: func(format string, arguments ...any) {
+			_, _ = fmt.Fprintf(stderr, format+"\n", arguments...)
+		},
+	})
+	defer discoveryManager.Close()
+	tailscaleStatus, tailscaleErr := discovery.ProbeTailscale(ctx, discovery.TailscaleProbes{})
+	if tailscaleErr != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve could not read Tailscale status: %v\n", tailscaleErr)
+	} else {
+		discoveryManager.UpdateTailscale(tailscaleStatus)
+	}
+	funnel, funnelErr := discovery.NewFunnelManager(discovery.FunnelOptions{
+		StatePath: funnelStatePath,
+		Execute:   discovery.TailscaleFunnelExecutor(mainPort, discovery.TailscaleProbes{}),
+	})
+	if funnelErr != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve disabled Tailscale Funnel because its state could not be read: %v\n", funnelErr)
+		funnel = nil
+	}
+
+	handler, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{
+			Roots:      configuration.Server.AppsRoots,
+			Registered: configuration.Server.RegisteredApps,
+		},
+		IndexPath:            indexPath,
+		Discovery:            discoveryManager.Snapshot,
+		Funnel:               funnel,
+		DismissNetworkChange: discoveryManager.DismissNetworkChange,
+	})
+	if err != nil {
+		_ = listener.Close()
+		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not scan your app folders: %v\n", err); writeErr != nil {
+			return 1
+		}
+		return 1
+	}
+	defer func() { _ = handler.Close() }()
+
+	listenerRuntime := dropserver.NewListenerRuntime(handler.Handler())
+	listenerRuntime.Start(listener)
+	monitorOptions := discovery.MonitorOptions{
+		Manager:         discoveryManager,
+		ProbeLANIP:      discovery.ProbeLANIP,
+		ListenerHealthy: listenerRuntime.Healthy,
+		RecoverListener: func(recoveryContext context.Context) error {
+			recovered, recoveryErr := acquireMainListener(
+				recoveryContext,
+				*listenAddress,
+				*bindAddress,
+				*statePath,
+				configuration,
+			)
+			if recoveryErr != nil {
+				return recoveryErr
+			}
+			listenerRuntime.Start(recovered)
+			return nil
+		},
+		ProbeTailscale: func(probeContext context.Context) (discovery.TailscaleStatus, error) {
+			return discovery.ProbeTailscale(probeContext, discovery.TailscaleProbes{})
+		},
+		Logf: func(format string, arguments ...any) {
+			_, _ = fmt.Fprintf(stderr, format+"\n", arguments...)
+		},
+	}
+	if funnel != nil {
+		monitorOptions.ExpireFunnels = funnel.Expire
+	}
+	monitor := discovery.NewMonitor(monitorOptions)
+	go monitor.Run(ctx)
 
 	address := listenerURL(listener.Addr())
 	if _, err := fmt.Fprintf(stdout, "Dropserve is ready at %s\n", address); err != nil {
@@ -417,32 +495,14 @@ func serveCommandContextWithReady(
 	if ready != nil {
 		ready(address)
 	}
-	httpServer := &http.Server{
-		Handler:           handler.Handler(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
-	serveFinished := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			shutdownContext, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-			defer cancelShutdown()
-			_ = httpServer.Shutdown(shutdownContext)
-		case <-serveFinished:
-		}
-	}()
-	if err := httpServer.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		close(serveFinished)
-		if _, writeErr := fmt.Fprintf(stderr, "Dropserve stopped serving: %v\n", err); writeErr != nil {
-			return 1
-		}
+	discoveryManager.StartMDNS()
+	<-ctx.Done()
+	shutdownContext, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancelShutdown()
+	if err := listenerRuntime.Shutdown(shutdownContext); err != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve could not stop its HTTP listener cleanly: %v\n", err)
 		return 1
 	}
-	close(serveFinished)
 	return 0
 }
 
@@ -601,4 +661,25 @@ func listenerURL(address net.Addr) string {
 		host = "127.0.0.1"
 	}
 	return "http://" + net.JoinHostPort(host, port)
+}
+
+func listenerPort(address net.Addr) (int, error) {
+	_, rawPort, err := net.SplitHostPort(address.String())
+	if err != nil {
+		return 0, fmt.Errorf("parse listener address %q: %w", address.String(), err)
+	}
+	port, err := strconv.Atoi(rawPort)
+	if err != nil {
+		return 0, fmt.Errorf("parse listener port %q: %w", rawPort, err)
+	}
+	return port, nil
+}
+
+func listenerExcludesLAN(address net.Addr) bool {
+	host, _, err := net.SplitHostPort(address.String())
+	if err != nil {
+		return false
+	}
+	parsed := net.ParseIP(host)
+	return parsed != nil && parsed.IsLoopback()
 }

@@ -12,6 +12,13 @@ type Snapshot struct {
 	LANIP        netip.Addr
 	MDNSHostname string
 	Tailscale    TailscaleStatus
+	LANChange    *LANChange
+}
+
+// LANChange is a persisted old-to-new address notice.
+type LANChange struct {
+	OldLANIP string `json:"old_lan_ip"`
+	NewLANIP string `json:"new_lan_ip"`
 }
 
 // Endpoint is one verified address suitable for display, copying, or QR use.

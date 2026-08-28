@@ -12,6 +12,7 @@ import (
 
 	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/dashboard"
+	"github.com/tanzir71/dropserve/internal/discovery"
 	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
@@ -40,9 +41,12 @@ type Server struct {
 
 // Options configures scanning and optional machine-state persistence.
 type Options struct {
-	Scanner    scanner.Options
-	IndexPath  string
-	Supervisor supervisor.Options
+	Scanner              scanner.Options
+	IndexPath            string
+	Supervisor           supervisor.Options
+	Discovery            func() discovery.Snapshot
+	Funnel               *discovery.FunnelManager
+	DismissNetworkChange func() error
 }
 
 // New scans the configured roots and registered apps, then mounts every app.
@@ -183,7 +187,10 @@ func (server *Server) reconcile() error {
 		}
 	}
 	dashboardHandler, err := dashboard.NewWithOptions(entries, dashboard.Options{
-		Warnings: warningMessages(result.Warnings),
+		Warnings:             warningMessages(result.Warnings),
+		Discovery:            server.options.Discovery,
+		Funnel:               server.options.Funnel,
+		DismissNetworkChange: server.options.DismissNetworkChange,
 	})
 	if err != nil {
 		return err

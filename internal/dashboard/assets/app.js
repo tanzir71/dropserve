@@ -13,6 +13,7 @@ const qrAddress = document.querySelector('#qr-address');
 const qrCopy = document.querySelector('#qr-copy');
 const warningNotice = document.querySelector('#port-warning');
 const publicSharingWarning = document.querySelector('#public-sharing-warning');
+const addressChangeWarning = document.querySelector('#address-change-warning');
 const logDialog = document.querySelector('#log-dialog');
 const logTitle = document.querySelector('#log-title');
 const logState = document.querySelector('#log-state');
@@ -306,6 +307,19 @@ fetch('/_dropserve/api/status')
     return response.json();
   })
   .then(status => {
+    if (status.network?.change) {
+      addressChangeWarning.querySelector('[data-old-lan-ip]').textContent = status.network.change.old_lan_ip;
+      addressChangeWarning.querySelector('[data-new-lan-ip]').textContent = status.network.change.new_lan_ip;
+      addressChangeWarning.hidden = false;
+      addressChangeWarning.querySelector('button').addEventListener('click', () => {
+        fetch('/_dropserve/api/network-change/dismiss', {
+          method: 'POST',
+          headers: { 'X-Dropserve-CSRF': status.csrf_token },
+        }).then(response => {
+          if (response.ok) addressChangeWarning.hidden = true;
+        });
+      }, { once: true });
+    }
     if (!status.warnings?.length) return;
     const publicWarnings = status.warnings.filter(warning => warning.startsWith('public_sharing_active:'));
     const otherWarnings = status.warnings.filter(warning => !warning.startsWith('public_sharing_active:'));

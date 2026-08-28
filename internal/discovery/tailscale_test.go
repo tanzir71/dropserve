@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -73,6 +74,50 @@ func TestMissingTailscaleBinaryIsExplainedWithoutError(t *testing.T) {
 	for _, endpoint := range endpoints {
 		if endpoint.Kind == "tailscale" && endpoint.URL != "" {
 			t.Fatalf("missing Tailscale advertised a dead URL: %#v", endpoints)
+		}
+	}
+}
+
+func TestTailscaleSharingCommandsAreScopedAndReversible(t *testing.T) {
+	type invocation struct {
+		path string
+		args []string
+	}
+	var invocations []invocation
+	probes := TailscaleProbes{
+		GOOS:     "linux",
+		LookPath: func(string) (string, error) { return "/usr/bin/tailscale", nil },
+		Exists:   func(string) bool { return false },
+		Run: func(_ context.Context, path string, arguments ...string) ([]byte, error) {
+			invocations = append(invocations, invocation{path: path, args: append([]string{}, arguments...)})
+			return []byte("ok"), nil
+		},
+	}
+	executeFunnel := TailscaleFunnelExecutor(8000, probes)
+	if err := executeFunnel(context.Background(), FunnelAction{Slug: "field-notes", Enable: true}); err != nil {
+		t.Fatalf("enable Funnel: %v", err)
+	}
+	if err := executeFunnel(context.Background(), FunnelAction{Slug: "field-notes", Enable: false}); err != nil {
+		t.Fatalf("disable Funnel: %v", err)
+	}
+	if err := SetTailscaleServe(context.Background(), 8000, true, probes); err != nil {
+		t.Fatalf("enable Serve: %v", err)
+	}
+	if err := SetTailscaleServe(context.Background(), 8000, false, probes); err != nil {
+		t.Fatalf("disable Serve: %v", err)
+	}
+	want := [][]string{
+		{"funnel", "--bg", "--yes", "--https=443", "--set-path=/field-notes", "http://127.0.0.1:8000/field-notes/"},
+		{"funnel", "--https=443", "--set-path=/field-notes", "off"},
+		{"serve", "--bg", "--yes", "--https=443", "http://127.0.0.1:8000"},
+		{"serve", "--https=443", "off"},
+	}
+	if len(invocations) != len(want) {
+		t.Fatalf("Tailscale invocations = %#v, want %d", invocations, len(want))
+	}
+	for index := range want {
+		if invocations[index].path != "/usr/bin/tailscale" || !reflect.DeepEqual(invocations[index].args, want[index]) {
+			t.Fatalf("invocation %d = %#v, want path and args %#v", index, invocations[index], want[index])
 		}
 	}
 }

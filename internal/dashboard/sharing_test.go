@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -179,5 +180,66 @@ func TestActiveFunnelProducesNonDismissiblePublicSharingWarning(t *testing.T) {
 	end := strings.Index(markup[start:], "</aside>")
 	if end < 0 || strings.Contains(markup[start:start+end], "<button") {
 		t.Fatal("public-sharing warning must be a permanent banner with no dismiss button")
+	}
+}
+
+func TestLANIPChangeNoticePersistsUntilDismissed(t *testing.T) {
+	noticePath := filepath.Join(t.TempDir(), "network.json")
+	oldIP := netip.MustParseAddr("192.168.1.10")
+	newIP := netip.MustParseAddr("192.168.1.77")
+	manager := discovery.NewManager(discovery.ManagerOptions{LANIP: oldIP, NoticePath: noticePath})
+	manager.UpdateLANIP(newIP)
+	defer manager.Close()
+
+	httpHandler, err := NewWithOptions(nil, Options{
+		Discovery:            manager.Snapshot,
+		DismissNetworkChange: manager.DismissNetworkChange,
+	})
+	if err != nil {
+		t.Fatalf("create dashboard: %v", err)
+	}
+	dashboard := httpHandler.(*handler)
+	statusResponse := httptest.NewRecorder()
+	dashboard.ServeHTTP(statusResponse, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_dropserve/api/status", nil))
+	var status struct {
+		Network struct {
+			Change *struct {
+				OldLANIP string `json:"old_lan_ip"`
+				NewLANIP string `json:"new_lan_ip"`
+			} `json:"change"`
+		} `json:"network"`
+	}
+	if err := json.NewDecoder(statusResponse.Body).Decode(&status); err != nil {
+		t.Fatalf("decode status: %v", err)
+	}
+	if status.Network.Change == nil || status.Network.Change.OldLANIP != oldIP.String() || status.Network.Change.NewLANIP != newIP.String() {
+		t.Fatalf("network change = %#v, want %s -> %s", status.Network.Change, oldIP, newIP)
+	}
+
+	page := httptest.NewRecorder()
+	dashboard.ServeHTTP(page, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_dropserve/help/dhcp-reservation", nil))
+	if page.Code != http.StatusOK || !strings.Contains(page.Body.String(), "DHCP reservation") {
+		t.Fatalf("DHCP explainer = %d %q", page.Code, page.Body.String())
+	}
+	if !strings.Contains(string(dashboard.index), `id="address-change-warning"`) || !strings.Contains(string(dashboard.index), `href="/_dropserve/help/dhcp-reservation"`) {
+		t.Fatal("dashboard does not wire the persistent address-change notice to the DHCP explainer")
+	}
+
+	persisted := discovery.NewManager(discovery.ManagerOptions{LANIP: newIP, NoticePath: noticePath})
+	defer persisted.Close()
+	if persisted.Snapshot().LANChange == nil {
+		t.Fatal("network change notice did not survive manager reload")
+	}
+	dismissRequest := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/_dropserve/api/network-change/dismiss", nil)
+	dismissRequest.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	dismissResponse := httptest.NewRecorder()
+	dashboard.ServeHTTP(dismissResponse, dismissRequest)
+	if dismissResponse.Code != http.StatusNoContent {
+		t.Fatalf("dismiss response = %d, want 204; body=%q", dismissResponse.Code, dismissResponse.Body.String())
+	}
+	reloaded := discovery.NewManager(discovery.ManagerOptions{LANIP: newIP, NoticePath: noticePath})
+	defer reloaded.Close()
+	if reloaded.Snapshot().LANChange != nil {
+		t.Fatal("dismissed network change notice returned after reload")
 	}
 }

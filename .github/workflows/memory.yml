@@ -1,0 +1,23 @@
+name: Memory soak
+
+on:
+  schedule:
+    - cron: '43 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  memory:
+    name: Five-minute RSS floor
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Soak 50 static apps
+        run: go run ./scripts/memory -soak=5m

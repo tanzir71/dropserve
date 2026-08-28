@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M7 — Findable
-**Last updated:** 2026-08-28T00:19:44Z
+**Last updated:** 2026-08-28T00:31:40Z
 **Gate status:** green
-**Iterations completed:** 97
+**Iterations completed:** 98
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## Current milestone criteria
 
-- [ ] **Spike, first thing:** write `scripts/spike/mdns.go` that advertises `dropserve-spike.local` with `libp2p/zeroconf/v2`, runs for 20 seconds, and reports whether the bind succeeded. Run it on Windows (where the OS responder holds UDP/5353) and on Linux. If the default library fails to bind on Windows, repeat with `betamos/zeroconf`. Adopt whichever binds on both, record the result and the raw output in `STATE.md`, and write it up as an ADR. If **neither** binds on Windows, ship without mDNS on Windows — the `.local` URL is simply absent (invariant I3 is satisfied by hiding it) — and record that as the outcome. Do not spend more than one iteration on this.
+- [x] **Spike, first thing:** write `scripts/spike/mdns.go` that advertises `dropserve-spike.local` with `libp2p/zeroconf/v2`, runs for 20 seconds, and reports whether the bind succeeded. Run it on Windows (where the OS responder holds UDP/5353) and on Linux. If the default library fails to bind on Windows, repeat with `betamos/zeroconf`. Adopt whichever binds on both, record the result and the raw output in `STATE.md`, and write it up as an ADR. If **neither** binds on Windows, ship without mDNS on Windows — the `.local` URL is simply absent (invariant I3 is satisfied by hiding it) — and record that as the outcome. Do not spend more than one iteration on this.
 - [ ] Assert: virtual-adapter filtering — given a synthetic interface list containing `vEthernet (WSL)`, `Tailscale`, `VirtualBox Host-Only` and one real adapter, the real one is chosen.
 - [ ] Assert: when no LAN IP is available (loopback only), the Sharing panel shows the loopback URL and no broken entries — **I3** holds.
 - [ ] Assert: mDNS bind failure is caught, logged, and results in the `.local` URL being **absent** from `/api/urls`, not present-and-broken.
@@ -223,11 +223,36 @@
   M6 Windows background smoke passed: the PE uses the GUI subsystem and GetConsoleWindow() returned 0.
   ```
 
+### M7 evidence
+
+- The mandatory one-iteration mDNS spike is `scripts/spike/mdns.go`. It advertises `dropserve-spike.local.` through `github.com/libp2p/zeroconf/v2` v2.2.0 for exactly 20 seconds, reports every selected multicast interface and address, and shuts the responder down. The preferred library successfully shared UDP/5353 on both target kernels, so the prescribed `betamos/zeroconf` fallback was not needed. ADR-013 records the choice and preserves invariant I3's omit-on-bind-failure rule.
+- Raw Windows run on the real development host, with the Windows responder already owning mDNS and both physical and WSL multicast interfaces present:
+
+  ```text
+  platform: windows/amd64; go: go1.27.0
+  multicast interface: Ethernet (index 15)
+  multicast interface: vEthernet (WSL (Hyper-V firewall)) (index 50)
+  advertising: dropserve-spike.local. -> [fe80::7c8c:9635:96b5:76 192.168.68.110 fe80::7c6e:b284:edb:11cc 172.19.144.1] for 20s
+  mDNS bind succeeded
+  mDNS spike completed and shut down cleanly
+  ```
+
+- Raw Linux run used the same source with the checksum-verified official Go 1.27.0 Linux/amd64 toolchain under WSL2's Linux kernel. The temporary toolchain did not modify the distro and was removed after the run.
+
+  ```text
+  platform: linux/amd64; go: go1.27.0
+  multicast interface: eth0 (index 2)
+  advertising: dropserve-spike.local. -> [172.19.159.148 fe80::215:5dff:fe67:c687] for 20s
+  mDNS bind succeeded
+  mDNS spike completed and shut down cleanly
+  ```
+
 ## Decisions made this build (beyond the spec)
 
 - 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
 - 2026-08-28 — ADR-011 records the handover-prescribed fsnotify watcher paired with periodic reconciliation. fsnotify adds one direct module plus its platform syscall module while preserving zero-CGO cross-builds.
 - 2026-08-28 — ADR-012 records native command-app process-tree isolation. The already-transitive pure-Go `golang.org/x/sys` module becomes direct so Windows Job Objects can kill npm and every descendant when the supervisor closes.
+- 2026-08-28 — ADR-013 adopts `github.com/libp2p/zeroconf/v2` after the handover-mandated 20-second spike bound and shut down cleanly on real Windows and Linux kernels. The fallback library was unnecessary.
 
 ## Open questions for the human
 
@@ -252,4 +277,4 @@
 
 ## Dependency count
 
-5 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, and build-tagged tray library); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 22 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.
+6 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, and selected mDNS responder); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 29 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.

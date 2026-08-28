@@ -9,6 +9,7 @@ require (
 
 require (
 	github.com/getlantern/systray v1.2.2
+	github.com/libp2p/zeroconf/v2 v2.2.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	golang.org/x/sys v0.13.0
 )
@@ -21,5 +22,7 @@ require (
 	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
 	github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f // indirect
 	github.com/go-stack/stack v1.8.0 // indirect
+	github.com/miekg/dns v1.1.43 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
+	golang.org/x/net v0.0.0-20210423184538-5f58ad60dda6 // indirect
 )

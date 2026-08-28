@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/netip"
@@ -10,15 +11,16 @@ import (
 
 // MonitorOptions supplies network probing and listener recovery boundaries.
 type MonitorOptions struct {
-	Interval        time.Duration
-	Events          <-chan struct{}
-	Manager         *Manager
-	ProbeLANIP      func() (netip.Addr, error)
-	ProbeTailscale  func(context.Context) (TailscaleStatus, error)
-	ListenerHealthy func() bool
-	RecoverListener func(context.Context) error
-	ExpireFunnels   func(context.Context) error
-	Logf            func(string, ...any)
+	Interval           time.Duration
+	Events             <-chan struct{}
+	Manager            *Manager
+	ProbeLANIP         func() (netip.Addr, error)
+	ProbeTailscale     func(context.Context) (TailscaleStatus, error)
+	ListenerHealthy    func() bool
+	RecoverListener    func(context.Context) error
+	ExpireFunnels      func(context.Context) error
+	UpdateTLSAddresses func([]netip.Addr) error
+	Logf               func(string, ...any)
 }
 
 // Monitor revalidates network and listener state after events and on a bounded
@@ -60,33 +62,43 @@ func (monitor *Monitor) Check(ctx context.Context) error {
 	if monitor.options.ProbeLANIP == nil {
 		return fmt.Errorf("LAN probe is not configured")
 	}
+	var failures []error
 	address, err := monitor.options.ProbeLANIP()
 	if err != nil {
-		return fmt.Errorf("probe LAN address: %w", err)
-	}
-	if monitor.options.Manager != nil {
-		monitor.options.Manager.UpdateLANIP(address)
-		if monitor.options.ProbeTailscale != nil {
-			status, probeErr := monitor.options.ProbeTailscale(ctx)
-			if probeErr != nil {
-				monitor.options.Logf("Tailscale status refresh failed: %v", probeErr)
-			} else {
-				monitor.options.Manager.UpdateTailscale(status)
+		failures = append(failures, fmt.Errorf("probe LAN address: %w", err))
+	} else {
+		if monitor.options.Manager != nil {
+			monitor.options.Manager.UpdateLANIP(address)
+		}
+		if monitor.options.UpdateTLSAddresses != nil {
+			addresses := []netip.Addr{}
+			if address.IsValid() {
+				addresses = append(addresses, address)
 			}
+			if updateErr := monitor.options.UpdateTLSAddresses(addresses); updateErr != nil {
+				failures = append(failures, fmt.Errorf("reissue HTTPS certificate: %w", updateErr))
+			}
+		}
+	}
+	if monitor.options.Manager != nil && monitor.options.ProbeTailscale != nil {
+		status, probeErr := monitor.options.ProbeTailscale(ctx)
+		if probeErr != nil {
+			monitor.options.Logf("Tailscale status refresh failed: %v", probeErr)
+		} else {
+			monitor.options.Manager.UpdateTailscale(status)
 		}
 	}
 	if monitor.options.ListenerHealthy != nil && !monitor.options.ListenerHealthy() {
 		if monitor.options.RecoverListener == nil {
-			return fmt.Errorf("HTTP listener is down and recovery is not configured")
-		}
-		if err := monitor.options.RecoverListener(ctx); err != nil {
-			return fmt.Errorf("recover HTTP listener: %w", err)
+			failures = append(failures, fmt.Errorf("HTTP listener is down and recovery is not configured"))
+		} else if recoverErr := monitor.options.RecoverListener(ctx); recoverErr != nil {
+			failures = append(failures, fmt.Errorf("recover HTTP listener: %w", recoverErr))
 		}
 	}
 	if monitor.options.ExpireFunnels != nil {
-		if err := monitor.options.ExpireFunnels(ctx); err != nil {
-			return fmt.Errorf("expire public sharing: %w", err)
+		if expireErr := monitor.options.ExpireFunnels(ctx); expireErr != nil {
+			failures = append(failures, fmt.Errorf("expire public sharing: %w", expireErr))
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }

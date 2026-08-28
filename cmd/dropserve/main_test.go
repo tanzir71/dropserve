@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/tanzir71/dropserve/internal/config"
 	"github.com/tanzir71/dropserve/internal/doctor"
@@ -61,6 +62,86 @@ func TestLoopbackListenerNeverPublishesLANAddress(t *testing.T) {
 	}
 	if listenerExcludesLAN(&net.TCPAddr{IP: net.IPv4zero, Port: 8000}) {
 		t.Fatal("wildcard listener was treated as loopback-only")
+	}
+}
+
+func TestHTTPSListenerFailureDegradesToHTTPOnly(t *testing.T) {
+	sandbox := t.TempDir()
+	appsRoot := filepath.Join(sandbox, "Apps")
+	if err := os.MkdirAll(appsRoot, 0o750); err != nil {
+		t.Fatalf("create Apps root: %v", err)
+	}
+	occupied, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("occupy HTTPS port: %v", err)
+	}
+	defer func() { _ = occupied.Close() }()
+	_, portText, err := net.SplitHostPort(occupied.Addr().String())
+	if err != nil {
+		t.Fatalf("read occupied HTTPS port: %v", err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatalf("parse occupied HTTPS port: %v", err)
+	}
+	configuration := config.Default()
+	configuration.Server.AppsRoots = []string{appsRoot}
+	configuration.Server.Bind = "127.0.0.1"
+	configuration.Server.HTTPSPort = port
+	configPath := filepath.Join(sandbox, "config.toml")
+	if err := config.Save(configPath, configuration); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	ready := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- serveCommandContextWithReady(
+			ctx,
+			[]string{"--config", configPath, "--state", filepath.Join(sandbox, "state.json"), "--listen", "127.0.0.1:0"},
+			&stdout,
+			&stderr,
+			"",
+			func(address string) { ready <- address },
+			nil,
+		)
+	}()
+
+	var address string
+	select {
+	case address = <-ready:
+	case code := <-done:
+		t.Fatalf("server exited with %d before HTTP became ready; stderr=%q", code, stderr.String())
+	case <-time.After(10 * time.Second):
+		t.Fatalf("HTTP server did not become ready; stderr=%q", stderr.String())
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/", nil)
+	if err != nil {
+		t.Fatalf("create HTTP request: %v", err)
+	}
+	response, err := http.DefaultClient.Do(request) // #nosec G107 -- address is the loopback listener returned above.
+	if err != nil {
+		t.Fatalf("HTTP stopped because HTTPS failed: %v", err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("HTTP after HTTPS failure = %d, want 200", response.StatusCode)
+	}
+	if !strings.Contains(stderr.String(), "HTTPS") || !strings.Contains(stderr.String(), portText) {
+		t.Fatalf("HTTPS failure warning = %q, want HTTPS and occupied port %s", stderr.String(), portText)
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("server exit after HTTP-only degradation = %d", code)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("server did not stop after cancellation")
 	}
 }
 

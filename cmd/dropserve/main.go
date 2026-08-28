@@ -28,6 +28,7 @@ import (
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 	"github.com/tanzir71/dropserve/internal/state"
+	"github.com/tanzir71/dropserve/internal/tlsca"
 	"github.com/tanzir71/dropserve/internal/version"
 )
 
@@ -376,8 +377,9 @@ func serveCommandContextWithReady(
 	indexPath := ""
 	networkStatePath := ""
 	funnelStatePath := ""
+	stateDirectory := ""
 	if *statePath != "" {
-		stateDirectory := filepath.Dir(*statePath)
+		stateDirectory = filepath.Dir(*statePath)
 		indexPath = filepath.Join(stateDirectory, "index.json")
 		networkStatePath = filepath.Join(stateDirectory, "network.json")
 		funnelStatePath = filepath.Join(stateDirectory, "funnel.json")
@@ -405,6 +407,47 @@ func serveCommandContextWithReady(
 	lanIP, probeErr := probeLANIP()
 	if probeErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not select a LAN address; loopback remains available: %v\n", probeErr)
+	}
+	var httpsAuthority *tlsca.Authority
+	var httpsListener net.Listener
+	var runtimeWarnings []string
+	if configuration.Server.HTTPSPort > 0 {
+		var httpsErr error
+		if stateDirectory == "" {
+			httpsErr = errors.New("a state path is required to store the local certificate authority")
+		} else {
+			listenConfig := net.ListenConfig{}
+			httpsListener, httpsErr = listenConfig.Listen(
+				ctx,
+				"tcp",
+				net.JoinHostPort(*bindAddress, strconv.Itoa(configuration.Server.HTTPSPort)),
+			)
+			if httpsErr == nil {
+				hostname, _ := os.Hostname()
+				addresses := []netip.Addr{}
+				if lanIP.IsValid() {
+					addresses = append(addresses, lanIP)
+				}
+				httpsAuthority, httpsErr = tlsca.New(tlsca.Options{
+					Directory: filepath.Join(stateDirectory, "ca"),
+					Hostname:  hostname,
+					Addresses: addresses,
+				})
+				if httpsErr != nil {
+					_ = httpsListener.Close()
+					httpsListener = nil
+				}
+			}
+		}
+		if httpsErr != nil {
+			warning := fmt.Sprintf(
+				"HTTPS port %d is unavailable, so HTTP is still available and HTTPS is off: %v",
+				configuration.Server.HTTPSPort,
+				httpsErr,
+			)
+			runtimeWarnings = append(runtimeWarnings, warning)
+			_, _ = fmt.Fprintln(stderr, warning)
+		}
 	}
 	discoveryManager := discovery.NewManager(discovery.ManagerOptions{
 		LANIP:      lanIP,
@@ -452,6 +495,7 @@ func serveCommandContextWithReady(
 			Registered: configuration.Server.RegisteredApps,
 		},
 		IndexPath: indexPath,
+		Warnings:  runtimeWarnings,
 		Discovery: discoveryManager.Snapshot,
 		Funnel:    funnel,
 		SetTailscaleServe: func(changeContext context.Context, enabled bool) error {
@@ -464,6 +508,9 @@ func serveCommandContextWithReady(
 	})
 	if err != nil {
 		_ = listener.Close()
+		if httpsListener != nil {
+			_ = httpsListener.Close()
+		}
 		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not scan your app folders: %v\n", err); writeErr != nil {
 			return 1
 		}
@@ -473,6 +520,11 @@ func serveCommandContextWithReady(
 
 	listenerRuntime := dropserver.NewListenerRuntime(handler.Handler())
 	listenerRuntime.Start(listener)
+	var httpsRuntime *dropserver.HTTPSRuntime
+	if httpsListener != nil && httpsAuthority != nil {
+		httpsRuntime = dropserver.NewHTTPSRuntime(handler.Handler(), httpsAuthority.TLSCertificate)
+		httpsRuntime.Start(httpsListener)
+	}
 	monitorOptions := discovery.MonitorOptions{
 		Manager:         discoveryManager,
 		ProbeLANIP:      probeLANIP,
@@ -499,6 +551,12 @@ func serveCommandContextWithReady(
 	if funnel != nil {
 		monitorOptions.ExpireFunnels = funnel.Expire
 	}
+	if httpsAuthority != nil {
+		monitorOptions.UpdateTLSAddresses = func(addresses []netip.Addr) error {
+			_, updateErr := httpsAuthority.UpdateAddresses(addresses)
+			return updateErr
+		}
+	}
 	monitor := discovery.NewMonitor(monitorOptions)
 	go monitor.Run(ctx)
 
@@ -520,6 +578,11 @@ func serveCommandContextWithReady(
 	<-ctx.Done()
 	shutdownContext, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancelShutdown()
+	if httpsRuntime != nil {
+		if err := httpsRuntime.Shutdown(shutdownContext); err != nil {
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not stop its HTTPS listener cleanly: %v\n", err)
+		}
+	}
 	if err := listenerRuntime.Shutdown(shutdownContext); err != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not stop its HTTP listener cleanly: %v\n", err)
 		return 1

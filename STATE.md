@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M7 — Findable
-**Last updated:** 2026-08-28T01:19:04Z
+**Current milestone:** M8 — HTTPS (M7 real-tailnet check pending)
+**Last updated:** 2026-08-28T01:33:07Z
 **Gate status:** green
-**Iterations completed:** 116
+**Iterations completed:** 123
 
 ## Milestone progress
 
@@ -20,7 +20,7 @@
 - [ ] M10 — Shippable
 - [ ] M11 — Hardening and polish
 
-## Current milestone criteria
+## M7 criteria (manual tailnet check pending)
 
 - [x] **Spike, first thing:** write `scripts/spike/mdns.go` that advertises `dropserve-spike.local` with `libp2p/zeroconf/v2`, runs for 20 seconds, and reports whether the bind succeeded. Run it on Windows (where the OS responder holds UDP/5353) and on Linux. If the default library fails to bind on Windows, repeat with `betamos/zeroconf`. Adopt whichever binds on both, record the result and the raw output in `STATE.md`, and write it up as an ADR. If **neither** binds on Windows, ship without mDNS on Windows — the `.local` URL is simply absent (invariant I3 is satisfied by hiding it) — and record that as the outcome. Do not spend more than one iteration on this.
 - [x] Assert: virtual-adapter filtering — given a synthetic interface list containing `vEthernet (WSL)`, `Tailscale`, `VirtualBox Host-Only` and one real adapter, the real one is chosen.
@@ -42,6 +42,17 @@
 - [x] Deliverable: every app offers guarded public sharing. Exact-slug confirmation scopes Funnel to that app for at most eight hours; active cards expose the public Open/Copy/QR link and one-click stop; the nondismissible warning and distinct tray icon follow persisted enable, disable, expiry, pause, and restart state.
 - [x] Completion checks available locally: JavaScript syntax, asset budget, full race/lint/cross-build/tray gate, compiled-binary smoke, and rendered browser interaction pass.
 - [ ] Completion check requiring external identity: enable and disable `tailscale serve` once on a real signed-in tailnet and record the working HTTPS URL without repeated certificate issuance.
+
+## M8 criteria (active)
+
+- [x] Assert: a generated leaf validates against the generated root for `localhost`, `127.0.0.1`, the hostname, and a synthetic LAN IP.
+- [x] Assert: the CA private key file mode is `0600` on Unix; on Windows, assert the ACL grants only the current user (or record the limitation explicitly in `STATE.md` if the check proves impractical).
+- [x] Assert: when the LAN IP changes, a new leaf is issued containing the new IP and the old one is superseded within one monitor interval.
+- [ ] Assert (**I5**): trust installation is **never** invoked during startup, scanning, or any code path other than the explicit `trust install` command / dashboard button — prove it with a fake truststore interface and assert zero calls across a full server lifecycle test.
+- [ ] Assert: `trust uninstall` removes what `trust install` added (fake at unit level; verify manually on Windows once and record it).
+- [x] Assert: HTTP → HTTPS redirect is **off** by default and the HTTP listener still serves everything when HTTPS is enabled.
+- [x] Assert (**hazard 13**): an issued leaf's `NotBefore` is at least one hour in the past, so a machine with a slightly wrong clock still accepts a freshly-issued certificate. Verify with an injected clock skewed 30 minutes fast and 30 minutes slow — the certificate validates in both cases.
+- [x] Assert: HTTPS listener failure (port taken) degrades to HTTP-only with a warning and does not prevent startup.
 
 ### M6 completion audit (closed)
 
@@ -275,6 +286,16 @@
   mDNS spike completed and shut down cleanly
   ```
 
+### M8 evidence
+
+- `TestGeneratedLeafValidatesForEveryLocalAddress` failed first with no `tlsca` package. The implemented authority persists an ECDSA P-256 ten-year root and a two-year leaf covering `localhost`, both loopback families, the machine hostname, `<hostname>.local`, `dropserve.local`, and the verified LAN set. The chain validates independently for every required name, and the key pair loads through `crypto/tls`.
+- Private keys are created through sibling temporary files before atomic replacement. Unix asserts `0600`; `TestWindowsRootKeyACLGrantsOnlyCurrentUser` initially saw six inherited ACEs, then passed after private temporary files received a protected DACL containing exactly one full-control current-user grant before key bytes were written. The zero-CGO Windows build remains green.
+- `TestLANAddressChangeSupersedesTheOldLeaf` requires a new serial, validation for the new synthetic LAN IP, rejection for the old IP, and idempotence for an unchanged set. `TestLANChangeReissuesLeafWithinOneMonitorInterval` drives the production network monitor and observes the replacement within its 250 ms injected interval. New handshakes load the current atomic key pair, so apps and listeners are not restarted.
+- `TestFreshLeafAcceptsThirtyMinuteClockSkew` validates the same freshly issued leaf with clocks 30 minutes slow and fast. Both root and leaf are backdated two hours, exceeding hazard 13's one-hour floor.
+- `TestHTTPRemainsAvailableWhenHTTPSIsEnabled` serves one live handler over separate HTTP and TLS listeners, follows no redirect, and observes a new leaf serial on the first handshake after address rotation. `TestHTTPSListenerFailureDegradesToHTTPOnly` occupies the configured TLS port in the real CLI path, requires a warning naming HTTPS and that port, and still receives HTTP 200 before a clean exit.
+- The inert `TrustController` has an injected `TrustStore` and its unit test records one matching install/remove pair with zero construction-time calls. The production adapter uses the handover-approved `github.com/smallstep/truststore` v0.13.0 (Go 1.18 module baseline); the full-server no-implicit-call proof, explicit CLI/dashboard actions, and real Windows install/remove verification remain intentionally pending.
+- Full local `make check` passes formatting, lint, race tests, version injection, Windows/Linux/macOS zero-CGO builds, optional tray build, and shipped-file scan with the new CA, ACL, dynamic TLS runtime, and monitor integration.
+
 ## Decisions made this build (beyond the spec)
 
 - 2026-08-28 — ADR-010 records the handover-prescribed local pure-Go QR encoder. It adds one direct module with no transitive modules and prevents local addresses from leaking to a hosted QR service.
@@ -305,4 +326,4 @@
 
 ## Dependency count
 
-6 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, and selected mDNS responder); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 30 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.
+7 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, and local-CA trust-store adapter); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 35 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.

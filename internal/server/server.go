@@ -45,6 +45,7 @@ type Options struct {
 	Scanner              scanner.Options
 	IndexPath            string
 	Supervisor           supervisor.Options
+	Warnings             []string
 	Discovery            func() discovery.Snapshot
 	Funnel               *discovery.FunnelManager
 	SetTailscaleServe    func(context.Context, bool) error
@@ -188,8 +189,10 @@ func (server *Server) reconcile() error {
 			return err
 		}
 	}
+	warnings := append([]string{}, server.options.Warnings...)
+	warnings = append(warnings, warningMessages(result.Warnings)...)
 	dashboardHandler, err := dashboard.NewWithOptions(entries, dashboard.Options{
-		Warnings:             warningMessages(result.Warnings),
+		Warnings:             warnings,
 		Discovery:            server.options.Discovery,
 		Funnel:               server.options.Funnel,
 		SetTailscaleServe:    server.options.SetTailscaleServe,

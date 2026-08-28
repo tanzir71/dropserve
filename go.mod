@@ -11,6 +11,7 @@ require (
 	github.com/getlantern/systray v1.2.2
 	github.com/libp2p/zeroconf/v2 v2.2.0
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
+	github.com/smallstep/truststore v0.13.0
 	golang.org/x/sys v0.35.0
 )
 
@@ -25,4 +26,5 @@ require (
 	github.com/miekg/dns v1.1.43 // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
 	golang.org/x/net v0.43.0 // indirect
+	howett.net/plist v1.0.0 // indirect
 )

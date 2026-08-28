@@ -4,3 +4,8 @@ package launch
 func OpenURL(address string) error {
 	return startAndRelease("rundll32.exe", "url.dll,FileProtocolHandler", address)
 }
+
+// OpenPath asks Explorer to show a local file or folder.
+func OpenPath(path string) error {
+	return startAndRelease("explorer.exe", path)
+}

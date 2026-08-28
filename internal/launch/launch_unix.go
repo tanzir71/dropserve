@@ -6,3 +6,8 @@ package launch
 func OpenURL(address string) error {
 	return startAndRelease("xdg-open", address)
 }
+
+// OpenPath asks the desktop environment to show path.
+func OpenPath(path string) error {
+	return startAndRelease("xdg-open", path)
+}

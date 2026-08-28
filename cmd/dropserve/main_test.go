@@ -19,11 +19,24 @@ import (
 
 	"github.com/tanzir71/dropserve/internal/config"
 	"github.com/tanzir71/dropserve/internal/doctor"
+	"github.com/tanzir71/dropserve/internal/firstrun"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	"github.com/tanzir71/dropserve/internal/state"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
 )
+
+func TestCompletedFirstRunSuppliesEditedAppsRootToDesktopMode(t *testing.T) {
+	defaultRoot := filepath.Join("default", "Apps")
+	editedRoot := filepath.Join("chosen", "Apps")
+
+	if got := desktopAppsRoot(defaultRoot, firstrun.Result{Shown: true, AppsRoot: editedRoot}); got != editedRoot {
+		t.Fatalf("desktopAppsRoot() = %q, want edited first-run root %q", got, editedRoot)
+	}
+	if got := desktopAppsRoot(defaultRoot, firstrun.Result{}); got != defaultRoot {
+		t.Fatalf("desktopAppsRoot() = %q, want existing configured root %q", got, defaultRoot)
+	}
+}
 
 func TestCommandSignalsIncludeInterruptAndTerminate(t *testing.T) {
 	signals := commandSignals()

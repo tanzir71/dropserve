@@ -162,7 +162,7 @@ func defaultCommand(stdout, stderr io.Writer, configPath string) int {
 	executable = backgroundExecutable(executable)
 	ctx, stop := signal.NotifyContext(context.Background(), commandSignals()...)
 	defer stop()
-	_, err = firstrun.Run(ctx, firstrun.Options{
+	setupResult, err := firstrun.Run(ctx, firstrun.Options{
 		StatePath:       statePath,
 		ConfigPath:      configPath,
 		DefaultAppsRoot: appsRoot,
@@ -184,11 +184,27 @@ func defaultCommand(stdout, stderr io.Writer, configPath string) int {
 		}
 		return 1
 	}
-	return serveCommandContext(ctx, []string{
-		"--config", configPath,
-		"--state", statePath,
-		"--open",
-	}, stdout, stderr, "")
+	appsRoot = desktopAppsRoot(appsRoot, setupResult)
+	return runDefaultMode(ctx, defaultModeOptions{
+		ServeArguments: []string{
+			"--config", configPath,
+			"--state", statePath,
+			"--open",
+		},
+		ConfigPath: configPath,
+		StatePath:  statePath,
+		AppsRoot:   appsRoot,
+		Executable: executable,
+		Stdout:     stdout,
+		Stderr:     stderr,
+	})
+}
+
+func desktopAppsRoot(configuredRoot string, setupResult firstrun.Result) string {
+	if setupResult.Shown && setupResult.AppsRoot != "" {
+		return setupResult.AppsRoot
+	}
+	return configuredRoot
 }
 
 func autostartCommand(arguments []string, stdout, stderr io.Writer) int {
@@ -213,6 +229,11 @@ func autostartCommand(arguments []string, stdout, stderr io.Writer) int {
 		}
 		if _, err := fmt.Fprintln(stdout, "Dropserve will start when you log in."); err != nil {
 			return 1
+		}
+		if note := autostart.EnableNote(); note != "" {
+			if _, err := fmt.Fprintln(stdout, note); err != nil {
+				return 1
+			}
 		}
 		return 0
 	case "disable":
@@ -280,6 +301,17 @@ func serveCommandContext(
 	stdout io.Writer,
 	stderr io.Writer,
 	injectedConfigPath string,
+) int {
+	return serveCommandContextWithReady(ctx, arguments, stdout, stderr, injectedConfigPath, nil)
+}
+
+func serveCommandContextWithReady(
+	ctx context.Context,
+	arguments []string,
+	stdout io.Writer,
+	stderr io.Writer,
+	injectedConfigPath string,
+	ready func(string),
 ) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -381,6 +413,9 @@ func serveCommandContext(
 				return 1
 			}
 		}
+	}
+	if ready != nil {
+		ready(address)
 	}
 	httpServer := &http.Server{
 		Handler:           handler.Handler(),

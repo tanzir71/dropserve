@@ -4,3 +4,8 @@ package launch
 func OpenURL(address string) error {
 	return startAndRelease("open", address)
 }
+
+// OpenPath asks Finder or the default application to show path.
+func OpenPath(path string) error {
+	return startAndRelease("open", path)
+}

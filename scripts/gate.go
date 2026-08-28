@@ -54,6 +54,7 @@ func check() error {
 		{"test", test},
 		{"version injection", testVersionInjection},
 		{"zero-CGO cross-build", crossBuild},
+		{"optional tray build", trayBuild},
 		{"shipped-file scan", scanShippedFiles},
 	}
 	for _, step := range steps {
@@ -160,6 +161,38 @@ func crossBuild() error {
 	return nil
 }
 
+func trayBuild() error {
+	directory, err := os.MkdirTemp("", "dropserve-tray-build-")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.RemoveAll(directory)
+	}()
+	output := filepath.Join(directory, "dropserve.exe")
+	// #nosec G204 -- executable and arguments are the fixed optional tray build; output is a private temporary path.
+	cmd := exec.CommandContext(
+		context.Background(),
+		"go",
+		"build",
+		"-trimpath",
+		"-tags", "tray",
+		"-o", output,
+		"./cmd/dropserve",
+	)
+	cmd.Env = withEnv(os.Environ(), map[string]string{
+		"CGO_ENABLED": "0",
+		"GOOS":        "windows",
+		"GOARCH":      "amd64",
+	})
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("build optional Windows tray variant: %w", err)
+	}
+	return nil
+}
+
 func build(outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0o750); err != nil {
 		return err
@@ -168,13 +201,17 @@ func build(outputDir string) error {
 	commit := envOr("COMMIT", gitCommit())
 	for _, spec := range buildSpecs(runtime.GOOS) {
 		ldflags := strings.TrimSpace(linkFlags(version, commit) + " " + spec.extraLinkFlags)
-		if err := runGo(
-			"build",
-			"-trimpath",
+		arguments := []string{"build", "-trimpath"}
+		if spec.tags != "" {
+			arguments = append(arguments, "-tags", spec.tags)
+		}
+		arguments = append(
+			arguments,
 			"-ldflags", ldflags,
 			"-o", filepath.Join(outputDir, spec.name),
 			"./cmd/dropserve",
-		); err != nil {
+		)
+		if err := runGo(arguments...); err != nil {
 			return err
 		}
 	}
@@ -184,12 +221,13 @@ func build(outputDir string) error {
 type buildSpec struct {
 	name           string
 	extraLinkFlags string
+	tags           string
 }
 
 func buildSpecs(goos string) []buildSpec {
 	if goos == "windows" {
 		return []buildSpec{
-			{name: "dropserve.exe", extraLinkFlags: "-H=windowsgui"},
+			{name: "dropserve.exe", extraLinkFlags: "-H=windowsgui", tags: "tray"},
 			{name: "dropserve-cli.exe"},
 		}
 	}

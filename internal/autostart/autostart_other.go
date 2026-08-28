@@ -1,4 +1,4 @@
-//go:build !windows && !linux
+//go:build !windows && !linux && !darwin
 
 // Package autostart manages Dropserve's per-user operating-system startup entry.
 package autostart

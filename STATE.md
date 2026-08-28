@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:30:13Z
+**Last updated:** 2026-08-28T02:32:35Z
 **Gate status:** green
-**Iterations completed:** 133
+**Iterations completed:** 134
 
 ## Milestone progress
 
@@ -63,7 +63,7 @@
 - [x] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
 - [x] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
 - [x] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
-- [ ] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
+- [x] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
 - [ ] Assert: with no packs installed, the binary and all tests still pass — packs are genuinely optional.
 
 ### M6 completion audit (closed)
@@ -325,6 +325,7 @@
 - `TestRemovingPHPPackLeavesAppFixtureByteIdentical` failed first because the installer had no removal boundary. `Installer.Remove` now resolves and confines the exact `<runtime-root>/<name>/<version>/<os>-<arch>` target before recursive deletion, prunes only empty version/name parents, and leaves other installed versions intact. The acceptance hashes every file in `testdata/fixtures/php` before and after removal and observes an identical path/hash map; three focused runs and the full gate pass (**I2**).
 - `TestBrowseListsTablesCapsRowsAndReleasesWriteLock` failed first with no SQLite driver or browser. The pure-Go browser opens an absolute `file:` URL with `mode=ro`, query-only, and defensive connection flags; excludes SQLite's internal tables; orders names; quotes schema-derived identifiers; converts binary cells for JSON; and closes each row set and its one-connection handle before returning. A two-table fixture with 125 items returns exactly rows 1–100, then a separate `BEGIN IMMEDIATE` update succeeds within its 250 ms busy timeout, proving no browser write lock remains. Three focused runs and the full race/lint/Windows/Linux/macOS zero-CGO gate pass.
 - The SQLite gate's first Windows race run also observed the TLS monitor test reading `leaf.pem` during its few-millisecond backup/replace window. The test now treats transient read/parse errors as polling misses only inside its original 250 ms issuance deadline and reports the last error if no valid rotated leaf appears. Fifty focused race-detector runs and the subsequent full gate pass.
+- `TestDatabaseDataDirectoriesAreAlwaysUnderState` failed first with no database data boundary. The allowlisted `mariadb` and `postgres` engines now resolve only to `<state>/databases/<engine>/data`, reject missing/broad roots and unknown engines, verify path confinement before creating anything, and use private directory permissions. Both directories are proven outside a sibling Apps root while an app marker and directory snapshot remain unchanged; three focused runs and the full gate pass.
 
 ## Decisions made this build (beyond the spec)
 

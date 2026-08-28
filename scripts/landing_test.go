@@ -46,3 +46,27 @@ func TestLandingPageExplainsWindowsInstallerElevationHonestly(t *testing.T) {
 		}
 	}
 }
+
+func TestLandingPageUsesCurrentSigstoreBundleVerification(t *testing.T) {
+	t.Parallel()
+	content, err := os.ReadFile("../docs/index.html") // #nosec G304 -- fixed checked-in landing page.
+	if err != nil {
+		t.Fatalf("read landing page: %v", err)
+	}
+	text := string(content)
+	for _, marker := range []string{
+		"cosign verify-blob",
+		".sigstore.json",
+		"--certificate-identity-regexp",
+		"--certificate-oidc-issuer",
+	} {
+		if !strings.Contains(text, marker) {
+			t.Errorf("landing verification instructions are missing %q", marker)
+		}
+	}
+	for _, stale := range []string{"dropserve.sig", "install through <code>scoop</code>"} {
+		if strings.Contains(text, stale) {
+			t.Errorf("landing page still contains premature or stale claim %q", stale)
+		}
+	}
+}

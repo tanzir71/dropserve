@@ -30,3 +30,22 @@ func TestREADMEEmbedsRealLightAndDarkDashboardScreenshots(t *testing.T) {
 		}
 	}
 }
+
+func TestREADMEPublishesKeylessReleaseVerificationCommand(t *testing.T) {
+	t.Parallel()
+	readme, err := os.ReadFile("../README.md") // #nosec G304 -- fixed checked-in README.
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	text := string(readme)
+	for _, marker := range []string{
+		"cosign verify-blob",
+		"--bundle \"$ARTIFACT.sigstore.json\"",
+		"--certificate-identity-regexp",
+		"--certificate-oidc-issuer https://token.actions.githubusercontent.com",
+	} {
+		if !strings.Contains(text, marker) {
+			t.Errorf("README verification instructions are missing %q", marker)
+		}
+	}
+}

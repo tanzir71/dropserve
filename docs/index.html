@@ -391,24 +391,28 @@ scoop install dropserve</code></pre>
       </div>
       <div class="inst">
         <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L11 17.4 5.3 11.7l1.4-1.4L10 13.6V3zM4 19h16v2H4z"/></svg> Windows — installer or portable</h3>
-        <pre><code>Dropserve-Setup-x.y.z.exe
+        <pre><code>dropserve-x.y.z-windows-amd64-setup.exe
   Windows asks once to add the private-network firewall rule
 
-dropserve_x.y.z_windows.zip
+dropserve_x.y.z_windows_amd64.zip
   unzip and run anywhere</code></pre>
       </div>
       <div class="inst">
         <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 3 6v6c0 5 3.8 9.4 9 10 5.2-.6 9-5 9-10V6z" opacity=".25"/><path d="M12 2 3 6v6c0 5 3.8 9.4 9 10 5.2-.6 9-5 9-10V6zm0 2.2 7 3.1V12c0 4-2.9 7.5-7 8-4.1-.5-7-4-7-8V7.3z"/></svg> Verify your download</h3>
-        <pre><code>sha256sum -c checksums.txt
+        <pre><code>ARTIFACT=dropserve_x.y.z_windows_amd64.zip
+sha256sum "$ARTIFACT"
 
 cosign verify-blob \
-  --bundle dropserve.sig \
-  dropserve.exe</code></pre>
+  --bundle "$ARTIFACT.sigstore.json" \
+  --certificate-identity-regexp \
+  '^https://github\.com/tanzir71/dropserve/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "$ARTIFACT"</code></pre>
       </div>
     </div>
     <div class="callout">
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 1 21h22zm0 4.5L18.5 19h-13zM11 10h2v5h-2zm0 6h2v2h-2z"/></svg>
-      <p><strong>About the Windows security warning.</strong> Dropserve is signed with the project's own certificate, which proves the file hasn't been tampered with — but it isn't a certificate bought from a commercial authority, so SmartScreen will still show "Windows protected your PC" on the direct download. Click <em>More info → Run anyway</em>, or install through <code>scoop</code>, which skips the browser-download prompt. Every release also publishes SHA-256 checksums and a Sigstore signature so you can verify it yourself. We'd rather explain this than pretend it doesn't happen.</p>
+      <p><strong>About the Windows security warning.</strong> Dropserve is signed with the project's own certificate, which proves the file hasn't been tampered with — but it isn't a certificate bought from a commercial authority, so SmartScreen will still show "Windows protected your PC" on the direct download. Click <em>More info → Run anyway</em>. Package-manager installs will become the preferred warning-free path after their manifests are accepted. Every release also publishes SHA-256 checksums and a Sigstore bundle so you can verify it yourself. We'd rather explain this than pretend it doesn't happen.</p>
     </div>
   </div>
 </section>

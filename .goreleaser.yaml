@@ -75,6 +75,28 @@ archives:
       - LICENSE
       - README.md
 
+nfpms:
+  - id: linux-packages
+    ids:
+      - dropserve-unix
+    package_name: dropserve
+    file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    vendor: Dropserve contributors
+    homepage: https://github.com/tanzir71/dropserve
+    maintainer: Dropserve contributors
+    description: A friendly local app server that turns folders into websites.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+
+sboms:
+  - id: archive-sboms
+    artifacts: archive
+  - id: package-sboms
+    artifacts: package
+
 checksum:
   name_template: checksums.txt
 

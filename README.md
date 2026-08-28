@@ -84,7 +84,20 @@ check = false
 
 ## Releases and Windows warnings
 
-Release builds publish checksums and provenance attestations. Windows binaries and the installer are Authenticode-signed with the project's own certificate. That provides publisher identity and tamper evidence, but a self-signed certificate does not build Microsoft SmartScreen reputation, so a direct browser download may still show “Windows protected your PC.” The project documents that warning instead of promising a warning-free install.
+Release builds publish SHA-256 checksums, SPDX SBOMs, GitHub provenance attestations, and keyless Sigstore bundles. Windows binaries and the installer are also Authenticode-signed with the project's own certificate. That provides publisher identity and tamper evidence, but a self-signed certificate does not build Microsoft SmartScreen reputation, so a direct browser download may still show “Windows protected your PC.” The project documents that warning instead of promising a warning-free install.
+
+After downloading an artifact and its matching `.sigstore.json` bundle, verify that it was signed by this repository's tag-only release workflow:
+
+```bash
+ARTIFACT=dropserve_1.2.3_windows_amd64.zip
+cosign verify-blob \
+  --bundle "$ARTIFACT.sigstore.json" \
+  --certificate-identity-regexp '^https://github\.com/tanzir71/dropserve/\.github/workflows/release\.yml@refs/tags/v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  "$ARTIFACT"
+```
+
+The same artifact name appears in `checksums.txt`; compare its listed digest with `sha256sum "$ARTIFACT"` (or `Get-FileHash $ARTIFACT -Algorithm SHA256` on Windows).
 
 The Windows installer asks for administrator approval once so it can add the private-network firewall rule required for other devices to connect. Dropserve itself runs as the signed-in user and its start-at-login task is current-user only. This elevation tradeoff is recorded in [ADR-014](docs/adr/014-windows-installer-elevation.md).
 

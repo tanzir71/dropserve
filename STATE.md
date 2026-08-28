@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
-**Last updated:** 2026-08-28T03:56:09Z
+**Last updated:** 2026-08-28T03:59:39Z
 **Gate status:** green
-**Iterations completed:** 144
+**Iterations completed:** 145
 
 ## Milestone progress
 
@@ -372,6 +372,7 @@
 - 2026-08-28 — ADR-012 records native command-app process-tree isolation. The already-transitive pure-Go `golang.org/x/sys` module becomes direct so Windows Job Objects can kill npm and every descendant when the supervisor closes.
 - 2026-08-28 — ADR-013 adopts `github.com/libp2p/zeroconf/v2` after the handover-mandated 20-second spike bound and shut down cleanly on real Windows and Linux kernels. The fallback library was unnecessary.
 - 2026-08-28 — The handover-mandated `modernc.org/sqlite` is pinned to current v1.57.0 (released 2026-08-19), whose module floor is Go 1.25. The project module floor therefore moves from 1.23 to 1.25; both current and previous stable Go lines remain above it, and all zero-CGO targets stay green.
+- 2026-08-28 — ADR-014 chooses one-time Windows installer elevation for the exact private-network firewall rule and reliable LAN access. Dropserve and its current-user logon task still run as the signed-in user, never as a service or SYSTEM.
 
 ## Open questions for the human
 
@@ -389,6 +390,7 @@
 - Build-loop process only: the M5 5 MB HTML assertion passed immediately because the preceding injection implementation included its cap+1 streaming fallback. The dedicated chunked-response size and hash assertions now lock the memory/corruption boundary.
 - Build-loop process only: the M5 WebSocket assertion passed immediately because Go's standard reverse proxy already supported upgrades. The raw handshake and frame echo now guard that dependency behavior end to end.
 - Build-loop process only: the M3 rename assertion passed when first added because the preceding live-create slice deliberately reconciles the entire immutable scan and mount table, which already treats a filesystem rename as one removal plus one addition. The dedicated two-URL deadline test now locks that behavior.
+- Packaging: the handover simultaneously requires a no-admin Windows installer, guaranteed reachability from another LAN host, and an uninstaller that removes the inbound firewall rule. Microsoft documents Windows Firewall rule configuration as an administrator operation, and a real non-administrative install could not be reached from a separate WSL2 guest. The installer therefore requests elevation once, owns only the exact private-profile rule for its desktop binary, and removes it on uninstall. README and landing copy now state the prompt and reason; ADR-014 records the rejected alternatives.
 
 ## Verify on real hardware
 

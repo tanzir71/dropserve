@@ -215,7 +215,7 @@ footer{border-top:1px solid var(--line);padding:44px 0;color:var(--fg-faint);fon
       </a>
       <span class="cta-note">Windows today · macOS &amp; Linux next</span>
     </div>
-    <div class="install-line"><b>Dropserve-Setup.exe</b> &nbsp;·&nbsp; per-user install, no admin &nbsp;·&nbsp; or the portable .zip</div>
+    <div class="install-line"><b>Dropserve-Setup.exe</b> &nbsp;·&nbsp; Windows asks once for the private-network firewall rule &nbsp;·&nbsp; or use the portable .zip</div>
   </div>
 
   <div class="wrap">
@@ -267,7 +267,7 @@ footer{border-top:1px solid var(--line);padding:44px 0;color:var(--fg-faint);fon
       <div class="step">
         <span class="n">STEP 01</span>
         <h3>Install it once</h3>
-        <p>A per-user install with no admin prompt. It creates a <code>Dropserve/Apps</code> folder and starts itself when you log in — from then on it's simply always there.</p>
+        <p>The installer asks Windows once to add Dropserve's private-network firewall rule, so your phone can actually connect. The app itself runs as you, creates a <code>Dropserve/Apps</code> folder, and starts with your current-user logon task — from then on it's simply always there.</p>
       </div>
       <div class="step">
         <span class="n">STEP 02</span>
@@ -392,7 +392,7 @@ scoop install dropserve</code></pre>
       <div class="inst">
         <h3><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v10.6l3.3-3.3 1.4 1.4L11 17.4 5.3 11.7l1.4-1.4L10 13.6V3zM4 19h16v2H4z"/></svg> Windows — installer or portable</h3>
         <pre><code>Dropserve-Setup-x.y.z.exe
-  installs per-user, no admin
+  Windows asks once to add the private-network firewall rule
 
 dropserve_x.y.z_windows.zip
   unzip and run anywhere</code></pre>

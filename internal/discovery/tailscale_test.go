@@ -121,3 +121,27 @@ func TestTailscaleSharingCommandsAreScopedAndReversible(t *testing.T) {
 		}
 	}
 }
+
+func TestTailscaleServeStatusRecognisesOnlyDropserveRootProxy(t *testing.T) {
+	output := []byte(`{"Web":{"darkhorse.example-tailnet.ts.net:443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:8000"}}}}}`)
+	probes := TailscaleProbes{
+		GOOS:     "linux",
+		LookPath: func(string) (string, error) { return "/usr/bin/tailscale", nil },
+		Exists:   func(string) bool { return false },
+		Run: func(_ context.Context, _ string, arguments ...string) ([]byte, error) {
+			if !reflect.DeepEqual(arguments, []string{"serve", "status", "--json"}) {
+				t.Fatalf("Serve status arguments = %v", arguments)
+			}
+			return output, nil
+		},
+	}
+	enabled, err := ProbeTailscaleServe(context.Background(), 8000, probes)
+	if err != nil || !enabled {
+		t.Fatalf("matching Serve status = %v, %v; want true", enabled, err)
+	}
+	output = []byte(`{"Web":{"darkhorse.example-tailnet.ts.net:443":{"Handlers":{"/field-notes":{"Proxy":"http://127.0.0.1:8000"}}}}}`)
+	enabled, err = ProbeTailscaleServe(context.Background(), 8000, probes)
+	if err != nil || enabled {
+		t.Fatalf("non-root Serve status = %v, %v; want false", enabled, err)
+	}
+}

@@ -11,6 +11,11 @@ const qrDialog = document.querySelector('#qr-dialog');
 const qrImage = document.querySelector('#qr-image');
 const qrAddress = document.querySelector('#qr-address');
 const qrCopy = document.querySelector('#qr-copy');
+const funnelDialog = document.querySelector('#funnel-dialog');
+const funnelSlug = document.querySelector('#funnel-slug');
+const funnelConfirmation = document.querySelector('#funnel-confirmation');
+const funnelConfirm = document.querySelector('#funnel-confirm');
+const funnelState = document.querySelector('#funnel-state');
 const warningNotice = document.querySelector('#port-warning');
 const publicSharingWarning = document.querySelector('#public-sharing-warning');
 const addressChangeWarning = document.querySelector('#address-change-warning');
@@ -25,6 +30,9 @@ let visible = [];
 let selected = 0;
 let currentQRURL = '';
 let currentLogApp = null;
+let currentFunnelApp = null;
+let csrfToken = '';
+let activeFunnels = new Map();
 
 const palette = ['#156b50', '#3d5d9a', '#9a5b3d', '#77519d', '#a06d18', '#327b82'];
 
@@ -121,6 +129,7 @@ function appCard(item, index) {
   const pathURL = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
   const ownURL = item.urls?.own || '';
   const targetURL = item.prefers_own_port && ownURL ? ownURL : pathURL;
+  const publicShare = activeFunnels.get(item.slug);
   const link = document.createElement('a');
   link.href = targetURL;
   link.dataset.appLink = '';
@@ -179,6 +188,18 @@ function appCard(item, index) {
   if (ownURL && !item.prefers_own_port) menu.append(actionButton('Open on its own port', 'open-own'));
   if (item.prefers_own_port && ownURL) menu.append(actionButton('Use the short URL anyway', 'open-path'));
   menu.append(actionButton('Copy link', 'copy'), actionButton('Show QR', 'qr'));
+  if (publicShare) {
+    if (publicShare.url) {
+      menu.append(
+        actionButton('Open public link', 'open-public'),
+        actionButton('Copy public link', 'copy-public'),
+        actionButton('Show public QR', 'qr-public'),
+      );
+    }
+    menu.append(actionButton('Stop public sharing', 'funnel-stop'));
+  } else {
+    menu.append(actionButton('Share publicly…', 'funnel-start'));
+  }
   if (item.type === 'command') menu.append(actionButton('View logs', 'logs'));
   toggle.addEventListener('click', event => {
     event.stopPropagation();
@@ -188,7 +209,7 @@ function appCard(item, index) {
     menu.hidden = !opening;
     toggle.setAttribute('aria-expanded', String(opening));
   });
-  menu.addEventListener('click', event => {
+  menu.addEventListener('click', async event => {
     const button = event.target.closest('[data-action]');
     if (!button) return;
     const absoluteURL = new URL(targetURL, window.location.href).href;
@@ -197,6 +218,11 @@ function appCard(item, index) {
     if (button.dataset.action === 'open-path') window.location.assign(new URL(pathURL, window.location.href).href);
     if (button.dataset.action === 'copy') copyText(absoluteURL, button);
     if (button.dataset.action === 'qr') showQR(absoluteURL, item.name || item.slug);
+    if (button.dataset.action === 'open-public' && publicShare?.url) window.location.assign(publicShare.url);
+    if (button.dataset.action === 'copy-public' && publicShare?.url) await copyText(publicShare.url, button);
+    if (button.dataset.action === 'qr-public' && publicShare?.url) showQR(publicShare.url, `${item.name || item.slug} public link`);
+    if (button.dataset.action === 'funnel-start') showFunnelConfirmation(item);
+    if (button.dataset.action === 'funnel-stop') await changeFunnel(item, false);
     if (button.dataset.action === 'logs') showLogs(item);
     menu.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
@@ -219,23 +245,116 @@ function render() {
 function sharingRow(item) {
   const row = document.createElement('div');
   row.className = 'sharing-row';
+  const labels = {
+    loopback: 'This computer',
+    lan: 'Local network',
+    mdns: 'Easy local address',
+    tailscale: 'Tailscale',
+    current: 'Current address',
+  };
+  const details = document.createElement('div');
+  details.className = 'sharing-details';
+  const name = document.createElement('span');
+  name.className = 'sharing-name';
+  name.textContent = labels[item.kind] || item.kind;
+  details.append(name);
   if (!item.url) {
     const message = document.createElement('p');
     message.textContent = item.message || 'This sharing option is not available yet.';
-    row.append(message);
+    details.append(message);
+    if (item.kind === 'tailscale' && item.message?.toLowerCase().includes('not installed')) {
+      const install = document.createElement('a');
+      install.href = 'https://tailscale.com/download';
+      install.target = '_blank';
+      install.rel = 'noopener';
+      install.textContent = 'Get Tailscale';
+      details.append(install);
+    }
+    row.append(details);
     return row;
   }
   const link = document.createElement('a');
   link.href = item.url;
   link.textContent = item.url;
+  details.append(link);
   const copy = actionButton('Copy', 'copy');
   const qr = actionButton('QR', 'qr');
   copy.className = 'mini-button';
   qr.className = 'mini-button';
   copy.addEventListener('click', () => copyText(item.url, copy));
   qr.addEventListener('click', () => showQR(item.url, 'Open Dropserve'));
-  row.append(link, copy, qr);
+  row.append(details, copy, qr);
+  if (item.kind === 'tailscale') {
+    const secure = item.url.startsWith('https://');
+    const toggle = actionButton(secure ? 'Turn off tailnet HTTPS' : 'Use HTTPS anywhere', 'tailscale-serve');
+    toggle.className = 'mini-button wide-action';
+    toggle.addEventListener('click', async () => {
+      toggle.disabled = true;
+      try {
+        await postSharing('/_dropserve/api/sharing/tailscale', { enabled: !secure });
+        await reloadSharingState();
+      } catch (error) {
+        toggle.textContent = error.message;
+        toggle.disabled = false;
+      }
+    });
+    row.append(toggle);
+  }
   return row;
+}
+
+async function postSharing(path, payload) {
+  if (!csrfToken) await loadStatus();
+  if (!csrfToken) throw new Error('Refresh the dashboard and try again.');
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Dropserve-CSRF': csrfToken,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).trim();
+    throw new Error(detail || `HTTP ${response.status}`);
+  }
+}
+
+function showFunnelConfirmation(item) {
+  currentFunnelApp = item;
+  funnelSlug.textContent = item.slug;
+  funnelConfirmation.value = '';
+  funnelConfirm.disabled = true;
+  funnelState.textContent = '';
+  document.querySelector('#funnel-title').textContent = `Share ${item.name || item.slug} publicly?`;
+  if (typeof funnelDialog.showModal === 'function') funnelDialog.showModal();
+  else funnelDialog.setAttribute('open', '');
+  funnelConfirmation.focus();
+}
+
+async function changeFunnel(item, enabled, confirmation = '') {
+  try {
+    await postSharing(`/_dropserve/api/sharing/funnel/${encodeURIComponent(item.slug)}`, { enabled, confirmation });
+    await reloadSharingState();
+    if (enabled) funnelDialog.close();
+  } catch (error) {
+    if (enabled) funnelState.textContent = error.message;
+    else {
+      warningNotice.querySelector('p').textContent = error.message;
+      warningNotice.hidden = false;
+    }
+  }
+}
+
+async function refreshSharing() {
+  const response = await fetch('/_dropserve/api/urls');
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const items = await response.json();
+  sharingURLs.replaceChildren(...items.map(sharingRow));
+}
+
+async function reloadSharingState() {
+  await Promise.all([loadStatus(), refreshSharing()]);
 }
 
 function setSharingOpen(open) {
@@ -248,6 +367,18 @@ sharingToggle.addEventListener('click', () => setSharingOpen(sharingPanel.hidden
 sharingClose.addEventListener('click', () => setSharingOpen(false));
 qrCopy.addEventListener('click', () => copyText(currentQRURL, qrCopy));
 logRefresh.addEventListener('click', refreshLogs);
+funnelConfirmation.addEventListener('input', () => {
+  funnelConfirm.disabled = !currentFunnelApp || funnelConfirmation.value !== currentFunnelApp.slug;
+  funnelState.textContent = '';
+});
+funnelConfirm.addEventListener('click', async () => {
+  if (!currentFunnelApp) return;
+  funnelConfirm.disabled = true;
+  funnelState.textContent = 'Creating the temporary public link…';
+  await changeFunnel(currentFunnelApp, true, funnelConfirmation.value);
+  if (funnelDialog.open) funnelConfirm.disabled = funnelConfirmation.value !== currentFunnelApp.slug;
+});
+funnelDialog.addEventListener('close', () => { currentFunnelApp = null; });
 document.addEventListener('click', event => {
   if (!event.target.closest('.app-card')) {
     document.querySelectorAll('.card-actions').forEach(menu => { menu.hidden = true; });
@@ -301,46 +432,48 @@ if ('EventSource' in window) {
   appEvents.addEventListener('apps-changed', loadApps);
 }
 
-fetch('/_dropserve/api/status')
-  .then(response => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  })
-  .then(status => {
-    if (status.network?.change) {
-      addressChangeWarning.querySelector('[data-old-lan-ip]').textContent = status.network.change.old_lan_ip;
-      addressChangeWarning.querySelector('[data-new-lan-ip]').textContent = status.network.change.new_lan_ip;
-      addressChangeWarning.hidden = false;
-      addressChangeWarning.querySelector('button').addEventListener('click', () => {
-        fetch('/_dropserve/api/network-change/dismiss', {
+async function loadStatus() {
+  const response = await fetch('/_dropserve/api/status');
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const status = await response.json();
+  csrfToken = status.csrf_token || csrfToken;
+  activeFunnels = new Map((status.sharing?.public || []).map(entry => [entry.slug, entry]));
+  if (apps.length) render();
+
+  if (status.network?.change) {
+    addressChangeWarning.querySelector('[data-old-lan-ip]').textContent = status.network.change.old_lan_ip;
+    addressChangeWarning.querySelector('[data-new-lan-ip]').textContent = status.network.change.new_lan_ip;
+    addressChangeWarning.hidden = false;
+    const dismiss = addressChangeWarning.querySelector('button');
+    if (!dismiss.dataset.bound) {
+      dismiss.dataset.bound = 'true';
+      dismiss.addEventListener('click', async () => {
+        const dismissal = await fetch('/_dropserve/api/network-change/dismiss', {
           method: 'POST',
-          headers: { 'X-Dropserve-CSRF': status.csrf_token },
-        }).then(response => {
-          if (response.ok) addressChangeWarning.hidden = true;
+          headers: { 'X-Dropserve-CSRF': csrfToken },
         });
-      }, { once: true });
-    }
-    if (!status.warnings?.length) return;
-    const publicWarnings = status.warnings.filter(warning => warning.startsWith('public_sharing_active:'));
-    const otherWarnings = status.warnings.filter(warning => !warning.startsWith('public_sharing_active:'));
-    if (publicWarnings.length) {
-      publicSharingWarning.querySelector('p').textContent = publicWarnings.map(warning => warning.replace('public_sharing_active:', 'Public sharing is active.')).join(' ');
-      publicSharingWarning.hidden = false;
-    }
-    if (otherWarnings.length) {
-      warningNotice.querySelector('p').textContent = otherWarnings.join(' ');
-      warningNotice.hidden = false;
-      warningNotice.querySelector('button').addEventListener('click', () => {
-        window.location.assign('/_dropserve/api/status');
+        if (dismissal.ok) addressChangeWarning.hidden = true;
       });
     }
-  })
-  .catch(() => {});
+  }
 
-fetch('/_dropserve/api/urls')
-  .then(response => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  })
-  .then(items => sharingURLs.replaceChildren(...items.map(sharingRow)))
-  .catch(() => { sharingURLs.textContent = 'No verified address is available yet.'; });
+  const publicWarnings = (status.warnings || []).filter(warning => warning.startsWith('public_sharing_active:'));
+  const otherWarnings = (status.warnings || []).filter(warning => !warning.startsWith('public_sharing_active:'));
+  publicSharingWarning.hidden = publicWarnings.length === 0;
+  if (publicWarnings.length) {
+    publicSharingWarning.querySelector('p').textContent = publicWarnings.map(warning => warning.replace('public_sharing_active:', 'Public sharing is active.')).join(' ');
+  }
+  warningNotice.hidden = otherWarnings.length === 0;
+  if (otherWarnings.length) {
+    warningNotice.querySelector('p').textContent = otherWarnings.join(' ');
+    const diagnose = warningNotice.querySelector('button');
+    if (!diagnose.dataset.bound) {
+      diagnose.dataset.bound = 'true';
+      diagnose.addEventListener('click', () => window.location.assign('/_dropserve/api/status'));
+    }
+  }
+  return status;
+}
+
+loadStatus().catch(() => {});
+refreshSharing().catch(() => { sharingURLs.textContent = 'No verified address is available yet.'; });

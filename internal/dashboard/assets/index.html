@@ -91,6 +91,22 @@
     </form>
   </dialog>
 
+  <dialog id="funnel-dialog" class="funnel-dialog" aria-labelledby="funnel-title">
+    <form method="dialog">
+      <button class="icon-button dialog-close" value="close" aria-label="Close public sharing confirmation">×</button>
+      <p class="eyebrow">Temporary public link</p>
+      <h2 id="funnel-title">Share this app publicly?</h2>
+      <p>Anyone on the public internet can open this app for up to eight hours. Only this app is shared.</p>
+      <label for="funnel-confirmation">Type <code id="funnel-slug"></code> to confirm</label>
+      <input id="funnel-confirmation" type="text" autocomplete="off" spellcheck="false">
+      <p id="funnel-state" class="funnel-state" aria-live="polite"></p>
+      <div class="dialog-actions">
+        <button class="mini-button" value="cancel">Cancel</button>
+        <button id="funnel-confirm" class="primary-button" type="button" disabled>Share publicly</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="log-dialog" class="log-dialog" aria-labelledby="log-title">
     <form method="dialog">
       <button class="icon-button dialog-close" value="close" aria-label="Close app logs">×</button>

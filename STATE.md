@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M7 — Findable
-**Last updated:** 2026-08-28T01:03:52Z
+**Last updated:** 2026-08-28T01:19:04Z
 **Gate status:** green
-**Iterations completed:** 111
+**Iterations completed:** 116
 
 ## Milestone progress
 
@@ -34,6 +34,14 @@
 - [x] Assert (**hazard 11**): simulate resume-from-sleep by injecting a network-change event with a different LAN IP and a listener that has been closed underneath the server. Within one monitor interval the server re-probes the network, re-establishes any dead listener, updates every advertised URL, and `/api/status` reports the new address. No restart, no lost apps.
 - [x] Assert (**hazard 12**): when the LAN IP changes, the dashboard raises a persistent-until-dismissed notice naming the old and new addresses and linking to the DHCP-reservation explainer.
 - [ ] Manual (record in `STATE.md`): on a real tailnet, `tailscale serve` produces a working HTTPS URL and `unserve` cleanly removes it. Use a throwaway tailnet or do it once — repeated toggling burns Let's Encrypt rate limits (**hazard 14**).
+
+### M7 completion audit (manual tailnet check pending)
+
+- [x] Deliverable: the production `discovery` manager selects and monitors the LAN address, filters virtual adapters, starts/restarts best-effort mDNS, probes Tailscale and its persisted Serve root, and never surfaces an unverified optional address.
+- [x] Deliverable: the Sharing panel labels local, mDNS, and Tailscale paths; missing Tailscale has an explanation and install link; a running tailnet offers one-click reversible HTTPS; every surfaced address has Copy and local QR actions.
+- [x] Deliverable: every app offers guarded public sharing. Exact-slug confirmation scopes Funnel to that app for at most eight hours; active cards expose the public Open/Copy/QR link and one-click stop; the nondismissible warning and distinct tray icon follow persisted enable, disable, expiry, pause, and restart state.
+- [x] Completion checks available locally: JavaScript syntax, asset budget, full race/lint/cross-build/tray gate, compiled-binary smoke, and rendered browser interaction pass.
+- [ ] Completion check requiring external identity: enable and disable `tailscale serve` once on a real signed-in tailnet and record the working HTTPS URL without repeated certificate issuance.
 
 ### M6 completion audit (closed)
 
@@ -250,6 +258,12 @@
 - `TestLANIPChangeNoticePersistsUntilDismissed` changes a synthetic LAN address, reloads the atomic `network.json` state, and requires the dashboard notice to name both addresses and link to the embedded DHCP-reservation explainer. Its CSRF-protected Dismiss action removes the persisted notice, and another reload proves it stays dismissed.
 - `TestTailscaleSharingCommandsAreScopedAndReversible` locks the installed-CLI boundary to reversible, scoped commands: tailnet-only HTTPS proxies the Dropserve root through `tailscale serve`, while Funnel maps only the confirmed app path and disables that exact path. The production server now probes LAN/Tailscale state, starts mDNS only after HTTP is ready, refreshes discovery and expires Funnel grants every 30 seconds, and can replace a dead listener without replacing the live app/router state.
 - `TestLoopbackListenerNeverPublishesLANAddress` and the strengthened real-binary M2 smoke guard the production wiring form of I3. A server explicitly bound to `127.0.0.1:0` suppresses the physical-adapter address; the smoke fetched every surfaced URL below 400 while retaining the no-URL Tailscale explanation row, then passed fixture serving, search, and local QR at `http://127.0.0.1:60082/`.
+- Hosted CI [run 33131760259](https://github.com/tanzir71/dropserve/actions/runs/33131760259) passed both operating-system gates, every native smoke, lint, secret scanning, and the new production listener/discovery recovery path on commit `a8e3478`.
+- `TestTailscaleServeToggleRequiresCSRFAndPublishesHTTPS` refuses an unauthenticated transition without invoking its injected runner, then enables and disables the verified root through the session token. `ProbeTailscaleServe` only accepts an actual HTTPS/443 `/` handler targeting this Dropserve listener; a same-target per-app handler is deliberately not mistaken for root Serve. The Sharing panel changes from the direct tailnet address to `https://darkhorse.example-tailnet.ts.net/` only after that verified state.
+- `TestFunnelCanBeDisabledAndStaysDisabledAfterReload`, the expanded active-warning assertion, and `TestFunnelPublishesPublicSharingStateTransitions` lock the complete reversible UX: atomically persisted removal, app-specific `https://…/<slug>/` status with expiry, no confirmation barrier for reducing exposure, and live normal/public tray transitions. The frontend supplies exact-slug confirmation, public Open/Copy/QR actions, and an install link when Tailscale is absent.
+- `TestMDNSStartsWhenLANAppearsAfterOfflineStartup` found and closes the disconnected-boot edge: requesting mDNS while offline records the intent without advertising, and the first later verified LAN address starts the responder with that address. Failed responders likewise retry on a real address change.
+- Rendered verification used the in-app browser fallback because the skill-prescribed standalone `agent-browser` executable is not installed. The compiled dashboard loaded ten fixture apps, showed the labeled loopback/Tailscale Sharing rows, opened the per-app public dialog, kept its action disabled for blank and wrong confirmation text, enabled it only for exact `field-notes`, and had no error overlay or console warning/error. Visual inspection found the dialog and dark-mode layout clear. No public action was submitted because this host has no installed, signed-in Tailscale client.
+- Final local gate and real-binary regression smoke remained green after the Sharing UX work; the smoke again fetched every verified loopback URL below 400 and passed fixtures, search, and local QR at `http://127.0.0.1:54326/`.
 
 - Raw Linux run used the same source with the checksum-verified official Go 1.27.0 Linux/amd64 toolchain under WSL2's Linux kernel. The temporary toolchain did not modify the distro and was removed after the run.
 

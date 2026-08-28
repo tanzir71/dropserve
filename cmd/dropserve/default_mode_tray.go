@@ -27,12 +27,14 @@ type trayRun struct {
 }
 
 type trayServer struct {
-	mu       sync.Mutex
-	parent   context.Context
-	options  defaultModeOptions
-	active   *trayRun
-	address  string
-	lastCode int
+	mu            sync.Mutex
+	parent        context.Context
+	options       defaultModeOptions
+	active        *trayRun
+	address       string
+	lastCode      int
+	trayReady     bool
+	publicSharing bool
 }
 
 func runDefaultMode(ctx context.Context, options defaultModeOptions) int {
@@ -87,6 +89,7 @@ func (server *trayServer) start() (string, error) {
 			server.options.Stderr,
 			"",
 			func(address string) { ready <- address },
+			server.setPublicSharing,
 		)
 		close(run.done)
 	}()
@@ -164,9 +167,48 @@ func (server *trayServer) exitCode() int {
 	return server.lastCode
 }
 
+func (server *trayServer) setPublicSharing(active bool) {
+	server.mu.Lock()
+	server.publicSharing = active
+	ready := server.trayReady
+	state := server.iconStateLocked()
+	server.mu.Unlock()
+	if ready {
+		systray.SetIcon(traymenu.Icon(state))
+	}
+}
+
+func (server *trayServer) refreshIcon() {
+	server.mu.Lock()
+	ready := server.trayReady
+	state := server.iconStateLocked()
+	server.mu.Unlock()
+	if ready {
+		systray.SetIcon(traymenu.Icon(state))
+	}
+}
+
+func (server *trayServer) markTrayReady() {
+	server.mu.Lock()
+	server.trayReady = true
+	state := server.iconStateLocked()
+	server.mu.Unlock()
+	systray.SetIcon(traymenu.Icon(state))
+}
+
+func (server *trayServer) iconStateLocked() traymenu.State {
+	if server.publicSharing {
+		return traymenu.Sharing
+	}
+	if server.active == nil {
+		return traymenu.Paused
+	}
+	return traymenu.Running
+}
+
 func configureTray(ctx context.Context, server *trayServer) {
 	labels := traymenu.Labels()
-	systray.SetIcon(traymenu.Icon(traymenu.Running))
+	server.markTrayReady()
 	systray.SetTitle("Dropserve")
 	systray.SetTooltip("Dropserve is serving your local apps")
 	openDashboard := systray.AddMenuItem(labels[0], "Open the Dropserve dashboard")
@@ -192,14 +234,14 @@ func configureTray(ctx context.Context, server *trayServer) {
 			case <-pause.ClickedCh:
 				if server.running() {
 					server.stop()
-					systray.SetIcon(traymenu.Icon(traymenu.Paused))
+					server.refreshIcon()
 					pause.SetTitle("Resume Serving")
 					openDashboard.Disable()
 					copyLink.Disable()
 					continue
 				}
 				if _, err := server.start(); err == nil {
-					systray.SetIcon(traymenu.Icon(traymenu.Running))
+					server.refreshIcon()
 					pause.SetTitle(labels[3])
 					openDashboard.Enable()
 					copyLink.Enable()

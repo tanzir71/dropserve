@@ -304,7 +304,7 @@ func serveCommandContext(
 	stderr io.Writer,
 	injectedConfigPath string,
 ) int {
-	return serveCommandContextWithReady(ctx, arguments, stdout, stderr, injectedConfigPath, nil)
+	return serveCommandContextWithReady(ctx, arguments, stdout, stderr, injectedConfigPath, nil, nil)
 }
 
 func serveCommandContextWithReady(
@@ -314,6 +314,7 @@ func serveCommandContextWithReady(
 	stderr io.Writer,
 	injectedConfigPath string,
 	ready func(string),
+	publicSharingChanged func(bool),
 ) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -397,11 +398,11 @@ func serveCommandContextWithReady(
 		}
 		return 1
 	}
-	lanIP, probeErr := discovery.ProbeLANIP()
+	probeLANIP := discovery.ProbeLANIP
 	if listenerExcludesLAN(listener.Addr()) {
-		lanIP = netip.Addr{}
-		probeErr = nil
+		probeLANIP = func() (netip.Addr, error) { return netip.Addr{}, nil }
 	}
+	lanIP, probeErr := probeLANIP()
 	if probeErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not select a LAN address; loopback remains available: %v\n", probeErr)
 	}
@@ -414,7 +415,22 @@ func serveCommandContextWithReady(
 		},
 	})
 	defer discoveryManager.Close()
-	tailscaleStatus, tailscaleErr := discovery.ProbeTailscale(ctx, discovery.TailscaleProbes{})
+	tailscaleProbes := discovery.TailscaleProbes{}
+	probeTailscale := func(probeContext context.Context) (discovery.TailscaleStatus, error) {
+		status, statusErr := discovery.ProbeTailscale(probeContext, tailscaleProbes)
+		if statusErr != nil || !strings.EqualFold(status.BackendState, "running") {
+			return status, statusErr
+		}
+		serveEnabled, serveErr := discovery.ProbeTailscaleServe(probeContext, mainPort, tailscaleProbes)
+		if serveErr != nil {
+			status.Message = "Tailscale is running, but Dropserve could not verify tailnet HTTPS."
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not read Tailscale Serve status: %v\n", serveErr)
+			return status, nil
+		}
+		status.ServeEnabled = serveEnabled
+		return status, nil
+	}
+	tailscaleStatus, tailscaleErr := probeTailscale(ctx)
 	if tailscaleErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not read Tailscale status: %v\n", tailscaleErr)
 	} else {
@@ -422,7 +438,8 @@ func serveCommandContextWithReady(
 	}
 	funnel, funnelErr := discovery.NewFunnelManager(discovery.FunnelOptions{
 		StatePath: funnelStatePath,
-		Execute:   discovery.TailscaleFunnelExecutor(mainPort, discovery.TailscaleProbes{}),
+		Execute:   discovery.TailscaleFunnelExecutor(mainPort, tailscaleProbes),
+		OnChange:  publicSharingChanged,
 	})
 	if funnelErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve disabled Tailscale Funnel because its state could not be read: %v\n", funnelErr)
@@ -434,9 +451,15 @@ func serveCommandContextWithReady(
 			Roots:      configuration.Server.AppsRoots,
 			Registered: configuration.Server.RegisteredApps,
 		},
-		IndexPath:            indexPath,
-		Discovery:            discoveryManager.Snapshot,
-		Funnel:               funnel,
+		IndexPath: indexPath,
+		Discovery: discoveryManager.Snapshot,
+		Funnel:    funnel,
+		SetTailscaleServe: func(changeContext context.Context, enabled bool) error {
+			if err := discovery.SetTailscaleServe(changeContext, mainPort, enabled, tailscaleProbes); err != nil {
+				return err
+			}
+			return discoveryManager.SetTailscaleServeEnabled(enabled)
+		},
 		DismissNetworkChange: discoveryManager.DismissNetworkChange,
 	})
 	if err != nil {
@@ -452,7 +475,7 @@ func serveCommandContextWithReady(
 	listenerRuntime.Start(listener)
 	monitorOptions := discovery.MonitorOptions{
 		Manager:         discoveryManager,
-		ProbeLANIP:      discovery.ProbeLANIP,
+		ProbeLANIP:      probeLANIP,
 		ListenerHealthy: listenerRuntime.Healthy,
 		RecoverListener: func(recoveryContext context.Context) error {
 			recovered, recoveryErr := acquireMainListener(
@@ -468,9 +491,7 @@ func serveCommandContextWithReady(
 			listenerRuntime.Start(recovered)
 			return nil
 		},
-		ProbeTailscale: func(probeContext context.Context) (discovery.TailscaleStatus, error) {
-			return discovery.ProbeTailscale(probeContext, discovery.TailscaleProbes{})
-		},
+		ProbeTailscale: probeTailscale,
 		Logf: func(format string, arguments ...any) {
 			_, _ = fmt.Fprintf(stderr, format+"\n", arguments...)
 		},

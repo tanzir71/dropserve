@@ -35,16 +35,17 @@ type ManagerOptions struct {
 
 // Manager owns the live, verified discovery snapshot.
 type Manager struct {
-	mu           sync.RWMutex
-	snapshot     Snapshot
-	httpPort     int
-	mdnsHostname string
-	logf         func(string, ...any)
-	registerMDNS func(MDNSRegistration) (MDNSResponder, error)
-	responder    MDNSResponder
-	closed       bool
-	noticePath   string
-	lastLANIP    string
+	mu            sync.RWMutex
+	snapshot      Snapshot
+	httpPort      int
+	mdnsHostname  string
+	logf          func(string, ...any)
+	registerMDNS  func(MDNSRegistration) (MDNSResponder, error)
+	responder     MDNSResponder
+	mdnsRequested bool
+	closed        bool
+	noticePath    string
+	lastLANIP     string
 }
 
 // NewManager creates a discovery manager without starting optional network
@@ -85,7 +86,12 @@ func NewManager(options ManagerOptions) *Manager {
 // logged and deliberately leaves the .local hostname out of Snapshot.
 func (manager *Manager) StartMDNS() {
 	manager.mu.Lock()
-	if manager.closed || manager.responder != nil || manager.snapshot.MDNSHostname != "" {
+	if manager.closed {
+		manager.mu.Unlock()
+		return
+	}
+	manager.mdnsRequested = true
+	if manager.responder != nil || manager.snapshot.MDNSHostname != "" {
 		manager.mu.Unlock()
 		return
 	}
@@ -153,9 +159,12 @@ func (manager *Manager) UpdateLANIP(address netip.Addr) {
 	responder := manager.responder
 	manager.responder = nil
 	manager.snapshot.MDNSHostname = ""
+	shouldStartMDNS := manager.mdnsRequested && address.IsValid()
 	manager.mu.Unlock()
 	if responder != nil {
 		responder.Shutdown()
+	}
+	if shouldStartMDNS {
 		manager.StartMDNS()
 	}
 }
@@ -165,6 +174,15 @@ func (manager *Manager) UpdateTailscale(status TailscaleStatus) {
 	manager.mu.Lock()
 	manager.snapshot.Tailscale = status
 	manager.mu.Unlock()
+}
+
+// SetTailscaleServeEnabled publishes the verified state of the tailnet-only
+// HTTPS proxy owned by the installed Tailscale client.
+func (manager *Manager) SetTailscaleServeEnabled(enabled bool) error {
+	manager.mu.Lock()
+	manager.snapshot.Tailscale.ServeEnabled = enabled
+	manager.mu.Unlock()
+	return nil
 }
 
 // DismissNetworkChange removes the persisted DHCP/address notice.

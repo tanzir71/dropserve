@@ -2,11 +2,48 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
 	"strings"
 )
+
+// ProbeTailscaleServe reads the client's persisted Serve configuration and
+// reports true only when its root handler targets this Dropserve listener.
+func ProbeTailscaleServe(ctx context.Context, mainPort int, probes TailscaleProbes) (bool, error) {
+	probes = defaultTailscaleProbes(probes)
+	binary := locateTailscale(probes)
+	if binary == "" {
+		return false, fmt.Errorf("the Tailscale CLI is not installed")
+	}
+	output, err := probes.Run(ctx, binary, "serve", "status", "--json")
+	if err != nil {
+		return false, fmt.Errorf("read tailscale serve status: %w", err)
+	}
+	var status struct {
+		Web map[string]struct {
+			Handlers map[string]struct {
+				Proxy string `json:"Proxy"`
+			} `json:"Handlers"`
+		} `json:"Web"`
+	}
+	if err := json.Unmarshal(output, &status); err != nil {
+		return false, fmt.Errorf("decode tailscale serve status: %w", err)
+	}
+	target := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(mainPort))
+	for address, web := range status.Web {
+		_, port, splitErr := net.SplitHostPort(address)
+		if splitErr != nil || port != "443" {
+			continue
+		}
+		root, found := web.Handlers["/"]
+		if found && strings.TrimSuffix(root.Proxy, "/") == target {
+			return true, nil
+		}
+	}
+	return false, nil
+}
 
 // TailscaleFunnelExecutor returns the reversible per-app command boundary used
 // by FunnelManager.

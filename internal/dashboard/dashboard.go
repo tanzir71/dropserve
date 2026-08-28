@@ -2,6 +2,7 @@
 package dashboard
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/hex"
@@ -37,6 +38,7 @@ type handler struct {
 	warnings             []string
 	discovery            func() discovery.Snapshot
 	funnel               *discovery.FunnelManager
+	setTailscaleServe    func(context.Context, bool) error
 	dismissNetworkChange func() error
 }
 
@@ -45,6 +47,7 @@ type Options struct {
 	Warnings             []string
 	Discovery            func() discovery.Snapshot
 	Funnel               *discovery.FunnelManager
+	SetTailscaleServe    func(context.Context, bool) error
 	DismissNetworkChange func() error
 }
 
@@ -74,13 +77,18 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		warnings:             append([]string{}, options.Warnings...),
 		discovery:            options.Discovery,
 		funnel:               options.Funnel,
+		setTailscaleServe:    options.SetTailscaleServe,
 		dismissNetworkChange: options.DismissNetworkChange,
 	}, nil
 }
 
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
 	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/sharing/funnel/") {
-		dashboard.serveFunnelEnable(response, request)
+		dashboard.serveFunnelChange(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/sharing/tailscale" {
+		dashboard.serveTailscaleServeChange(response, request)
 		return
 	}
 	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/network-change/dismiss" {
@@ -166,7 +174,7 @@ func (dashboard *handler) serveNetworkChangeDismiss(response http.ResponseWriter
 	response.WriteHeader(http.StatusNoContent)
 }
 
-func (dashboard *handler) serveFunnelEnable(response http.ResponseWriter, request *http.Request) {
+func (dashboard *handler) serveFunnelChange(response http.ResponseWriter, request *http.Request) {
 	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
 		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
 		return
@@ -179,6 +187,7 @@ func (dashboard *handler) serveFunnelEnable(response http.ResponseWriter, reques
 	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
 	var payload struct {
 		Confirmation string `json:"confirmation"`
+		Enabled      *bool  `json:"enabled"`
 	}
 	decoder := json.NewDecoder(request.Body)
 	if err := decoder.Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
@@ -189,12 +198,44 @@ func (dashboard *handler) serveFunnelEnable(response http.ResponseWriter, reques
 		http.Error(response, "Tailscale Funnel is not available.", http.StatusServiceUnavailable)
 		return
 	}
+	if payload.Enabled != nil && !*payload.Enabled {
+		if err := dashboard.funnel.Disable(request.Context(), slug); err != nil {
+			http.Error(response, "Dropserve could not disable Tailscale Funnel.", http.StatusBadGateway)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+		return
+	}
 	if err := dashboard.funnel.Enable(request.Context(), slug, payload.Confirmation); err != nil {
 		if errors.Is(err, discovery.ErrFunnelConfirmation) {
 			http.Error(response, err.Error(), http.StatusBadRequest)
 			return
 		}
 		http.Error(response, "Dropserve could not enable Tailscale Funnel.", http.StatusBadGateway)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) serveTailscaleServeChange(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
+		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var payload struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || payload.Enabled == nil {
+		http.Error(response, "Choose whether tailnet HTTPS should be on or off.", http.StatusBadRequest)
+		return
+	}
+	if dashboard.setTailscaleServe == nil {
+		http.Error(response, "Tailscale Serve is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.setTailscaleServe(request.Context(), *payload.Enabled); err != nil {
+		http.Error(response, "Dropserve could not change tailnet HTTPS: "+err.Error(), http.StatusBadGateway)
 		return
 	}
 	response.WriteHeader(http.StatusNoContent)
@@ -229,13 +270,25 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		LANIP  string               `json:"lan_ip,omitempty"`
 		Change *discovery.LANChange `json:"change,omitempty"`
 	}
+	type publicSharingStatus struct {
+		Slug      string    `json:"slug"`
+		URL       string    `json:"url,omitempty"`
+		ExpiresAt time.Time `json:"expires_at"`
+	}
+	type sharingStatus struct {
+		TailscaleServeEnabled bool                  `json:"tailscale_serve_enabled"`
+		Public                []publicSharingStatus `json:"public"`
+	}
 	network := networkStatus{}
+	sharing := sharingStatus{Public: []publicSharingStatus{}}
+	var discoverySnapshot discovery.Snapshot
 	if dashboard.discovery != nil {
-		snapshot := dashboard.discovery()
-		if snapshot.LANIP.IsValid() {
-			network.LANIP = snapshot.LANIP.String()
+		discoverySnapshot = dashboard.discovery()
+		if discoverySnapshot.LANIP.IsValid() {
+			network.LANIP = discoverySnapshot.LANIP.String()
 		}
-		network.Change = snapshot.LANChange
+		network.Change = discoverySnapshot.LANChange
+		sharing.TailscaleServeEnabled = discoverySnapshot.Tailscale.ServeEnabled
 	}
 	warnings := append([]string{}, dashboard.warnings...)
 	if dashboard.funnel != nil {
@@ -246,6 +299,15 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		}
 		sort.Strings(slugs)
 		for _, slug := range slugs {
+			publicURL := ""
+			if discoverySnapshot.Tailscale.Host != "" {
+				publicURL = tailscalePublicURL(discoverySnapshot.Tailscale.Host, slug)
+			}
+			sharing.Public = append(sharing.Public, publicSharingStatus{
+				Slug:      slug,
+				URL:       publicURL,
+				ExpiresAt: active[slug].ExpiresAt.UTC(),
+			})
 			warnings = append(warnings, fmt.Sprintf(
 				"public_sharing_active: %s is reachable from the public internet until %s.",
 				slug,
@@ -259,6 +321,7 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		UptimeSeconds int64         `json:"uptime_seconds"`
 		Ports         ports         `json:"ports"`
 		Network       networkStatus `json:"network"`
+		Sharing       sharingStatus `json:"sharing"`
 		Warnings      []string      `json:"warnings"`
 		CSRFToken     string        `json:"csrf_token"`
 	}{
@@ -267,10 +330,19 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		UptimeSeconds: int64(time.Since(dashboard.started).Seconds()),
 		Ports:         ports{HTTP: requestHTTPPort(request)},
 		Network:       network,
+		Sharing:       sharing,
 		Warnings:      warnings,
 		CSRFToken:     dashboard.csrfToken,
 	}
 	dashboard.serveJSON(response, request, payload)
+}
+
+func tailscalePublicURL(host, slug string) string {
+	authority := host
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		authority = "[" + host + "]"
+	}
+	return (&url.URL{Scheme: "https", Host: authority, Path: "/" + slug + "/"}).String()
 }
 
 func requestHTTPPort(request *http.Request) int {

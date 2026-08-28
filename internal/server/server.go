@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -46,6 +47,7 @@ type Options struct {
 	Supervisor           supervisor.Options
 	Discovery            func() discovery.Snapshot
 	Funnel               *discovery.FunnelManager
+	SetTailscaleServe    func(context.Context, bool) error
 	DismissNetworkChange func() error
 }
 
@@ -190,6 +192,7 @@ func (server *Server) reconcile() error {
 		Warnings:             warningMessages(result.Warnings),
 		Discovery:            server.options.Discovery,
 		Funnel:               server.options.Funnel,
+		SetTailscaleServe:    server.options.SetTailscaleServe,
 		DismissNetworkChange: server.options.DismissNetworkChange,
 	})
 	if err != nil {

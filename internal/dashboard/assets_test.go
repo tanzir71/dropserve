@@ -73,6 +73,36 @@ func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
 	}
 }
 
+func TestSharingControlsAreWired(t *testing.T) {
+	t.Parallel()
+	index, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatalf("read embedded dashboard HTML: %v", err)
+	}
+	script, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read embedded dashboard JavaScript: %v", err)
+	}
+	for _, marker := range []string{`id="funnel-dialog"`, `id="funnel-confirmation"`, "public internet", "eight hours"} {
+		if !strings.Contains(string(index), marker) {
+			t.Errorf("dashboard HTML does not contain sharing marker %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		"/_dropserve/api/sharing/tailscale",
+		"/_dropserve/api/sharing/funnel/",
+		"Use HTTPS anywhere",
+		"Share publicly",
+		"Stop public sharing",
+		"Show public QR",
+		"https://tailscale.com/download",
+	} {
+		if !strings.Contains(string(script), marker) {
+			t.Errorf("dashboard JavaScript does not contain sharing marker %q", marker)
+		}
+	}
+}
+
 func TestDashboardCommandLogSurfaceIsWired(t *testing.T) {
 	t.Parallel()
 

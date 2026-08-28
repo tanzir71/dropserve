@@ -47,7 +47,12 @@ func (snapshot Snapshot) Endpoints(scheme string, port int) []Endpoint {
 	if snapshot.Tailscale.BackendState != "" {
 		endpoint := Endpoint{Kind: "tailscale", Message: snapshot.Tailscale.Message}
 		if snapshot.Tailscale.Host != "" {
-			endpoint.URL = addressURL(scheme, snapshot.Tailscale.Host, port)
+			if snapshot.Tailscale.ServeEnabled {
+				endpoint.URL = addressURL("https", snapshot.Tailscale.Host, 443)
+				endpoint.Message = "Tailnet-only HTTPS is active."
+			} else {
+				endpoint.URL = addressURL(scheme, snapshot.Tailscale.Host, port)
+			}
 		}
 		endpoints = append(endpoints, endpoint)
 	}

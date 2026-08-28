@@ -156,7 +156,16 @@ func TestActiveFunnelProducesNonDismissiblePublicSharingWarning(t *testing.T) {
 	if err := funnel.Enable(context.Background(), "field-notes", "field-notes"); err != nil {
 		t.Fatalf("enable Funnel: %v", err)
 	}
-	httpHandler, err := NewWithOptions([]indexer.Entry{{Slug: "field-notes", Name: "Field Notes"}}, Options{Funnel: funnel})
+	discoveryManager := discovery.NewManager(discovery.ManagerOptions{})
+	defer discoveryManager.Close()
+	discoveryManager.UpdateTailscale(discovery.TailscaleStatus{
+		BackendState: "Running",
+		Host:         "darkhorse.example-tailnet.ts.net",
+	})
+	httpHandler, err := NewWithOptions([]indexer.Entry{{Slug: "field-notes", Name: "Field Notes"}}, Options{
+		Discovery: discoveryManager.Snapshot,
+		Funnel:    funnel,
+	})
 	if err != nil {
 		t.Fatalf("create dashboard: %v", err)
 	}
@@ -165,12 +174,25 @@ func TestActiveFunnelProducesNonDismissiblePublicSharingWarning(t *testing.T) {
 	dashboard.ServeHTTP(response, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_dropserve/api/status", nil))
 	var status struct {
 		Warnings []string `json:"warnings"`
+		Sharing  struct {
+			Public []struct {
+				Slug      string    `json:"slug"`
+				URL       string    `json:"url"`
+				ExpiresAt time.Time `json:"expires_at"`
+			} `json:"public"`
+		} `json:"sharing"`
 	}
 	if err := json.NewDecoder(response.Body).Decode(&status); err != nil {
 		t.Fatalf("decode status: %v", err)
 	}
 	if !strings.Contains(strings.Join(status.Warnings, "\n"), "public_sharing_active") {
 		t.Fatalf("status warnings = %#v, want public_sharing_active", status.Warnings)
+	}
+	if len(status.Sharing.Public) != 1 ||
+		status.Sharing.Public[0].Slug != "field-notes" ||
+		status.Sharing.Public[0].URL != "https://darkhorse.example-tailnet.ts.net/field-notes/" ||
+		!status.Sharing.Public[0].ExpiresAt.Equal(now.Add(8*time.Hour)) {
+		t.Fatalf("public sharing status = %#v", status.Sharing.Public)
 	}
 	markup := string(dashboard.index)
 	start := strings.Index(markup, `id="public-sharing-warning"`)
@@ -241,5 +263,78 @@ func TestLANIPChangeNoticePersistsUntilDismissed(t *testing.T) {
 	defer reloaded.Close()
 	if reloaded.Snapshot().LANChange != nil {
 		t.Fatal("dismissed network change notice returned after reload")
+	}
+}
+
+func TestTailscaleServeToggleRequiresCSRFAndPublishesHTTPS(t *testing.T) {
+	manager := discovery.NewManager(discovery.ManagerOptions{LANIP: netip.MustParseAddr("192.168.1.10")})
+	defer manager.Close()
+	manager.UpdateTailscale(discovery.TailscaleStatus{
+		BackendState: "Running",
+		Host:         "darkhorse.example-tailnet.ts.net",
+	})
+	var transitions []bool
+	httpHandler, err := NewWithOptions(nil, Options{
+		Discovery: manager.Snapshot,
+		SetTailscaleServe: func(_ context.Context, enabled bool) error {
+			transitions = append(transitions, enabled)
+			return manager.SetTailscaleServeEnabled(enabled)
+		},
+	})
+	if err != nil {
+		t.Fatalf("create dashboard: %v", err)
+	}
+	dashboard := httpHandler.(*handler)
+
+	unauthorised := httptest.NewRecorder()
+	dashboard.ServeHTTP(unauthorised, httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/_dropserve/api/sharing/tailscale",
+		strings.NewReader(`{"enabled":true}`),
+	))
+	if unauthorised.Code != http.StatusForbidden || len(transitions) != 0 {
+		t.Fatalf("unauthorised Serve toggle = %d, transitions=%v; want 403 and none", unauthorised.Code, transitions)
+	}
+
+	toggleTailscaleServe(t, dashboard, true)
+	urlsResponse := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/_dropserve/api/urls", nil)
+	request.Host = "192.168.1.10:8000"
+	dashboard.ServeHTTP(urlsResponse, request)
+	var urls []advertisedURL
+	if err := json.NewDecoder(urlsResponse.Body).Decode(&urls); err != nil {
+		t.Fatalf("decode HTTPS sharing URLs: %v", err)
+	}
+	foundHTTPS := false
+	for _, entry := range urls {
+		if entry.Kind == "tailscale" && entry.URL == "https://darkhorse.example-tailnet.ts.net/" {
+			foundHTTPS = true
+		}
+	}
+	if !foundHTTPS {
+		t.Fatalf("sharing URLs = %#v, want verified tailnet HTTPS root", urls)
+	}
+
+	toggleTailscaleServe(t, dashboard, false)
+	if len(transitions) != 2 || !transitions[0] || transitions[1] {
+		t.Fatalf("Serve transitions = %v, want enable then disable", transitions)
+	}
+}
+
+func toggleTailscaleServe(t *testing.T, dashboard *handler, enabled bool) {
+	t.Helper()
+	request := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/_dropserve/api/sharing/tailscale",
+		strings.NewReader(fmt.Sprintf(`{"enabled":%t}`, enabled)),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	response := httptest.NewRecorder()
+	dashboard.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("Serve enabled=%t response = %d, want 204; body=%q", enabled, response.Code, response.Body.String())
 	}
 }

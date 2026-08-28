@@ -71,7 +71,11 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .icon-button { width: 34px; height: 34px; display: grid; place-items: center; padding: 0; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: transparent; cursor: pointer; font-size: 20px; }
 .sharing-urls { display: grid; gap: 9px; color: var(--muted); font-size: 13px; }
 .sharing-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.45); }
+.sharing-details { min-width: 0; display: grid; gap: 3px; }
+.sharing-name { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
 .sharing-row a { min-width: 0; overflow: hidden; color: var(--ink); font: 12px ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.sharing-row p { grid-column: 1 / -1; margin: 0; line-height: 1.4; }
+.sharing-row .wide-action { grid-column: 1 / -1; justify-self: start; }
 .mini-button { padding: 6px 8px; border: 0; border-radius: 8px; color: var(--accent); background: var(--accent-soft); cursor: pointer; font-size: 11px; font-weight: 750; }
 
 .hero { max-width: 720px; padding: 76px 0 64px; }
@@ -145,6 +149,17 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 7p
 .qr-dialog img { width: 256px; max-width: 100%; border: 10px solid white; border-radius: 16px; image-rendering: pixelated; }
 .qr-address { width: 100%; margin: 16px 0; overflow: hidden; color: var(--muted); font: 11px ui-monospace, monospace; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 .primary-button { border: 0; border-radius: 999px; padding: 10px 17px; color: white; background: var(--accent); cursor: pointer; font-weight: 750; }
+.primary-button:disabled { opacity: .45; cursor: not-allowed; }
+
+.funnel-dialog { width: min(470px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 22px; color: var(--ink); background: var(--card); box-shadow: 0 28px 90px rgba(10,25,20,.26); }
+.funnel-dialog::backdrop { background: rgba(10, 19, 16, .56); backdrop-filter: blur(4px); }
+.funnel-dialog form { position: relative; padding: 30px; }
+.funnel-dialog h2 { margin-bottom: 10px; }
+.funnel-dialog p { color: var(--muted); line-height: 1.55; }
+.funnel-dialog label { display: block; margin: 22px 0 7px; font-size: 13px; font-weight: 700; }
+.funnel-dialog input { width: 100%; border: 1px solid var(--line); border-radius: 11px; padding: 11px 12px; color: var(--ink); background: transparent; font: 14px ui-monospace, monospace; }
+.funnel-state { min-height: 20px; margin: 8px 0 0; font-size: 12px; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
 
 .log-dialog { width: min(720px, calc(100% - 28px)); padding: 0; border: 1px solid var(--line); border-radius: 22px; color: var(--ink); background: var(--card); box-shadow: 0 28px 90px rgba(10,25,20,.26); }
 .log-dialog::backdrop { background: rgba(10, 19, 16, .46); backdrop-filter: blur(4px); }

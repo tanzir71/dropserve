@@ -22,3 +22,31 @@ func TestVirtualAdaptersAreFilteredFromLANSelection(t *testing.T) {
 		t.Fatalf("SelectLANIP() = %s, want %s", got, want)
 	}
 }
+
+type testMDNSResponder struct{}
+
+func (testMDNSResponder) Shutdown() {}
+
+func TestMDNSStartsWhenLANAppearsAfterOfflineStartup(t *testing.T) {
+	var registrations []MDNSRegistration
+	manager := NewManager(ManagerOptions{
+		RegisterMDNS: func(registration MDNSRegistration) (MDNSResponder, error) {
+			registrations = append(registrations, registration)
+			return testMDNSResponder{}, nil
+		},
+		Logf: func(string, ...any) {},
+	})
+	defer manager.Close()
+	manager.StartMDNS()
+	if len(registrations) != 0 {
+		t.Fatalf("offline startup registered mDNS %d times, want 0", len(registrations))
+	}
+	address := netip.MustParseAddr("192.168.1.77")
+	manager.UpdateLANIP(address)
+	if len(registrations) != 1 || len(registrations[0].Addresses) != 1 || registrations[0].Addresses[0] != address.String() {
+		t.Fatalf("mDNS registrations after LAN appeared = %#v", registrations)
+	}
+	if manager.Snapshot().MDNSHostname != "dropserve.local" {
+		t.Fatalf("mDNS hostname = %q, want dropserve.local", manager.Snapshot().MDNSHostname)
+	}
+}

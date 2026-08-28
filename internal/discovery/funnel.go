@@ -35,6 +35,7 @@ type FunnelOptions struct {
 	Clock     func() time.Time
 	Lifetime  time.Duration
 	Execute   func(context.Context, FunnelAction) error
+	OnChange  func(bool)
 }
 
 // FunnelManager enforces public-sharing safety and owns expiring persisted
@@ -45,6 +46,7 @@ type FunnelManager struct {
 	clock     func() time.Time
 	lifetime  time.Duration
 	execute   func(context.Context, FunnelAction) error
+	onChange  func(bool)
 	entries   map[string]FunnelEntry
 }
 
@@ -62,13 +64,16 @@ func NewFunnelManager(options FunnelOptions) (*FunnelManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FunnelManager{
+	manager := &FunnelManager{
 		statePath: options.StatePath,
 		clock:     clock,
 		lifetime:  lifetime,
 		execute:   options.Execute,
+		onChange:  options.OnChange,
 		entries:   entries,
-	}, nil
+	}
+	manager.publishSharingState()
+	return manager, nil
 }
 
 // Enable refuses every request whose session confirmation is not the exact
@@ -102,6 +107,38 @@ func (manager *FunnelManager) Enable(ctx context.Context, slug, confirmation str
 		_ = manager.execute(ctx, FunnelAction{Slug: slug, Enable: false})
 		return err
 	}
+	manager.publishSharingState()
+	return nil
+}
+
+// Disable removes one app's public-internet mapping. It is intentionally
+// available without a confirmation token because reducing exposure must stay
+// one click away.
+func (manager *FunnelManager) Disable(ctx context.Context, slug string) error {
+	if manager == nil || manager.execute == nil {
+		return errors.New("Tailscale Funnel is not configured") //nolint:staticcheck // Product name begins the user-facing error.
+	}
+	manager.mu.Lock()
+	entry, found := manager.entries[slug]
+	manager.mu.Unlock()
+	if !found {
+		return nil
+	}
+	if err := manager.execute(ctx, FunnelAction{Slug: slug, Enable: false}); err != nil {
+		return err
+	}
+	manager.mu.Lock()
+	delete(manager.entries, slug)
+	err := saveFunnelState(manager.statePath, manager.entries)
+	if err != nil {
+		manager.entries[slug] = entry
+	}
+	manager.mu.Unlock()
+	if err != nil {
+		_ = manager.execute(ctx, FunnelAction{Slug: slug, Enable: true})
+		return err
+	}
+	manager.publishSharingState()
 	return nil
 }
 
@@ -158,8 +195,16 @@ func (manager *FunnelManager) Expire(ctx context.Context) error {
 			return err
 		}
 		manager.mu.Unlock()
+		manager.publishSharingState()
 	}
 	return nil
+}
+
+func (manager *FunnelManager) publishSharingState() {
+	if manager == nil || manager.onChange == nil {
+		return
+	}
+	manager.onChange(len(manager.ActiveEntries()) != 0)
 }
 
 func loadFunnelState(path string) (map[string]FunnelEntry, error) {

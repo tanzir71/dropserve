@@ -12,6 +12,7 @@ type TailscaleStatus struct {
 	BackendState string
 	Host         string
 	Message      string
+	ServeEnabled bool
 }
 
 // ParseTailscaleStatus extracts only the local node fields Dropserve needs.

@@ -49,6 +49,10 @@ type Options struct {
 	Discovery            func() discovery.Snapshot
 	Funnel               *discovery.FunnelManager
 	SetTailscaleServe    func(context.Context, bool) error
+	LocalHTTPSStatus     func() dashboard.LocalHTTPSStatus
+	SetLocalHTTPS        func(context.Context, bool) error
+	SetLocalTrust        func(bool) error
+	RootCertificate      func() ([]byte, error)
 	DismissNetworkChange func() error
 }
 
@@ -196,6 +200,10 @@ func (server *Server) reconcile() error {
 		Discovery:            server.options.Discovery,
 		Funnel:               server.options.Funnel,
 		SetTailscaleServe:    server.options.SetTailscaleServe,
+		LocalHTTPSStatus:     server.options.LocalHTTPSStatus,
+		SetLocalHTTPS:        server.options.SetLocalHTTPS,
+		SetLocalTrust:        server.options.SetLocalTrust,
+		RootCertificate:      server.options.RootCertificate,
 		DismissNetworkChange: server.options.DismissNetworkChange,
 	})
 	if err != nil {

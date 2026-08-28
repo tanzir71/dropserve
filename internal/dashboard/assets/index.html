@@ -27,6 +27,17 @@
       </div>
       <p class="panel-copy">Use one of these verified addresses on a device connected to the same network.</p>
       <div id="sharing-urls" class="sharing-urls" aria-live="polite">Checking addresses…</div>
+      <section id="local-https" class="local-https" aria-labelledby="local-https-title">
+        <h3 id="local-https-title">Local HTTPS</h3>
+        <p><strong>Prefer Tailscale</strong> for private HTTPS when you can. It needs no certificate changes on your other devices.</p>
+        <p>This adds a certificate authority created on this computer to this computer's trust store, so browsers here stop warning about Dropserve's HTTPS. It only affects this machine. You can remove it any time.</p>
+        <p id="local-https-state" class="local-https-state" aria-live="polite">Checking local HTTPS…</p>
+        <div class="local-https-actions">
+          <button id="local-https-toggle" class="mini-button" type="button">Enable local HTTPS</button>
+          <button id="local-trust-toggle" class="mini-button" type="button" hidden>Trust on this computer</button>
+          <a id="local-root-download" class="mini-button" href="/_dropserve/api/https/root.pem" download hidden>Download certificate</a>
+        </div>
+      </section>
     </aside>
 
     <section class="hero" aria-labelledby="page-title">

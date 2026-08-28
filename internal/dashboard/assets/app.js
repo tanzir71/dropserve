@@ -7,6 +7,10 @@ const sharingToggle = document.querySelector('#sharing-toggle');
 const sharingPanel = document.querySelector('#sharing-panel');
 const sharingClose = document.querySelector('#sharing-close');
 const sharingURLs = document.querySelector('#sharing-urls');
+const localHTTPSState = document.querySelector('#local-https-state');
+const localHTTPSToggle = document.querySelector('#local-https-toggle');
+const localTrustToggle = document.querySelector('#local-trust-toggle');
+const localRootDownload = document.querySelector('#local-root-download');
 const qrDialog = document.querySelector('#qr-dialog');
 const qrImage = document.querySelector('#qr-image');
 const qrAddress = document.querySelector('#qr-address');
@@ -249,6 +253,9 @@ function sharingRow(item) {
     loopback: 'This computer',
     lan: 'Local network',
     mdns: 'Easy local address',
+    'https-loopback': 'This computer · HTTPS',
+    'https-lan': 'Local network · HTTPS',
+    'https-mdns': 'Easy local address · HTTPS',
     tailscale: 'Tailscale',
     current: 'Current address',
   };
@@ -357,6 +364,18 @@ async function reloadSharingState() {
   await Promise.all([loadStatus(), refreshSharing()]);
 }
 
+function renderLocalHTTPS(status = {}) {
+  localHTTPSToggle.textContent = status.enabled ? 'Turn off local HTTPS' : 'Enable local HTTPS';
+  localHTTPSToggle.dataset.enabled = String(Boolean(status.enabled));
+  localTrustToggle.hidden = !status.root_available;
+  localRootDownload.hidden = !status.root_available;
+  localTrustToggle.textContent = status.trust_installed ? 'Remove local trust' : 'Trust on this computer';
+  localTrustToggle.dataset.installed = String(Boolean(status.trust_installed));
+  if (status.warning) localHTTPSState.textContent = status.warning;
+  else if (status.enabled) localHTTPSState.textContent = `Local HTTPS is on at port ${status.port}. HTTP stays available.`;
+  else localHTTPSState.textContent = 'Local HTTPS is off. HTTP stays the default.';
+}
+
 function setSharingOpen(open) {
   sharingPanel.hidden = !open;
   sharingToggle.setAttribute('aria-expanded', String(open));
@@ -367,6 +386,28 @@ sharingToggle.addEventListener('click', () => setSharingOpen(sharingPanel.hidden
 sharingClose.addEventListener('click', () => setSharingOpen(false));
 qrCopy.addEventListener('click', () => copyText(currentQRURL, qrCopy));
 logRefresh.addEventListener('click', refreshLogs);
+localHTTPSToggle.addEventListener('click', async () => {
+  localHTTPSToggle.disabled = true;
+  try {
+    await postSharing('/_dropserve/api/https', { enabled: localHTTPSToggle.dataset.enabled !== 'true' });
+    await reloadSharingState();
+  } catch (error) {
+    localHTTPSState.textContent = error.message;
+  } finally {
+    localHTTPSToggle.disabled = false;
+  }
+});
+localTrustToggle.addEventListener('click', async () => {
+  localTrustToggle.disabled = true;
+  try {
+    await postSharing('/_dropserve/api/trust', { installed: localTrustToggle.dataset.installed !== 'true' });
+    await loadStatus();
+  } catch (error) {
+    localHTTPSState.textContent = error.message;
+  } finally {
+    localTrustToggle.disabled = false;
+  }
+});
 funnelConfirmation.addEventListener('input', () => {
   funnelConfirm.disabled = !currentFunnelApp || funnelConfirmation.value !== currentFunnelApp.slug;
   funnelState.textContent = '';
@@ -438,6 +479,7 @@ async function loadStatus() {
   const status = await response.json();
   csrfToken = status.csrf_token || csrfToken;
   activeFunnels = new Map((status.sharing?.public || []).map(entry => [entry.slug, entry]));
+  renderLocalHTTPS(status.https);
   if (apps.length) render();
 
   if (status.network?.change) {

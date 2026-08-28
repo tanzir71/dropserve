@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"os/signal"
@@ -28,7 +29,6 @@ import (
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 	"github.com/tanzir71/dropserve/internal/state"
-	"github.com/tanzir71/dropserve/internal/tlsca"
 	"github.com/tanzir71/dropserve/internal/version"
 )
 
@@ -39,6 +39,7 @@ Usage:
   dropserve status     print the current runtime state as JSON
   dropserve doctor     check this computer's Dropserve setup
   dropserve autostart  manage starting Dropserve when you log in
+  dropserve trust      explicitly install or remove local HTTPS trust
   dropserve version    print the version and build commit
   dropserve add PATH   register an app folder without moving it
   dropserve help       show this help
@@ -81,6 +82,8 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return doctorCommand(args[1:], stdout, stderr, configPath)
 	case "autostart":
 		return autostartCommand(args[1:], stdout, stderr)
+	case "trust":
+		return trustCommand(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		if _, err := fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit); err != nil {
 			return 1
@@ -408,47 +411,7 @@ func serveCommandContextWithReady(
 	if probeErr != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not select a LAN address; loopback remains available: %v\n", probeErr)
 	}
-	var httpsAuthority *tlsca.Authority
-	var httpsListener net.Listener
 	var runtimeWarnings []string
-	if configuration.Server.HTTPSPort > 0 {
-		var httpsErr error
-		if stateDirectory == "" {
-			httpsErr = errors.New("a state path is required to store the local certificate authority")
-		} else {
-			listenConfig := net.ListenConfig{}
-			httpsListener, httpsErr = listenConfig.Listen(
-				ctx,
-				"tcp",
-				net.JoinHostPort(*bindAddress, strconv.Itoa(configuration.Server.HTTPSPort)),
-			)
-			if httpsErr == nil {
-				hostname, _ := os.Hostname()
-				addresses := []netip.Addr{}
-				if lanIP.IsValid() {
-					addresses = append(addresses, lanIP)
-				}
-				httpsAuthority, httpsErr = tlsca.New(tlsca.Options{
-					Directory: filepath.Join(stateDirectory, "ca"),
-					Hostname:  hostname,
-					Addresses: addresses,
-				})
-				if httpsErr != nil {
-					_ = httpsListener.Close()
-					httpsListener = nil
-				}
-			}
-		}
-		if httpsErr != nil {
-			warning := fmt.Sprintf(
-				"HTTPS port %d is unavailable, so HTTP is still available and HTTPS is off: %v",
-				configuration.Server.HTTPSPort,
-				httpsErr,
-			)
-			runtimeWarnings = append(runtimeWarnings, warning)
-			_, _ = fmt.Fprintln(stderr, warning)
-		}
-	}
 	discoveryManager := discovery.NewManager(discovery.ManagerOptions{
 		LANIP:      lanIP,
 		HTTPPort:   mainPort,
@@ -488,8 +451,47 @@ func serveCommandContextWithReady(
 		_, _ = fmt.Fprintf(stderr, "Dropserve disabled Tailscale Funnel because its state could not be read: %v\n", funnelErr)
 		funnel = nil
 	}
+	httpsConfigPath := *configPath
+	var httpsConfigPathErr error
+	if httpsConfigPath == "" {
+		httpsConfigPath, httpsConfigPathErr = config.DefaultPath()
+	}
+	httpsConfiguration := configuration
+	hostname, _ := os.Hostname()
+	var handler *dropserver.Server
+	httpsController := newLocalHTTPSController(localHTTPSOptions{
+		Bind:           *bindAddress,
+		PreferredPort:  configuration.Server.HTTPSPort,
+		StateDirectory: stateDirectory,
+		Hostname:       hostname,
+		Addresses: func() []netip.Addr {
+			snapshot := discoveryManager.Snapshot()
+			if snapshot.LANIP.IsValid() {
+				return []netip.Addr{snapshot.LANIP}
+			}
+			return nil
+		},
+		Handler: func() http.Handler {
+			if handler == nil {
+				return nil
+			}
+			return handler.Handler()
+		},
+		PersistPort: func(port int) error {
+			if httpsConfigPathErr != nil {
+				return httpsConfigPathErr
+			}
+			updated := httpsConfiguration
+			updated.Server.HTTPSPort = port
+			if err := config.Save(httpsConfigPath, updated); err != nil {
+				return err
+			}
+			httpsConfiguration = updated
+			return nil
+		},
+	})
 
-	handler, err := dropserver.NewWithOptions(dropserver.Options{
+	handler, err = dropserver.NewWithOptions(dropserver.Options{
 		Scanner: scanner.Options{
 			Roots:      configuration.Server.AppsRoots,
 			Registered: configuration.Server.RegisteredApps,
@@ -504,13 +506,14 @@ func serveCommandContextWithReady(
 			}
 			return discoveryManager.SetTailscaleServeEnabled(enabled)
 		},
+		LocalHTTPSStatus:     httpsController.Status,
+		SetLocalHTTPS:        httpsController.SetEnabled,
+		SetLocalTrust:        httpsController.SetTrust,
+		RootCertificate:      httpsController.RootCertificate,
 		DismissNetworkChange: discoveryManager.DismissNetworkChange,
 	})
 	if err != nil {
 		_ = listener.Close()
-		if httpsListener != nil {
-			_ = httpsListener.Close()
-		}
 		if _, writeErr := fmt.Fprintf(stderr, "Dropserve could not scan your app folders: %v\n", err); writeErr != nil {
 			return 1
 		}
@@ -520,10 +523,15 @@ func serveCommandContextWithReady(
 
 	listenerRuntime := dropserver.NewListenerRuntime(handler.Handler())
 	listenerRuntime.Start(listener)
-	var httpsRuntime *dropserver.HTTPSRuntime
-	if httpsListener != nil && httpsAuthority != nil {
-		httpsRuntime = dropserver.NewHTTPSRuntime(handler.Handler(), httpsAuthority.TLSCertificate)
-		httpsRuntime.Start(httpsListener)
+	if configuration.Server.HTTPSPort > 0 {
+		if httpsErr := httpsController.SetEnabled(ctx, true); httpsErr != nil {
+			warning := fmt.Sprintf(
+				"HTTPS port %d is unavailable, so HTTP is still available and HTTPS is off: %v",
+				configuration.Server.HTTPSPort,
+				httpsErr,
+			)
+			_, _ = fmt.Fprintln(stderr, warning)
+		}
 	}
 	monitorOptions := discovery.MonitorOptions{
 		Manager:         discoveryManager,
@@ -551,12 +559,7 @@ func serveCommandContextWithReady(
 	if funnel != nil {
 		monitorOptions.ExpireFunnels = funnel.Expire
 	}
-	if httpsAuthority != nil {
-		monitorOptions.UpdateTLSAddresses = func(addresses []netip.Addr) error {
-			_, updateErr := httpsAuthority.UpdateAddresses(addresses)
-			return updateErr
-		}
-	}
+	monitorOptions.UpdateTLSAddresses = httpsController.UpdateAddresses
 	monitor := discovery.NewMonitor(monitorOptions)
 	go monitor.Run(ctx)
 
@@ -578,10 +581,8 @@ func serveCommandContextWithReady(
 	<-ctx.Done()
 	shutdownContext, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancelShutdown()
-	if httpsRuntime != nil {
-		if err := httpsRuntime.Shutdown(shutdownContext); err != nil {
-			_, _ = fmt.Fprintf(stderr, "Dropserve could not stop its HTTPS listener cleanly: %v\n", err)
-		}
+	if err := httpsController.Shutdown(shutdownContext); err != nil {
+		_, _ = fmt.Fprintf(stderr, "Dropserve could not stop its HTTPS listener cleanly: %v\n", err)
 	}
 	if err := listenerRuntime.Shutdown(shutdownContext); err != nil {
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not stop its HTTP listener cleanly: %v\n", err)

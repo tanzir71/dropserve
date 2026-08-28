@@ -39,7 +39,20 @@ type handler struct {
 	discovery            func() discovery.Snapshot
 	funnel               *discovery.FunnelManager
 	setTailscaleServe    func(context.Context, bool) error
+	localHTTPSStatus     func() LocalHTTPSStatus
+	setLocalHTTPS        func(context.Context, bool) error
+	setLocalTrust        func(bool) error
+	rootCertificate      func() ([]byte, error)
 	dismissNetworkChange func() error
+}
+
+// LocalHTTPSStatus is the live opt-in local TLS and trust state.
+type LocalHTTPSStatus struct {
+	Enabled        bool   `json:"enabled"`
+	Port           int    `json:"port,omitempty"`
+	TrustInstalled bool   `json:"trust_installed"`
+	RootAvailable  bool   `json:"root_available"`
+	Warning        string `json:"warning,omitempty"`
 }
 
 // Options supplies runtime information displayed by the dashboard.
@@ -48,6 +61,10 @@ type Options struct {
 	Discovery            func() discovery.Snapshot
 	Funnel               *discovery.FunnelManager
 	SetTailscaleServe    func(context.Context, bool) error
+	LocalHTTPSStatus     func() LocalHTTPSStatus
+	SetLocalHTTPS        func(context.Context, bool) error
+	SetLocalTrust        func(bool) error
+	RootCertificate      func() ([]byte, error)
 	DismissNetworkChange func() error
 }
 
@@ -78,6 +95,10 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		discovery:            options.Discovery,
 		funnel:               options.Funnel,
 		setTailscaleServe:    options.SetTailscaleServe,
+		localHTTPSStatus:     options.LocalHTTPSStatus,
+		setLocalHTTPS:        options.SetLocalHTTPS,
+		setLocalTrust:        options.SetLocalTrust,
+		rootCertificate:      options.RootCertificate,
 		dismissNetworkChange: options.DismissNetworkChange,
 	}, nil
 }
@@ -89,6 +110,14 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	}
 	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/sharing/tailscale" {
 		dashboard.serveTailscaleServeChange(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/https" {
+		dashboard.serveLocalHTTPSChange(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/trust" {
+		dashboard.serveLocalTrustChange(response, request)
 		return
 	}
 	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/network-change/dismiss" {
@@ -134,6 +163,9 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	case "/_dropserve/api/status":
 		dashboard.serveStatus(response, request)
 		return
+	case "/_dropserve/api/https/root.pem":
+		dashboard.serveRootCertificate(response, request)
+		return
 	case "/_dropserve/healthz":
 		dashboard.serveHealth(response, request)
 		return
@@ -156,6 +188,74 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = response.Write(content)
+}
+
+func (dashboard *handler) serveLocalHTTPSChange(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
+		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var payload struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || payload.Enabled == nil {
+		http.Error(response, "Choose whether local HTTPS should be on or off.", http.StatusBadRequest)
+		return
+	}
+	if dashboard.setLocalHTTPS == nil {
+		http.Error(response, "Local HTTPS is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.setLocalHTTPS(request.Context(), *payload.Enabled); err != nil {
+		http.Error(response, "Dropserve could not change local HTTPS: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) serveLocalTrustChange(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
+		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var payload struct {
+		Installed *bool `json:"installed"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil || payload.Installed == nil {
+		http.Error(response, "Choose whether this computer should trust the local certificate.", http.StatusBadRequest)
+		return
+	}
+	if dashboard.setLocalTrust == nil {
+		http.Error(response, "Local certificate trust is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.setLocalTrust(*payload.Installed); err != nil {
+		http.Error(response, "Dropserve could not change local certificate trust: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) serveRootCertificate(response http.ResponseWriter, request *http.Request) {
+	if dashboard.rootCertificate == nil {
+		http.Error(response, "Enable local HTTPS before downloading its certificate.", http.StatusNotFound)
+		return
+	}
+	content, err := dashboard.rootCertificate()
+	if err != nil {
+		http.Error(response, "Enable local HTTPS before downloading its certificate.", http.StatusNotFound)
+		return
+	}
+	response.Header().Set("Content-Type", "application/x-pem-file")
+	response.Header().Set("Content-Disposition", `attachment; filename="dropserve-local-ca.pem"`)
+	response.Header().Set("X-Content-Type-Options", "nosniff")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusOK)
+	if request.Method != http.MethodHead {
+		_, _ = response.Write(content)
+	}
 }
 
 func (dashboard *handler) serveNetworkChangeDismiss(response http.ResponseWriter, request *http.Request) {
@@ -264,7 +364,8 @@ func (dashboard *handler) serveHealth(response http.ResponseWriter, request *htt
 
 func (dashboard *handler) serveStatus(response http.ResponseWriter, request *http.Request) {
 	type ports struct {
-		HTTP int `json:"http"`
+		HTTP  int `json:"http"`
+		HTTPS int `json:"https,omitempty"`
 	}
 	type networkStatus struct {
 		LANIP  string               `json:"lan_ip,omitempty"`
@@ -281,6 +382,10 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 	}
 	network := networkStatus{}
 	sharing := sharingStatus{Public: []publicSharingStatus{}}
+	httpsStatus := LocalHTTPSStatus{}
+	if dashboard.localHTTPSStatus != nil {
+		httpsStatus = dashboard.localHTTPSStatus()
+	}
 	var discoverySnapshot discovery.Snapshot
 	if dashboard.discovery != nil {
 		discoverySnapshot = dashboard.discovery()
@@ -316,21 +421,23 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		}
 	}
 	payload := struct {
-		Version       string        `json:"version"`
-		Commit        string        `json:"commit"`
-		UptimeSeconds int64         `json:"uptime_seconds"`
-		Ports         ports         `json:"ports"`
-		Network       networkStatus `json:"network"`
-		Sharing       sharingStatus `json:"sharing"`
-		Warnings      []string      `json:"warnings"`
-		CSRFToken     string        `json:"csrf_token"`
+		Version       string           `json:"version"`
+		Commit        string           `json:"commit"`
+		UptimeSeconds int64            `json:"uptime_seconds"`
+		Ports         ports            `json:"ports"`
+		Network       networkStatus    `json:"network"`
+		Sharing       sharingStatus    `json:"sharing"`
+		HTTPS         LocalHTTPSStatus `json:"https"`
+		Warnings      []string         `json:"warnings"`
+		CSRFToken     string           `json:"csrf_token"`
 	}{
 		Version:       version.Version,
 		Commit:        version.Commit,
 		UptimeSeconds: int64(time.Since(dashboard.started).Seconds()),
-		Ports:         ports{HTTP: requestHTTPPort(request)},
+		Ports:         ports{HTTP: requestHTTPPort(request), HTTPS: httpsStatus.Port},
 		Network:       network,
 		Sharing:       sharing,
+		HTTPS:         httpsStatus,
 		Warnings:      warnings,
 		CSRFToken:     dashboard.csrfToken,
 	}
@@ -390,10 +497,26 @@ func (dashboard *handler) serveAdvertisedURLs(response http.ResponseWriter, requ
 		scheme = "https"
 	}
 	if dashboard.discovery != nil {
-		endpoints := dashboard.discovery().Endpoints(scheme, requestHTTPPort(request))
-		advertised := make([]advertisedURL, 0, len(endpoints))
+		snapshot := dashboard.discovery()
+		endpoints := snapshot.Endpoints(scheme, requestHTTPPort(request))
+		advertised := make([]advertisedURL, 0, len(endpoints)+2)
 		for _, endpoint := range endpoints {
 			advertised = append(advertised, advertisedURL{Kind: endpoint.Kind, URL: endpoint.URL, Message: endpoint.Message})
+		}
+		if dashboard.localHTTPSStatus != nil {
+			status := dashboard.localHTTPSStatus()
+			if status.Enabled && status.Port > 0 && (scheme != "https" || requestHTTPPort(request) != status.Port) {
+				for _, endpoint := range snapshot.Endpoints("https", status.Port) {
+					if endpoint.Kind == "tailscale" {
+						continue
+					}
+					advertised = append(advertised, advertisedURL{
+						Kind:    "https-" + endpoint.Kind,
+						URL:     endpoint.URL,
+						Message: endpoint.Message,
+					})
+				}
+			}
 		}
 		dashboard.serveJSON(response, request, advertised)
 		return

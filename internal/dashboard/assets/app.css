@@ -77,6 +77,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .sharing-row p { grid-column: 1 / -1; margin: 0; line-height: 1.4; }
 .sharing-row .wide-action { grid-column: 1 / -1; justify-self: start; }
 .mini-button { padding: 6px 8px; border: 0; border-radius: 8px; color: var(--accent); background: var(--accent-soft); cursor: pointer; font-size: 11px; font-weight: 750; }
+.local-https { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 15px; }
+.local-https h3 { margin: 0 0 8px; font-size: 14px; }
+.local-https p { margin: 0 0 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.local-https .local-https-state { color: var(--ink); }
+.local-https-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.local-https-actions a { text-decoration: none; }
 
 .hero { max-width: 720px; padding: 76px 0 64px; }
 .eyebrow { margin: 0 0 9px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }

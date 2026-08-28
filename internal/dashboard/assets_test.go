@@ -103,6 +103,40 @@ func TestSharingControlsAreWired(t *testing.T) {
 	}
 }
 
+func TestLocalHTTPSExplanationAndControlsAreWired(t *testing.T) {
+	t.Parallel()
+	index, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatalf("read embedded dashboard HTML: %v", err)
+	}
+	script, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read embedded dashboard JavaScript: %v", err)
+	}
+	for _, marker := range []string{
+		`id="local-https"`,
+		"Prefer Tailscale",
+		"This adds a certificate authority created on this computer to this computer's trust store",
+		"It only affects this machine. You can remove it any time.",
+		"/_dropserve/api/https/root.pem",
+	} {
+		if !strings.Contains(string(index), marker) {
+			t.Errorf("dashboard HTML does not contain local HTTPS marker %q", marker)
+		}
+	}
+	for _, marker := range []string{
+		"/_dropserve/api/https",
+		"/_dropserve/api/trust",
+		"Enable local HTTPS",
+		"Trust on this computer",
+		"Remove local trust",
+	} {
+		if !strings.Contains(string(script), marker) {
+			t.Errorf("dashboard JavaScript does not contain local HTTPS marker %q", marker)
+		}
+	}
+}
+
 func TestDashboardCommandLogSurfaceIsWired(t *testing.T) {
 	t.Parallel()
 

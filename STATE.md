@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M8 — HTTPS (M7 real-tailnet check pending)
-**Last updated:** 2026-08-28T01:42:05Z
+**Last updated:** 2026-08-28T01:47:47Z
 **Gate status:** green
-**Iterations completed:** 124
+**Iterations completed:** 125
 
 ## Milestone progress
 
@@ -48,7 +48,7 @@
 - [x] Assert: a generated leaf validates against the generated root for `localhost`, `127.0.0.1`, the hostname, and a synthetic LAN IP.
 - [x] Assert: the CA private key file mode is `0600` on Unix; on Windows, assert the ACL grants only the current user (or record the limitation explicitly in `STATE.md` if the check proves impractical).
 - [x] Assert: when the LAN IP changes, a new leaf is issued containing the new IP and the old one is superseded within one monitor interval.
-- [ ] Assert (**I5**): trust installation is **never** invoked during startup, scanning, or any code path other than the explicit `trust install` command / dashboard button — prove it with a fake truststore interface and assert zero calls across a full server lifecycle test.
+- [x] Assert (**I5**): trust installation is **never** invoked during startup, scanning, or any code path other than the explicit `trust install` command / dashboard button — prove it with a fake truststore interface and assert zero calls across a full server lifecycle test.
 - [ ] Assert: `trust uninstall` removes what `trust install` added (fake at unit level; verify manually on Windows once and record it).
 - [x] Assert: HTTP → HTTPS redirect is **off** by default and the HTTP listener still serves everything when HTTPS is enabled.
 - [x] Assert (**hazard 13**): an issued leaf's `NotBefore` is at least one hour in the past, so a machine with a slightly wrong clock still accepts a freshly-issued certificate. Verify with an injected clock skewed 30 minutes fast and 30 minutes slow — the certificate validates in both cases.
@@ -293,9 +293,11 @@
 - `TestLANAddressChangeSupersedesTheOldLeaf` requires a new serial, validation for the new synthetic LAN IP, rejection for the old IP, and idempotence for an unchanged set. `TestLANChangeReissuesLeafWithinOneMonitorInterval` drives the production network monitor and observes the replacement within its 250 ms injected interval. New handshakes load the current atomic key pair, so apps and listeners are not restarted.
 - `TestFreshLeafAcceptsThirtyMinuteClockSkew` validates the same freshly issued leaf with clocks 30 minutes slow and fast. Both root and leaf are backdated two hours, exceeding hazard 13's one-hour floor.
 - `TestHTTPRemainsAvailableWhenHTTPSIsEnabled` serves one live handler over separate HTTP and TLS listeners, follows no redirect, and observes a new leaf serial on the first handshake after address rotation. `TestHTTPSListenerFailureDegradesToHTTPOnly` occupies the configured TLS port in the real CLI path, requires a warning naming HTTPS and that port, and still receives HTTP 200 before a clean exit.
-- The inert `TrustController` has an injected `TrustStore` and its unit test records one matching install/remove pair with zero construction-time calls. The production adapter uses the handover-approved `github.com/smallstep/truststore` v0.13.0 (Go 1.18 module baseline); the full-server no-implicit-call proof, explicit CLI/dashboard actions, and real Windows install/remove verification remain intentionally pending.
+- The inert `TrustController` has an injected `TrustStore` and its unit test records one matching install/remove pair with zero construction-time calls. The production adapter uses the handover-approved `github.com/smallstep/truststore` v0.13.0 (Go 1.18 module baseline); the real Windows install/remove verification remains intentionally pending.
 - Full local `make check` passes formatting, lint, race tests, version injection, Windows/Linux/macOS zero-CGO builds, optional tray build, and shipped-file scan with the new CA, ACL, dynamic TLS runtime, and monitor integration.
 - Hosted CI run 33133243044 exposed a test-only Windows SDDL portability error: GitHub's Administrator SID was canonically rendered as the well-known `LA` alias, so the string assertion could not find the numeric SID even though the protected DACL contained the correct sole grant. `TestWindowsRootKeyACLGrantsOnlyCurrentUser` now reads the actual ACE, compares its binary trustee SID to the process user, and verifies an allow/full-file-control grant; three local Windows runs and the full gate pass.
+- `TestServerLifecycleNeverInstallsTrustWithoutExplicitAction` drives construction, initial scan, a served dashboard request, reconciliation, and shutdown with a fake trust boundary and observes zero calls. `TestLocalHTTPSAndTrustActionsRequireExplicitCSRFRequests` refuses an unauthenticated trust POST, then records only the requested enable/install/remove/disable transitions. `TestTrustCommandIsExplicitAndReversible` locks the prescribed `dropserve trust --install` and `--uninstall` forms to one matching root path each.
+- The production `localHTTPSController` is inert until called, persists its listener setting before activation, rolls back a failed persistence attempt, serves the same live handler without removing HTTP, retains a downloadable public root, and owns dashboard status, enable/disable, and trust callbacks. `TestEnabledLocalHTTPSIsAdvertisedAlongsideHTTP` requires verified HTTP and local-HTTPS LAN/mDNS links simultaneously and exposes the HTTPS port in status. The UI gives the exact trust explanation, recommends Tailscale first, and supplies separate reversible listener/trust controls.
 
 ## Decisions made this build (beyond the spec)
 

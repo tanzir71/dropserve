@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -47,9 +48,11 @@ func TestLANChangeReissuesLeafWithinOneMonitorInterval(t *testing.T) {
 	defer poll.Stop()
 	deadline := time.NewTimer(interval)
 	defer deadline.Stop()
+	var lastReadError error
 	for {
-		leaf := readMonitorLeaf(t, authority.LeafCertificatePath())
-		if hasCertificateIP(leaf, newAddress) {
+		leaf, readErr := readMonitorLeaf(authority.LeafCertificatePath())
+		lastReadError = readErr
+		if readErr == nil && hasCertificateIP(leaf, newAddress) {
 			if hasCertificateIP(leaf, oldAddress) {
 				t.Fatal("reissued leaf retained the superseded LAN address")
 			}
@@ -58,27 +61,26 @@ func TestLANChangeReissuesLeafWithinOneMonitorInterval(t *testing.T) {
 		select {
 		case <-poll.C:
 		case <-deadline.C:
-			t.Fatalf("leaf was not reissued within %s (elapsed %s)", interval, time.Since(started))
+			t.Fatalf("leaf was not reissued within %s (elapsed %s, last read error: %v)", interval, time.Since(started), lastReadError)
 		}
 	}
 }
 
-func readMonitorLeaf(t *testing.T, path string) *x509.Certificate {
-	t.Helper()
+func readMonitorLeaf(path string) (*x509.Certificate, error) {
 	// #nosec G304 -- path is returned by the authority created in this test's temporary directory.
 	data, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read leaf: %v", err)
+		return nil, fmt.Errorf("read leaf: %w", err)
 	}
 	block, _ := pem.Decode(data)
 	if block == nil {
-		t.Fatal("leaf is not PEM")
+		return nil, fmt.Errorf("leaf is not PEM")
 	}
 	certificate, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		t.Fatalf("parse leaf: %v", err)
+		return nil, fmt.Errorf("parse leaf: %w", err)
 	}
-	return certificate
+	return certificate, nil
 }
 
 func hasCertificateIP(certificate *x509.Certificate, address netip.Addr) bool {

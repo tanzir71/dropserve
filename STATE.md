@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:23:57Z
+**Last updated:** 2026-08-28T02:30:13Z
 **Gate status:** green
-**Iterations completed:** 132
+**Iterations completed:** 133
 
 ## Milestone progress
 
@@ -62,7 +62,7 @@
 - [x] Assert: a PHP fatal error produces a readable error page and does not take down the pool.
 - [x] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
 - [x] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
-- [ ] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
+- [x] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
 - [ ] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
 - [ ] Assert: with no packs installed, the binary and all tests still pass — packs are genuinely optional.
 
@@ -323,6 +323,8 @@
 - The fatal-error extension to the PHP fixture failed against both the hermetic worker and official PHP 8.5.10: the real runtime rendered the expected `Fatal error`, function name, file, line, and stack trace but incorrectly labeled the response HTTP 200. Dropserve now inspects only the first bounded 256 KiB of a PHP response, preserves PHP's diagnostic body, marks recognizable uncaught-fatal output HTTP 500 with `X-Dropserve-PHP-Error: fatal`, and streams larger responses without unbounded buffering. Three hermetic pool runs and the official runtime both returned the readable 500 page, followed immediately by a healthy 200 request through the same pool; the full gate is green.
 - `TestPoolRestartsKilledWorkerWithinFiveSeconds` failed first after an externally killed FastCGI worker retained its dead process slot for the full deadline. Each pool slot now monitors its process handle, waits 100 ms after an unexpected exit, launches a verified replacement on the same loopback address so existing app handlers remain valid, and retries failed starts at 250 ms without blocking healthy slots. Ten repeated external-kill cycles returned a new PID and a real FastCGI response, three focused race-detector runs passed, and the full gate is green.
 - `TestRemovingPHPPackLeavesAppFixtureByteIdentical` failed first because the installer had no removal boundary. `Installer.Remove` now resolves and confines the exact `<runtime-root>/<name>/<version>/<os>-<arch>` target before recursive deletion, prunes only empty version/name parents, and leaves other installed versions intact. The acceptance hashes every file in `testdata/fixtures/php` before and after removal and observes an identical path/hash map; three focused runs and the full gate pass (**I2**).
+- `TestBrowseListsTablesCapsRowsAndReleasesWriteLock` failed first with no SQLite driver or browser. The pure-Go browser opens an absolute `file:` URL with `mode=ro`, query-only, and defensive connection flags; excludes SQLite's internal tables; orders names; quotes schema-derived identifiers; converts binary cells for JSON; and closes each row set and its one-connection handle before returning. A two-table fixture with 125 items returns exactly rows 1–100, then a separate `BEGIN IMMEDIATE` update succeeds within its 250 ms busy timeout, proving no browser write lock remains. Three focused runs and the full race/lint/Windows/Linux/macOS zero-CGO gate pass.
+- The SQLite gate's first Windows race run also observed the TLS monitor test reading `leaf.pem` during its few-millisecond backup/replace window. The test now treats transient read/parse errors as polling misses only inside its original 250 ms issuance deadline and reports the last error if no valid rotated leaf appears. Fifty focused race-detector runs and the subsequent full gate pass.
 
 ## Decisions made this build (beyond the spec)
 
@@ -330,6 +332,7 @@
 - 2026-08-28 — ADR-011 records the handover-prescribed fsnotify watcher paired with periodic reconciliation. fsnotify adds one direct module plus its platform syscall module while preserving zero-CGO cross-builds.
 - 2026-08-28 — ADR-012 records native command-app process-tree isolation. The already-transitive pure-Go `golang.org/x/sys` module becomes direct so Windows Job Objects can kill npm and every descendant when the supervisor closes.
 - 2026-08-28 — ADR-013 adopts `github.com/libp2p/zeroconf/v2` after the handover-mandated 20-second spike bound and shut down cleanly on real Windows and Linux kernels. The fallback library was unnecessary.
+- 2026-08-28 — The handover-mandated `modernc.org/sqlite` is pinned to current v1.57.0 (released 2026-08-19), whose module floor is Go 1.25. The project module floor therefore moves from 1.23 to 1.25; both current and previous stable Go lines remain above it, and all zero-CGO targets stay green.
 
 ## Open questions for the human
 
@@ -355,4 +358,4 @@
 
 ## Dependency count
 
-8 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, local-CA trust-store adapter, and pure-Go FastCGI client); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 45 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, runtime packs remain external downloads, and every zero-CGO target remains green.
+9 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, local-CA trust-store adapter, pure-Go FastCGI client, and pure-Go SQLite driver); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 67 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, runtime packs remain external downloads, and every zero-CGO target remains green.

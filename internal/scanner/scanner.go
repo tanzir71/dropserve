@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -223,9 +224,41 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		if err != nil {
 			return fmt.Errorf("walk app %q: %w", fullPath, err)
 		}
+		application.Databases, err = findDatabases(fullPath)
+		if err != nil {
+			return fmt.Errorf("find databases in app %q: %w", fullPath, err)
+		}
 	}
 	collector.result.Apps = append(collector.result.Apps, application)
 	return nil
+}
+
+func findDatabases(root string) ([]string, error) {
+	var databases []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		switch strings.ToLower(filepath.Ext(entry.Name())) {
+		case ".db", ".sqlite", ".sqlite3":
+		default:
+			return nil
+		}
+		relative, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		databases = append(databases, filepath.ToSlash(relative))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(databases)
+	return databases, nil
 }
 
 // Slug returns a stable lowercase ASCII URL segment derived from a file name.

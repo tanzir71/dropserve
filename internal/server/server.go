@@ -17,6 +17,7 @@ import (
 	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
+	"github.com/tanzir71/dropserve/internal/sqlitebrowser"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
 	"github.com/tanzir71/dropserve/internal/supervisor"
 	"github.com/tanzir71/dropserve/internal/watcher"
@@ -197,6 +198,17 @@ func (server *Server) reconcile() error {
 		return err
 	}
 	entries := indexer.Build(result.Apps)
+	databasePaths := make(map[string]map[string]string)
+	for _, application := range result.Apps {
+		if len(application.Databases) == 0 {
+			continue
+		}
+		files := make(map[string]string, len(application.Databases))
+		for _, relative := range application.Databases {
+			files[relative] = filepath.Join(application.Path, filepath.FromSlash(relative))
+		}
+		databasePaths[application.Slug] = files
+	}
 	if server.options.IndexPath != "" {
 		if err := indexer.Save(server.options.IndexPath, entries); err != nil {
 			return err
@@ -214,6 +226,17 @@ func (server *Server) reconcile() error {
 		SetLocalTrust:        server.options.SetLocalTrust,
 		RootCertificate:      server.options.RootCertificate,
 		DismissNetworkChange: server.options.DismissNetworkChange,
+		BrowseDatabase: func(ctx context.Context, slug, file string) (sqlitebrowser.Snapshot, error) {
+			files, found := databasePaths[slug]
+			if !found {
+				return sqlitebrowser.Snapshot{}, errors.New("app has no discovered databases")
+			}
+			path, found := files[file]
+			if !found {
+				return sqlitebrowser.Snapshot{}, errors.New("database was not discovered in this app")
+			}
+			return sqlitebrowser.Browse(ctx, path)
+		},
 	})
 	if err != nil {
 		return err

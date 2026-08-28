@@ -195,3 +195,32 @@ func TestDashboardOwnPortRescueSurfaceIsWired(t *testing.T) {
 		t.Error("dashboard CSS does not style the own-port explanation")
 	}
 }
+
+func TestDashboardSQLiteBrowserSurfaceIsWired(t *testing.T) {
+	t.Parallel()
+	index, err := assets.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatalf("read embedded dashboard HTML: %v", err)
+	}
+	script, err := assets.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read embedded dashboard JavaScript: %v", err)
+	}
+	styles, err := assets.ReadFile("assets/app.css")
+	if err != nil {
+		t.Fatalf("read embedded dashboard CSS: %v", err)
+	}
+	for _, marker := range []string{`id="database-dialog"`, `id="database-content"`, `id="database-state"`} {
+		if !strings.Contains(string(index), marker) {
+			t.Errorf("dashboard HTML does not contain database marker %q", marker)
+		}
+	}
+	for _, marker := range []string{"Browse database", "/_dropserve/api/databases/", "first 100 rows", "read-only"} {
+		if !strings.Contains(string(script), marker) {
+			t.Errorf("dashboard JavaScript does not contain database marker %q", marker)
+		}
+	}
+	if !strings.Contains(string(styles), ".database-table-scroll") {
+		t.Error("dashboard CSS does not style database tables")
+	}
+}

@@ -175,6 +175,20 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 7p
 .log-state { margin: 0 0 14px; color: var(--muted); font-size: 12px; text-transform: capitalize; }
 .log-output { width: 100%; min-height: 240px; max-height: min(55vh, 520px); margin: 0; overflow: auto; border: 1px solid var(--line); border-radius: 14px; padding: 16px; color: #d8eee5; background: #111916; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
 
+.database-dialog { width: min(960px, calc(100% - 28px)); max-height: calc(100vh - 40px); padding: 0; border: 1px solid var(--line); border-radius: 22px; color: var(--ink); background: var(--card); box-shadow: 0 28px 90px rgba(10,25,20,.26); }
+.database-dialog::backdrop { background: rgba(10, 19, 16, .46); backdrop-filter: blur(4px); }
+.database-dialog form { position: relative; padding: 28px; }
+.database-heading { padding-right: 42px; }
+.database-heading h2 { margin-bottom: 4px; overflow-wrap: anywhere; }
+.database-state { margin: 0 0 16px; color: var(--muted); font-size: 12px; }
+.database-content { display: grid; gap: 22px; }
+.database-content h3 { margin: 0 0 8px; font-size: 14px; }
+.database-table-scroll { max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
+.database-table-scroll table { width: 100%; border-collapse: collapse; font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.database-table-scroll th, .database-table-scroll td { max-width: 360px; padding: 8px 10px; overflow: hidden; border-bottom: 1px solid var(--line); text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.database-table-scroll th { position: sticky; top: 0; color: var(--ink); background: var(--paper); font-weight: 750; }
+.database-table-scroll tbody tr:last-child td { border-bottom: 0; }
+
 .empty-state { padding: 58px 28px; border: 1px dashed #becac4; border-radius: 20px; text-align: center; background: rgba(255,255,255,.45); }
 .empty-state[hidden], .notice[hidden] { display: none; }
 .empty-icon { width: 54px; height: 54px; display: grid; place-items: center; margin: 0 auto 17px; border-radius: 16px; color: var(--accent); background: var(--accent-soft); font-size: 28px; }

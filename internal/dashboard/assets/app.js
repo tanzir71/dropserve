@@ -28,6 +28,10 @@ const logTitle = document.querySelector('#log-title');
 const logState = document.querySelector('#log-state');
 const logOutput = document.querySelector('#log-output');
 const logRefresh = document.querySelector('#log-refresh');
+const databaseDialog = document.querySelector('#database-dialog');
+const databaseTitle = document.querySelector('#database-title');
+const databaseState = document.querySelector('#database-state');
+const databaseContent = document.querySelector('#database-content');
 
 let apps = [];
 let visible = [];
@@ -125,6 +129,61 @@ function showLogs(item) {
   refreshLogs();
 }
 
+function databaseCell(value) {
+  if (value === null) return 'NULL';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+}
+
+async function showDatabase(item, file) {
+  databaseTitle.textContent = `${file} · ${item.name || item.slug}`;
+  databaseState.textContent = 'Loading the first 100 rows from each table…';
+  databaseContent.replaceChildren();
+  if (typeof databaseDialog.showModal === 'function') databaseDialog.showModal();
+  else databaseDialog.setAttribute('open', '');
+  try {
+    const response = await fetch(`/_dropserve/api/databases/${encodeURIComponent(item.slug)}?file=${encodeURIComponent(file)}`);
+    if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+    const snapshot = await response.json();
+    const tables = snapshot.tables || [];
+    databaseState.textContent = tables.length ? `${tables.length} ${tables.length === 1 ? 'table' : 'tables'} · read-only` : 'This database has no user tables.';
+    const sections = tables.map(table => {
+      const section = document.createElement('section');
+      const heading = document.createElement('h3');
+      heading.textContent = `${table.name} · ${(table.rows || []).length} rows shown`;
+      const scroller = document.createElement('div');
+      scroller.className = 'database-table-scroll';
+      const grid = document.createElement('table');
+      const header = document.createElement('thead');
+      const headerRow = document.createElement('tr');
+      (table.columns || []).forEach(column => {
+        const cell = document.createElement('th');
+        cell.scope = 'col';
+        cell.textContent = column;
+        headerRow.append(cell);
+      });
+      header.append(headerRow);
+      const body = document.createElement('tbody');
+      (table.rows || []).forEach(row => {
+        const tableRow = document.createElement('tr');
+        row.forEach(value => {
+          const cell = document.createElement('td');
+          cell.textContent = databaseCell(value);
+          tableRow.append(cell);
+        });
+        body.append(tableRow);
+      });
+      grid.append(header, body);
+      scroller.append(grid);
+      section.append(heading, scroller);
+      return section;
+    });
+    databaseContent.replaceChildren(...sections);
+  } catch (error) {
+    databaseState.textContent = error.message || 'Dropserve could not read this database.';
+  }
+}
+
 function appCard(item, index) {
   const article = document.createElement('article');
   article.className = 'app-card';
@@ -205,6 +264,11 @@ function appCard(item, index) {
     menu.append(actionButton('Share publicly…', 'funnel-start'));
   }
   if (item.type === 'command') menu.append(actionButton('View logs', 'logs'));
+  (item.databases || []).forEach(file => {
+    const browse = actionButton(`Browse database · ${file}`, 'database');
+    browse.dataset.file = file;
+    menu.append(browse);
+  });
   toggle.addEventListener('click', event => {
     event.stopPropagation();
     const opening = menu.hidden;
@@ -228,6 +292,7 @@ function appCard(item, index) {
     if (button.dataset.action === 'funnel-start') showFunnelConfirmation(item);
     if (button.dataset.action === 'funnel-stop') await changeFunnel(item, false);
     if (button.dataset.action === 'logs') showLogs(item);
+    if (button.dataset.action === 'database') showDatabase(item, button.dataset.file);
     menu.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
   });

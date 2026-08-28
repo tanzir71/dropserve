@@ -34,4 +34,5 @@ type App struct {
 	Status           string
 	Port             int
 	PrefersOwnPort   bool
+	Databases        []string
 }

@@ -21,6 +21,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 	"github.com/tanzir71/dropserve/internal/discovery"
 	"github.com/tanzir71/dropserve/internal/indexer"
+	"github.com/tanzir71/dropserve/internal/sqlitebrowser"
 	"github.com/tanzir71/dropserve/internal/version"
 )
 
@@ -44,6 +45,7 @@ type handler struct {
 	setLocalTrust        func(bool) error
 	rootCertificate      func() ([]byte, error)
 	dismissNetworkChange func() error
+	browseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
 }
 
 // LocalHTTPSStatus is the live opt-in local TLS and trust state.
@@ -66,6 +68,7 @@ type Options struct {
 	SetLocalTrust        func(bool) error
 	RootCertificate      func() ([]byte, error)
 	DismissNetworkChange func() error
+	BrowseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
 }
 
 // New returns the embedded dashboard handler.
@@ -100,6 +103,7 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		setLocalTrust:        options.SetLocalTrust,
 		rootCertificate:      options.RootCertificate,
 		dismissNetworkChange: options.DismissNetworkChange,
+		browseDatabase:       options.BrowseDatabase,
 	}, nil
 }
 
@@ -170,6 +174,10 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		dashboard.serveHealth(response, request)
 		return
 	default:
+		if strings.HasPrefix(request.URL.Path, "/_dropserve/api/databases/") {
+			dashboard.serveDatabase(response, request)
+			return
+		}
 		if strings.HasPrefix(request.URL.Path, "/_dropserve/api/apps/") {
 			dashboard.serveAppDetail(response, request)
 			return
@@ -188,6 +196,43 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = response.Write(content)
+}
+
+func (dashboard *handler) serveDatabase(response http.ResponseWriter, request *http.Request) {
+	slug := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/databases/")
+	if slug == "" || strings.Contains(slug, "/") {
+		http.NotFound(response, request)
+		return
+	}
+	file := request.URL.Query().Get("file")
+	allowed := false
+	for _, entry := range dashboard.apps {
+		if entry.Slug != slug {
+			continue
+		}
+		for _, candidate := range entry.Databases {
+			if candidate == file {
+				allowed = true
+				break
+			}
+		}
+		break
+	}
+	if !allowed {
+		http.NotFound(response, request)
+		return
+	}
+	if dashboard.browseDatabase == nil {
+		http.Error(response, "Database browsing is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	snapshot, err := dashboard.browseDatabase(request.Context(), slug, file)
+	if err != nil {
+		http.Error(response, "Dropserve could not read this database: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	snapshot.Path = file
+	dashboard.serveJSON(response, request, snapshot)
 }
 
 func (dashboard *handler) serveLocalHTTPSChange(response http.ResponseWriter, request *http.Request) {

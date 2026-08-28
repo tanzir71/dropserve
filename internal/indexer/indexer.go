@@ -24,23 +24,24 @@ type URLs struct {
 
 // Entry is the stable public dashboard representation of one app.
 type Entry struct {
-	Slug           string `json:"slug"`
-	Name           string `json:"name"`
-	Path           string `json:"path"`
-	Description    string `json:"description"`
-	Title          string `json:"title,omitempty"`
-	Heading        string `json:"heading,omitempty"`
-	Type           string `json:"type"`
-	Status         string `json:"status"`
-	Detection      string `json:"detection"`
-	URLs           URLs   `json:"urls"`
-	Icon           string `json:"icon,omitempty"`
-	IconKind       string `json:"icon_kind"`
-	IconColor      string `json:"icon_color,omitempty"`
-	Size           int64  `json:"size"`
-	MTime          int64  `json:"mtime"`
-	Port           int    `json:"port,omitempty"`
-	PrefersOwnPort bool   `json:"prefers_own_port,omitempty"`
+	Slug           string   `json:"slug"`
+	Name           string   `json:"name"`
+	Path           string   `json:"path"`
+	Description    string   `json:"description"`
+	Title          string   `json:"title,omitempty"`
+	Heading        string   `json:"heading,omitempty"`
+	Type           string   `json:"type"`
+	Status         string   `json:"status"`
+	Detection      string   `json:"detection"`
+	URLs           URLs     `json:"urls"`
+	Icon           string   `json:"icon,omitempty"`
+	IconKind       string   `json:"icon_kind"`
+	IconColor      string   `json:"icon_color,omitempty"`
+	Size           int64    `json:"size"`
+	MTime          int64    `json:"mtime"`
+	Port           int      `json:"port,omitempty"`
+	PrefersOwnPort bool     `json:"prefers_own_port,omitempty"`
+	Databases      []string `json:"databases,omitempty"`
 	fileNames      []string
 }
 
@@ -114,6 +115,7 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 			MTime:          modified,
 			Port:           application.Port,
 			PrefersOwnPort: application.PrefersOwnPort,
+			Databases:      append([]string(nil), application.Databases...),
 			fileNames:      indexFileNames(application.Path, application.LooseFile),
 		}
 		entries = append(entries, entry)

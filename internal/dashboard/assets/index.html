@@ -130,6 +130,17 @@
     </form>
   </dialog>
 
+  <dialog id="database-dialog" class="database-dialog" aria-labelledby="database-title">
+    <form method="dialog">
+      <button class="icon-button dialog-close" value="close" aria-label="Close database browser">×</button>
+      <div class="database-heading">
+        <div><p class="eyebrow">Read-only preview</p><h2 id="database-title">Database</h2></div>
+      </div>
+      <p id="database-state" class="database-state" aria-live="polite">Loading…</p>
+      <div id="database-content" class="database-content"></div>
+    </form>
+  </dialog>
+
   <footer>
     <span><span class="online-dot" aria-hidden="true"></span> Dropserve is running</span>
     <a href="/_dropserve/api/status">Status</a>

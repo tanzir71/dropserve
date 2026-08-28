@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:32:35Z
+**Last updated:** 2026-08-28T02:36:52Z
 **Gate status:** green
-**Iterations completed:** 134
+**Iterations completed:** 135
 
 ## Milestone progress
 
@@ -326,6 +326,7 @@
 - `TestBrowseListsTablesCapsRowsAndReleasesWriteLock` failed first with no SQLite driver or browser. The pure-Go browser opens an absolute `file:` URL with `mode=ro`, query-only, and defensive connection flags; excludes SQLite's internal tables; orders names; quotes schema-derived identifiers; converts binary cells for JSON; and closes each row set and its one-connection handle before returning. A two-table fixture with 125 items returns exactly rows 1–100, then a separate `BEGIN IMMEDIATE` update succeeds within its 250 ms busy timeout, proving no browser write lock remains. Three focused runs and the full race/lint/Windows/Linux/macOS zero-CGO gate pass.
 - The SQLite gate's first Windows race run also observed the TLS monitor test reading `leaf.pem` during its few-millisecond backup/replace window. The test now treats transient read/parse errors as polling misses only inside its original 250 ms issuance deadline and reports the last error if no valid rotated leaf appears. Fifty focused race-detector runs and the subsequent full gate pass.
 - `TestDatabaseDataDirectoriesAreAlwaysUnderState` failed first with no database data boundary. The allowlisted `mariadb` and `postgres` engines now resolve only to `<state>/databases/<engine>/data`, reject missing/broad roots and unknown engines, verify path confinement before creating anything, and use private directory permissions. Both directories are proven outside a sibling Apps root while an app marker and directory snapshot remain unchanged; three focused runs and the full gate pass.
+- `TestDiscoveredSQLiteDatabaseIsBrowsableFromDashboard` failed first at the absent route. The scanner now records nested `.db`, `.sqlite`, and `.sqlite3` files as sorted app-relative paths; the server binds each immutable scan snapshot to exact absolute files; and the dashboard API refuses every slug/path pair not present in that snapshot. App action menus offer one Browse database action per file, and a responsive read-only dialog renders table headers/cells using text nodes. The end-to-end request returns one table's first 100 of 105 rows and releases its read handle before an immediate update; JavaScript syntax, asset wiring, three focused server runs, and the full gate pass.
 
 ## Decisions made this build (beyond the spec)
 

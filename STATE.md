@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
-**Last updated:** 2026-08-28T03:21:39Z
+**Last updated:** 2026-08-28T03:24:14Z
 **Gate status:** green
-**Iterations completed:** 139
+**Iterations completed:** 140
 
 ## Milestone progress
 
@@ -92,6 +92,7 @@
 - The first hosted installer run [33138070940](https://github.com/tanzir71/dropserve/actions/runs/33138070940) proved that the installer created its named private-profile firewall rule, but the smoke searched non-verbose `netsh` output for the executable path that output mode omits. The assertion now requests verbose rule details; the same compiled installer still passes the complete local lifecycle. The corrected hosted result remains pending, so the criterion stays open.
 - The release signing scripts generate a 3072-bit RSA code-signing identity, Authenticode-sign each Windows binary and installer with SHA-256, confirm the embedded certificate, produce post-signing SHA-256 sidecars, and require `signtool verify /pa` after temporarily trusting the exact self-signed certificate on the elevated hosted runner. A local non-trusting smoke embedded and independently read the expected certificate on both binaries and the installer; the test certificate, two interrupted-run certificates, and all temporary PFX files were removed and cannot be recovered. The persistent PFX/password now exist only as GitHub encrypted secrets under certificate `4371F601B0D864E9343FE9474552474F4CD90057`; no private signing material is present in the repository or local certificate store.
 - The tag-only release workflow runs the six-target GoReleaser build, builds and verifies the signed Inno installer from signed binaries, repeats the destructive-lifecycle smoke, extends `checksums.txt` after signing, uploads the installer and checksum sidecar to the same draft release, and uses `actions/attest-build-provenance` for the archives, installer, and final checksum file. `actionlint` 1.7.12 reports no workflow errors. A real semver tag will exercise publication and Sigstore-backed attestations; no test release was published in this iteration.
+- The pre-implementation `html-validate` 11.10.0 run found a lowercase doctype and six inline-style violations. The landing page now uses a standards doctype and named responsive classes, passes the validator with zero findings, and `TestLandingPageHasNoExternalResourceReferences` rejects external script/media/frame sources, external stylesheet links in either attribute order, and every CSS `url(` reference while still allowing ordinary GitHub anchors. A pinned validator job is present in CI; its first hosted result is pending, so the criterion remains open.
 
 ### M6 completion audit (closed)
 

@@ -1,4 +1,4 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -138,6 +138,7 @@ tbody tr:last-child th,tbody tr:last-child td{border-bottom:0}
 .no{color:var(--fg-faint)}
 .col-us{background:var(--accent-soft)}
 thead .col-us{background:var(--accent);color:var(--accent-fg)}
+.comparison-size{text-align:center}
 
 /* faq */
 details{border-bottom:1px solid var(--line);padding:4px 0}
@@ -168,6 +169,11 @@ footer{border-top:1px solid var(--line);padding:44px 0;color:var(--fg-faint);fon
 .foot a{color:var(--fg-muted);text-decoration:none;margin-right:18px}
 .foot a:hover{color:var(--fg);text-decoration:underline}
 .disclaimer{margin-top:22px;font-size:12.5px;color:var(--fg-faint);max-width:76ch;line-height:1.55}
+.final-cta{padding:80px 0}
+.final-cta>.wrap{text-align:center}
+.final-cta h2{max-width:20ch;margin:0 auto}
+.final-cta p{color:var(--fg-muted);max-width:52ch;margin:16px auto 0}
+.final-cta .cta{justify-content:center;margin-top:30px}
 </style>
 </head>
 <body>
@@ -357,7 +363,7 @@ footer{border-top:1px solid var(--line);padding:44px 0;color:var(--fg-faint);fon
           <tr><th scope="row">Access outside the network</th><td class="col-us"><span class="yes">Tailscale, one click</span></td><td class="no">Roll your own</td><td class="no">Roll your own</td><td class="no">Roll your own</td><td class="no">Roll your own</td></tr>
           <tr><th scope="row">QR codes for phone access</th><td class="col-us"><span class="yes">Every app</span></td><td class="no">—</td><td class="no">—</td><td class="no">—</td><td class="no">—</td></tr>
           <tr><th scope="row">What&rsquo;s in the box</th><td class="col-us"><span class="yes">Server only &mdash; runtimes on demand</span></td><td>Apache, MariaDB, PHP, Perl</td><td>Apache, MySQL, PHP</td><td>Apache/Nginx, MySQL, PHP</td><td>Full stack + app installer</td></tr>
-          <tr><th scope="row">Base download</th><td class="col-us"><span class="yes">~20 MB</span></td><td colspan="4" style="text-align:center">Typically several hundred MB, since the whole stack ships up front</td></tr>
+          <tr><th scope="row">Base download</th><td class="col-us"><span class="yes">~20 MB</span></td><td colspan="4" class="comparison-size">Typically several hundred MB, since the whole stack ships up front</td></tr>
           <tr><th scope="row">Price</th><td class="col-us"><span class="yes">Free, MIT</span></td><td>Free (GPL)</td><td>Free (GPL)</td><td>Free / PRO paid</td><td>Free</td></tr>
         </tbody>
       </table>
@@ -455,11 +461,11 @@ cosign verify-blob \
 <hr class="rule">
 
 <!-- CTA -->
-<section style="padding:80px 0">
-  <div class="wrap" style="text-align:center">
-    <h2 style="max-width:20ch;margin:0 auto">Stop remembering ports.</h2>
-    <p style="color:var(--fg-muted);max-width:52ch;margin:16px auto 0">Install it once, drop folders in forever, and open one address from any device you own.</p>
-    <div class="cta" style="justify-content:center;margin-top:30px">
+<section class="final-cta">
+  <div class="wrap">
+    <h2>Stop remembering ports.</h2>
+    <p>Install it once, drop folders in forever, and open one address from any device you own.</p>
+    <div class="cta">
       <a class="btn btn-primary" href="https://github.com/tanzir71/dropserve/releases/latest">Download Dropserve</a>
       <a class="btn btn-ghost" href="https://github.com/tanzir71/dropserve">Read the source</a>
     </div>

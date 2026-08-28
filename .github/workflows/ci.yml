@@ -119,3 +119,15 @@ jobs:
       - name: Silent install and uninstall smoke
         shell: pwsh
         run: ./scripts/release/m10-installer.ps1 -Installer ./dist/installer/dropserve-0.0.0-ci-windows-amd64-setup.exe
+
+  landing-page:
+    name: Landing page
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Validate HTML
+        run: npx --yes html-validate@11.10.0 docs/index.html

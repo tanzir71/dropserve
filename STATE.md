@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
-**Last updated:** 2026-08-28T02:53:28Z
+**Last updated:** 2026-08-28T02:59:25Z
 **Gate status:** green
-**Iterations completed:** 136
+**Iterations completed:** 137
 
 ## Milestone progress
 
@@ -73,6 +73,19 @@
 - [x] Deliverable: the CSRF-protected Add-ons dashboard makes every download explicit, reports installed/running/progress/error state, exposes database connection strings with copy actions, and names exactly what removal deletes and preserves.
 - [x] Deliverable: the SQLite browser discovers only app-local database files, renders a read-only first-100-row view, and closes its handle before returning.
 - [x] Completion: the real empty-state `serve` path created no runtime directory, served a static app, mounted a PHP app with the friendly optional-pack page, and reported no installed add-ons. Final `make check` passed race tests, lint, JavaScript/assets, version injection, Windows/Linux/macOS zero-CGO builds, optional tray build, compiled smoke, and shipped-file scanning.
+
+## M10 criteria (active)
+
+- [x] Script: `goreleaser release --snapshot --clean` produces artifacts for `windows/amd64`, `windows/arm64`, `linux/amd64`, `linux/arm64`, `darwin/arm64`, `darwin/amd64`, plus `checksums.txt`.
+- [ ] Script: the Windows installer installs silently (`/VERYSILENT`), the binary runs, `dropserve healthz` returns ok, the uninstaller runs silently, and afterwards no scheduled task, install directory, or firewall rule remains. Run this in Windows CI.
+- [ ] Script: `signtool verify /pa dropserve.exe` succeeds against the self-signed certificate.
+- [ ] Script: the landing page is valid HTML in CI and contains no external resource references.
+- [ ] Assert: the update check hits the GitHub releases API, compares semver, and never downloads or executes anything; it only surfaces a notification with a link.
+- [ ] Script: fresh-machine test — clean Windows VM/container, install, drop a folder, reach it from another host on the network, and record the transcript.
+
+### M10 evidence
+
+- GoReleaser 2.18.0 validated `.goreleaser.yaml`, then the exact handover command completed locally in 1m21s. It built six target archives plus `checksums.txt`: Linux and macOS archives contain the zero-CGO headless binary; each Windows archive groups the console-free tray binary and CLI companion. The Windows/amd64 CLI reported injected version `0.0.0-next` and commit `c568a8efcdcf2e6dc7adc94367bf03beb893be9f`; all six archives have entries in the generated checksum file. Snapshot naming is intentionally independent of historical non-semver milestone tags, while real releases still use their semver tag.
 
 ### M6 completion audit (closed)
 

@@ -1,0 +1,93 @@
+version: 2
+
+project_name: dropserve
+
+builds:
+  - id: dropserve-unix
+    main: ./cmd/dropserve
+    binary: dropserve
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/tanzir71/dropserve/internal/version.Version={{.Version}} -X github.com/tanzir71/dropserve/internal/version.Commit={{.Commit}}
+
+  - id: dropserve-windows
+    main: ./cmd/dropserve
+    binary: dropserve
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    tags:
+      - tray
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -H=windowsgui -X github.com/tanzir71/dropserve/internal/version.Version={{.Version}} -X github.com/tanzir71/dropserve/internal/version.Commit={{.Commit}}
+
+  - id: dropserve-cli-windows
+    main: ./cmd/dropserve
+    binary: dropserve-cli
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/tanzir71/dropserve/internal/version.Version={{.Version}} -X github.com/tanzir71/dropserve/internal/version.Commit={{.Commit}}
+
+archives:
+  - id: unix
+    ids:
+      - dropserve-unix
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - README.md
+
+  - id: windows
+    ids:
+      - dropserve-windows
+      - dropserve-cli-windows
+    formats:
+      - zip
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    wrap_in_directory: true
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+snapshot:
+  version_template: "0.0.0-next"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+release:
+  draft: true

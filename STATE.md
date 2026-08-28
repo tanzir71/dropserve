@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
-**Last updated:** 2026-08-28T03:09:10Z
+**Last updated:** 2026-08-28T03:21:39Z
 **Gate status:** green
-**Iterations completed:** 138
+**Iterations completed:** 139
 
 ## Milestone progress
 
@@ -89,6 +89,9 @@
 - `TestHealthzCommandChecksTheRunningServer` failed first with no CLI health command. `dropserve healthz` now loads the persisted HTTP port, bypasses proxies, bounds the loopback request to two seconds and 16 response bytes, requires the exact internal health endpoint's 200 `ok`, prints only `ok` on success, and reports an actionable failure for a stopped process.
 - Inno Setup 7.1.0 compiled the first installer locally from the same console-free desktop and CLI binaries. `scripts/release/m10-installer.ps1 -CurrentUser` then performed a real `/VERYSILENT` install, observed both files, served an app, received `ok` from the installed CLI, created the real per-user Scheduled Task, ran the real silent uninstaller, and found no process, task, firewall rule, or install directory. The new `windows-installer` hosted job repeats this without the non-admin override and additionally requires the exact private-network firewall rule to exist before uninstalling; its first hosted result is pending.
 - Hosted CI [run 33137369097](https://github.com/tanzir71/dropserve/actions/runs/33137369097) passed both operating-system gates, lint, secret scanning, and native smokes for the final M9 commit `c568a8e`; the Windows ACL email regression remains closed.
+- The first hosted installer run [33138070940](https://github.com/tanzir71/dropserve/actions/runs/33138070940) proved that the installer created its named private-profile firewall rule, but the smoke searched non-verbose `netsh` output for the executable path that output mode omits. The assertion now requests verbose rule details; the same compiled installer still passes the complete local lifecycle. The corrected hosted result remains pending, so the criterion stays open.
+- The release signing scripts generate a 3072-bit RSA code-signing identity, Authenticode-sign each Windows binary and installer with SHA-256, confirm the embedded certificate, produce post-signing SHA-256 sidecars, and require `signtool verify /pa` after temporarily trusting the exact self-signed certificate on the elevated hosted runner. A local non-trusting smoke embedded and independently read the expected certificate on both binaries and the installer; the test certificate, two interrupted-run certificates, and all temporary PFX files were removed and cannot be recovered. The persistent PFX/password now exist only as GitHub encrypted secrets under certificate `4371F601B0D864E9343FE9474552474F4CD90057`; no private signing material is present in the repository or local certificate store.
+- The tag-only release workflow runs the six-target GoReleaser build, builds and verifies the signed Inno installer from signed binaries, repeats the destructive-lifecycle smoke, extends `checksums.txt` after signing, uploads the installer and checksum sidecar to the same draft release, and uses `actions/attest-build-provenance` for the archives, installer, and final checksum file. `actionlint` 1.7.12 reports no workflow errors. A real semver tag will exercise publication and Sigstore-backed attestations; no test release was published in this iteration.
 
 ### M6 completion audit (closed)
 

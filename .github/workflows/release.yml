@@ -1,0 +1,120 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  archives:
+    name: Release archives
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+
+  windows-installer:
+    name: Signed Windows installer
+    needs: archives
+    runs-on: windows-latest
+    env:
+      SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+      SIGNING_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PASSWORD }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Build release binaries
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $env:VERSION = $version
+          $env:COMMIT = $env:GITHUB_SHA
+          go run ./scripts/gate.go build
+      - name: Restore signing identity and sign binaries
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_PFX_BASE64) -or [string]::IsNullOrWhiteSpace($env:SIGNING_PASSWORD)) {
+            throw 'Windows signing secrets are not configured'
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP 'dropserve-signing.pfx'
+          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          ./scripts/release/sign-windows.ps1 -Pfx $pfx -Password $env:SIGNING_PASSWORD -Files ./bin/dropserve.exe,./bin/dropserve-cli.exe
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+      - name: Compile installer
+        shell: pwsh
+        run: |
+          $iscc = Get-ChildItem -Path ${env:ProgramFiles(x86)},$env:ProgramFiles -Recurse -Filter ISCC.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($null -eq $iscc) { throw 'ISCC.exe was not installed' }
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          $numericVersion = (($version -split '-')[0]) + '.0'
+          $sourceDir = (Resolve-Path bin).Path
+          $outputDir = Join-Path (Resolve-Path .).Path 'dist\installer'
+          New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+          & $iscc.FullName "/DSourceDir=$sourceDir" "/DOutputDir=$outputDir" "/DAppVersion=$version" "/DNumericVersion=$numericVersion" /Q packaging/windows/dropserve.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC exited $LASTEXITCODE" }
+      - name: Sign and verify installer
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'dropserve-signing.pfx'
+          $installers = @(Get-ChildItem -LiteralPath ./dist/installer -Filter '*-setup.exe')
+          if ($installers.Count -ne 1) { throw "expected one installer, found $($installers.Count)" }
+          $installer = $installers[0]
+          ./scripts/release/sign-windows.ps1 -Pfx $pfx -Password $env:SIGNING_PASSWORD -Files $installer.FullName
+      - name: Silent installer lifecycle
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath ./dist/installer -Filter '*-setup.exe' | Select-Object -First 1
+          ./scripts/release/m10-installer.ps1 -Installer $installer.FullName
+      - name: Extend release checksums
+        shell: pwsh
+        run: |
+          gh release download $env:GITHUB_REF_NAME --pattern checksums.txt --dir ./dist/installer
+          $installer = Get-ChildItem -LiteralPath ./dist/installer -Filter '*-setup.exe' | Select-Object -First 1
+          $hash = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          Add-Content -LiteralPath ./dist/installer/checksums.txt -Value "$hash  $($installer.Name)" -Encoding ascii
+      - uses: actions/attest-build-provenance@v4.2.2
+        with:
+          subject-path: |
+            dist/installer/*-setup.exe
+            dist/installer/checksums.txt
+      - name: Upload installer and final checksums
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath ./dist/installer -Filter '*-setup.exe' | Select-Object -First 1
+          gh release upload $env:GITHUB_REF_NAME $installer.FullName "$($installer.FullName).sha256" ./dist/installer/checksums.txt --clobber
+      - name: Remove restored signing key
+        if: always()
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'dropserve-signing.pfx'
+          if (Test-Path -LiteralPath $pfx) { Remove-Item -LiteralPath $pfx -Force }

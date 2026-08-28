@@ -33,7 +33,7 @@ try {
     }
 
     if (!$CurrentUser) {
-        $firewall = & netsh.exe advfirewall firewall show rule name=Dropserve 2>&1 | Out-String
+        $firewall = & netsh.exe advfirewall firewall show rule name=Dropserve verbose 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0 -or $firewall -notmatch [regex]::Escape($desktopBinary)) {
             throw "installer did not create the exact Dropserve firewall rule: $firewall"
         }

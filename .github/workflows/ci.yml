@@ -103,6 +103,9 @@ jobs:
       - name: Build Dropserve binaries
         shell: pwsh
         run: go run ./scripts/gate.go build
+      - name: Self-sign and verify installed binaries
+        shell: pwsh
+        run: ./scripts/release/m10-signing.ps1 -Files ./bin/dropserve.exe,./bin/dropserve-cli.exe -TrustedVerification
       - name: Compile installer
         shell: pwsh
         run: |

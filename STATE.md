@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M11 — Hardening and polish (M7/M8 manual checks pending; M9/M10 tags withheld until prerequisites close)
-**Last updated:** 2026-08-28T04:17:55Z
+**Last updated:** 2026-08-28T04:22:43Z
 **Gate status:** green
-**Iterations completed:** 148
+**Iterations completed:** 149
 
 ## Milestone progress
 
@@ -23,7 +23,7 @@
 ## M11 criteria (active)
 
 - [x] Assert: the five invariant tests from §4 all exist with the specified names and pass.
-- [ ] Script: `govulncheck ./...` reports no known-vulnerable dependencies.
+- [x] Script: `govulncheck ./...` reports no known-vulnerable dependencies.
 - [ ] Script: `gosec ./...` passes, or every suppression has a one-line justification.
 - [ ] Assert: fuzz the slug sanitiser and path resolver for 60 seconds each with no crash or app-root escape.
 - [ ] Script: with 200 fixture apps, dashboard first byte is under 100 ms, `/api/apps` under 200 ms, and a 10 KB static file sustains at least 500 requests/second on CI.
@@ -34,6 +34,7 @@
 ### M11 evidence
 
 - `TestProductInvariantTestsKeepTheirSpecifiedNames` failed first because only I2 retained the §4 name. The contract now parses every checked-in Go test and requires all six specified functions. The existing full-behaviour I1/I3/I4 tests were renamed to `TestDropFolderBecomesReachable`, `TestAdvertisedURLsAllRespond`, and `TestOneBrokenAppDoesNotAffectOthers`; I2 was already exact. `TestNoImplicitPublicExposure` now proves dashboard construction and an unconfirmed CSRF-authenticated Funnel request make zero executor calls and create no active public mapping, while the exact typed slug is the only path that does. `TestTrustStoreRequiresExplicitConsent` proves startup/status and a CSRF-less request make no trust-store call, then explicit CSRF actions install and remove trust. Focused runs and the full race/lint/version/cross-build/tray/shipped-file gate pass.
+- Official `govulncheck` v1.7.0 first reported zero reachable/package vulnerabilities but two module-only advisories in direct `golang.org/x/mod` v0.37.0: GO-2026-6180 and GO-2026-6179, both fixed in v0.40.0. The module's Go floor remains 1.25, so the minimal upgrade to v0.40.0 removes both without changing the project floor. The verbose rescan of all 26 root packages, 20 modules, and Go 1.27.0 standard library now reports `No vulnerabilities found.` `TestCIRejectsReachableAndModuleOnlyGoVulnerabilities` failed before the workflow job existed; CI now pins the official tool and rejects either a nonzero scan or any verbose `Vulnerability #` module finding. Actionlint, the contract, the verbose scan, and the full gate pass. Hosted CI [33141427561](https://github.com/tanzir71/dropserve/actions/runs/33141427561) also passed every pre-existing job for the invariant-audit commit.
 
 ## M7 criteria (manual tailnet check pending)
 

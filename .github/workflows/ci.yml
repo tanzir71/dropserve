@@ -77,6 +77,27 @@ jobs:
         with:
           version: latest
 
+  vulnerabilities:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Reject reachable and module-only vulnerabilities
+        shell: bash
+        run: |
+          set +e
+          output=$(go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 -show verbose ./... 2>&1)
+          status=$?
+          set -e
+          printf '%s\n' "$output"
+          if [ "$status" -ne 0 ] || grep -q '^Vulnerability #' <<< "$output"; then
+            exit 1
+          fi
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

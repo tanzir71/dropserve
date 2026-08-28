@@ -13,7 +13,7 @@ require (
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
 	github.com/smallstep/truststore v0.13.0
 	github.com/yookoala/gofast v0.8.0
-	golang.org/x/mod v0.37.0
+	golang.org/x/mod v0.40.0
 	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )

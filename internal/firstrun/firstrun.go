@@ -164,7 +164,7 @@ func complete(options Options, appsRoot string, startAtLogin bool) (bool, error)
 	if err != nil || !needed {
 		return false, err
 	}
-	if err := os.MkdirAll(appsRoot, 0o750); err != nil {
+	if err := os.MkdirAll(appsRoot, 0o750); err != nil { // #nosec G703 -- appsRoot is the absolute directory explicitly chosen in the loopback-only setup form.
 		return false, fmt.Errorf("create Apps folder: %w", err)
 	}
 	if err := installExample(appsRoot); err != nil {
@@ -193,30 +193,47 @@ func complete(options Options, appsRoot string, startAtLogin bool) (bool, error)
 }
 
 func installExample(appsRoot string) error {
-	target := filepath.Join(appsRoot, ExampleDirectory)
-	if _, err := os.Stat(target); err == nil {
+	root, err := os.OpenRoot(appsRoot) // #nosec G703 -- the explicit Apps root is opened once so all example operations are confined beneath its handle.
+	if err != nil {
+		return fmt.Errorf("open Apps folder: %w", err)
+	}
+	defer func() {
+		_ = root.Close()
+	}()
+	if _, err := root.Stat(ExampleDirectory); err == nil {
 		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect example app: %w", err)
 	}
-	if err := os.Mkdir(target, 0o750); err != nil {
+	if err := root.Mkdir(ExampleDirectory, 0o750); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return nil
 		}
 		return fmt.Errorf("create example app: %w", err)
 	}
 	created := true
+	indexPath := filepath.Join(ExampleDirectory, "index.html")
 	defer func() {
 		if created {
-			_ = os.RemoveAll(target)
+			_ = root.Remove(indexPath)
+			_ = root.Remove(ExampleDirectory)
 		}
 	}()
 	data, err := assets.ReadFile("assets/example/index.html")
 	if err != nil {
 		return fmt.Errorf("read embedded example app: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(target, "index.html"), data, 0o600); err != nil {
+	file, err := root.OpenFile(indexPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
 		return fmt.Errorf("write example app: %w", err)
+	}
+	_, writeErr := file.Write(data)
+	closeErr := file.Close()
+	if writeErr != nil {
+		return fmt.Errorf("write example app: %w", writeErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close example app: %w", closeErr)
 	}
 	created = false
 	return nil

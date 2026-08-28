@@ -97,6 +97,8 @@ jobs:
           if [ "$status" -ne 0 ] || grep -q '^Vulnerability #' <<< "$output"; then
             exit 1
           fi
+      - name: gosec
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 ./...
 
   secrets:
     name: Secret scan

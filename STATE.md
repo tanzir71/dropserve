@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:18:04Z
+**Last updated:** 2026-08-28T02:21:25Z
 **Gate status:** green
-**Iterations completed:** 130
+**Iterations completed:** 131
 
 ## Milestone progress
 
@@ -60,7 +60,7 @@
 - [x] Assert: with the PHP pack installed, `testdata/fixtures/php/index.php` returns the expected output through `GET /php/`, including `$_GET`, `$_POST`, a file upload, and `PATH_INFO`.
 - [x] Assert: the FastCGI request parameters are correct — `SCRIPT_FILENAME`, `DOCUMENT_ROOT`, `REQUEST_URI`, `SCRIPT_NAME` reflect the app root and the `/slug/` prefix.
 - [x] Assert: a PHP fatal error produces a readable error page and does not take down the pool.
-- [ ] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
+- [x] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
 - [ ] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
 - [ ] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
 - [ ] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
@@ -321,6 +321,7 @@
 - `TestFastCGIParametersKeepDropservePrefix` failed first with no explicit Dropserve-aware session mapper. The mapper now separates the router-stripped local script/path-info pair from the preserved public request: `/php/index.php/extra/path?name=dropserve` becomes `SCRIPT_FILENAME=<app-root>/index.php`, `DOCUMENT_ROOT=<app-root>`, `REQUEST_URI=/php/index.php/extra/path?name=dropserve`, `SCRIPT_NAME=/php/index.php`, and `PATH_INFO=/extra/path`, with a confinement check before any FastCGI request is sent. Three focused runs, the real official PHP smoke, and the full gate pass.
 - That full race run also exposed an unrelated nondeterministic test-only race: the HTTPS-degradation test read a `bytes.Buffer` while the best-effort mDNS startup path could still log to it. Its test writer is now synchronized; the formerly racy case passed ten race-detector runs before the full green gate.
 - The fatal-error extension to the PHP fixture failed against both the hermetic worker and official PHP 8.5.10: the real runtime rendered the expected `Fatal error`, function name, file, line, and stack trace but incorrectly labeled the response HTTP 200. Dropserve now inspects only the first bounded 256 KiB of a PHP response, preserves PHP's diagnostic body, marks recognizable uncaught-fatal output HTTP 500 with `X-Dropserve-PHP-Error: fatal`, and streams larger responses without unbounded buffering. Three hermetic pool runs and the official runtime both returned the readable 500 page, followed immediately by a healthy 200 request through the same pool; the full gate is green.
+- `TestPoolRestartsKilledWorkerWithinFiveSeconds` failed first after an externally killed FastCGI worker retained its dead process slot for the full deadline. Each pool slot now monitors its process handle, waits 100 ms after an unexpected exit, launches a verified replacement on the same loopback address so existing app handlers remain valid, and retries failed starts at 250 ms without blocking healthy slots. Ten repeated external-kill cycles returned a new PID and a real FastCGI response, three focused race-detector runs passed, and the full gate is green.
 
 ## Decisions made this build (beyond the spec)
 

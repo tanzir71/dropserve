@@ -33,12 +33,15 @@ type Pool struct {
 	workers []*worker
 	next    atomic.Uint64
 	closed  bool
+	ctx     context.Context
+	options PoolOptions
 }
 
 type worker struct {
 	address string
 	command *exec.Cmd
-	done    chan error
+	done    chan struct{}
+	err     error
 }
 
 // StartPool launches php-cgi workers and waits until each loopback socket is ready.
@@ -63,32 +66,80 @@ func StartPool(ctx context.Context, options PoolOptions) (*Pool, error) {
 		options.Output = io.Discard
 	}
 
-	pool := &Pool{}
+	pool := &Pool{ctx: ctx, options: options}
 	for index := 0; index < workerCount; index++ {
 		address, err := availableAddress(ctx)
 		if err != nil {
 			_ = pool.Close()
 			return nil, fmt.Errorf("reserve PHP worker address: %w", err)
 		}
-		command := options.command(ctx, address)
-		command.Stdout = options.Output
-		command.Stderr = options.Output
-		configureWorkerCommand(command)
-		if err := command.Start(); err != nil {
+		current, err := startWorker(ctx, options, address)
+		if err != nil {
 			_ = pool.Close()
 			return nil, fmt.Errorf("start PHP worker %d: %w", index+1, err)
 		}
-		current := &worker{address: address, command: command, done: make(chan error, 1)}
 		pool.workers = append(pool.workers, current)
-		go func() {
-			current.done <- command.Wait()
-		}()
-		if err := waitForWorker(current, options.StartTimeout); err != nil {
-			_ = pool.Close()
-			return nil, fmt.Errorf("start PHP worker %d: %w", index+1, err)
-		}
+		go pool.monitor(index, current)
 	}
 	return pool, nil
+}
+
+func startWorker(ctx context.Context, options PoolOptions, address string) (*worker, error) {
+	command := options.command(ctx, address)
+	command.Stdout = options.Output
+	command.Stderr = options.Output
+	configureWorkerCommand(command)
+	if err := command.Start(); err != nil {
+		return nil, err
+	}
+	current := &worker{address: address, command: command, done: make(chan struct{})}
+	go func() {
+		current.err = command.Wait()
+		close(current.done)
+	}()
+	if err := waitForWorker(current, options.StartTimeout); err != nil {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+		<-current.done
+		return nil, err
+	}
+	return current, nil
+}
+
+func (pool *Pool) monitor(index int, departed *worker) {
+	<-departed.done
+	timer := time.NewTimer(100 * time.Millisecond)
+	defer timer.Stop()
+	for {
+		select {
+		case <-pool.ctx.Done():
+			return
+		case <-timer.C:
+		}
+		pool.mu.Lock()
+		current := !pool.closed && index < len(pool.workers) && pool.workers[index] == departed
+		pool.mu.Unlock()
+		if !current {
+			return
+		}
+		replacement, err := startWorker(pool.ctx, pool.options, departed.address)
+		if err != nil {
+			timer.Reset(250 * time.Millisecond)
+			continue
+		}
+		pool.mu.Lock()
+		if pool.closed || index >= len(pool.workers) || pool.workers[index] != departed {
+			pool.mu.Unlock()
+			_ = replacement.command.Process.Kill()
+			<-replacement.done
+			return
+		}
+		pool.workers[index] = replacement
+		pool.mu.Unlock()
+		go pool.monitor(index, replacement)
+		return
+	}
 }
 
 func (options PoolOptions) command(ctx context.Context, address string) *exec.Cmd {
@@ -124,9 +175,8 @@ func waitForWorker(current *worker, timeout time.Duration) error {
 			return nil
 		}
 		select {
-		case waitErr := <-current.done:
-			current.done <- waitErr
-			return fmt.Errorf("php-cgi exited before accepting requests: %w", waitErr)
+		case <-current.done:
+			return fmt.Errorf("php-cgi exited before accepting requests: %w", current.err)
 		default:
 		}
 		if time.Now().After(deadline) {
@@ -168,6 +218,11 @@ func (pool *Pool) Close() error {
 
 	var closeErrors []error
 	for _, current := range workers {
+		select {
+		case <-current.done:
+			continue
+		default:
+		}
 		if current.command.Process != nil {
 			if err := current.command.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
 				closeErrors = append(closeErrors, fmt.Errorf("stop PHP worker at %s: %w", current.address, err))

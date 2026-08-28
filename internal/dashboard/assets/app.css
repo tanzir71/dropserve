@@ -148,6 +148,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 7p
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
 
 .app-card { position: relative; min-height: 180px; border: 1px solid var(--line); border-radius: 18px; background: var(--card); box-shadow: 0 8px 28px rgba(33, 53, 46, .045); transition: transform .15s, border-color .15s, box-shadow .15s; }
+.app-card[data-actions-open="true"] { z-index: 6; }
 .app-card[data-status="crashed"] { border-color: #d7a642; background: #fff9e8; }
 .app-card[data-status="needs-runtime"] { border-color: #d7a642; }
 .app-card[data-status="stopped"] { opacity: .88; }

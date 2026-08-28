@@ -54,6 +54,7 @@ let csrfToken = '';
 let activeFunnels = new Map();
 let dismissedWarningText = '';
 let showHidden = false;
+let openActionsSlug = '';
 let addonsRefreshTimer = 0;
 let addonsWereBusy = false;
 
@@ -375,10 +376,12 @@ function appCard(item, index) {
   toggle.className = 'card-actions-toggle';
   toggle.textContent = '⋯';
   toggle.setAttribute('aria-label', `Actions for ${item.name || item.slug}`);
-  toggle.setAttribute('aria-expanded', 'false');
+  const actionsOpen = openActionsSlug === item.slug;
+  toggle.setAttribute('aria-expanded', String(actionsOpen));
   const menu = document.createElement('div');
   menu.className = 'card-actions';
-  menu.hidden = true;
+  menu.hidden = !actionsOpen;
+  article.dataset.actionsOpen = String(actionsOpen);
   const openLabel = item.prefers_own_port && ownURL ? 'Open on its own port' : 'Open';
   menu.append(actionButton(openLabel, 'open'));
   if (ownURL && !item.prefers_own_port) menu.append(actionButton('Open on its own port', 'open-own'));
@@ -401,8 +404,11 @@ function appCard(item, index) {
     const opening = menu.hidden;
     document.querySelectorAll('.card-actions').forEach(other => { other.hidden = true; });
     document.querySelectorAll('.card-actions-toggle').forEach(other => { other.setAttribute('aria-expanded', 'false'); });
+    document.querySelectorAll('.app-card').forEach(other => { other.dataset.actionsOpen = 'false'; });
+    openActionsSlug = opening ? item.slug : '';
     menu.hidden = !opening;
     toggle.setAttribute('aria-expanded', String(opening));
+    article.dataset.actionsOpen = String(opening);
   });
   menu.addEventListener('click', async event => {
     const button = event.target.closest('[data-action]');
@@ -424,6 +430,8 @@ function appCard(item, index) {
     if (button.dataset.action === 'database') showDatabase(item, button.dataset.file);
     menu.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
+    article.dataset.actionsOpen = 'false';
+    openActionsSlug = '';
   });
   article.append(link);
   if (item.status === 'crashed') {
@@ -452,6 +460,7 @@ function render() {
   const query = search.value.trim().toLowerCase();
   const hiddenCount = apps.filter(item => item.hidden).length;
   visible = apps.filter(item => (showHidden || !item.hidden) && (!query || [item.name, item.description, item.title, item.heading, item.slug, ...(item.tags || [])].some(value => value?.toLowerCase().includes(query))));
+  if (!visible.some(item => item.slug === openActionsSlug)) openActionsSlug = '';
   selected = Math.max(0, Math.min(selected, visible.length - 1));
   grid.replaceChildren(...visible.map(appCard));
   grid.setAttribute('aria-busy', 'false');
@@ -713,6 +722,8 @@ document.addEventListener('click', event => {
   if (!event.target.closest('.app-card')) {
     document.querySelectorAll('.card-actions').forEach(menu => { menu.hidden = true; });
     document.querySelectorAll('.card-actions-toggle').forEach(button => { button.setAttribute('aria-expanded', 'false'); });
+    document.querySelectorAll('.app-card').forEach(card => { card.dataset.actionsOpen = 'false'; });
+    openActionsSlug = '';
   }
 });
 

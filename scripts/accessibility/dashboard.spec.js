@@ -21,6 +21,7 @@ for (const colorScheme of ['light', 'dark']) {
       for (let index = 0; index < await controls.count(); index += 1) {
         await expect(controls.nth(index)).toHaveAccessibleName(/\S/);
       }
+      await expect(page.locator('#app-search')).toHaveAccessibleName('Search your apps');
 
       const results = await new AxeBuilder({ page }).withTags(wcagAATags).analyze();
       expect(results.violations, JSON.stringify(results.violations, null, 2)).toEqual([]);
@@ -49,4 +50,25 @@ test('Tab reaches the app and every opened action', async ({ page }) => {
   await expect(page.locator('#sharing-close')).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.locator('#sharing-panel a:visible, #sharing-panel button:visible').nth(1)).toBeFocused();
+});
+
+test('mobile card actions survive overlap and a live rerender', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openReadyDashboard(page);
+
+  await page.evaluate(() => {
+    const grid = document.querySelector('#app-grid');
+    const card = grid.querySelector('.app-card');
+    grid.append(card.cloneNode(true));
+  });
+
+  const firstCard = page.locator('.app-card').first();
+  await firstCard.locator('.card-actions-toggle').click();
+  const finalAction = firstCard.getByRole('button', { name: 'Hide from index' });
+  await expect(finalAction).toBeVisible();
+  await finalAction.click({ trial: true });
+
+  await page.locator('#app-search').fill('field');
+  await expect(finalAction).toBeVisible();
+  await finalAction.click({ trial: true });
 });

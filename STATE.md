@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M6 — Always there
-**Last updated:** 2026-08-28T00:00:11Z
+**Current milestone:** M7 — Findable
+**Last updated:** 2026-08-28T00:19:44Z
 **Gate status:** green
-**Iterations completed:** 91
+**Iterations completed:** 97
 
 ## Milestone progress
 
@@ -13,7 +13,7 @@
 - [x] M3 — Live (tag: `m3-complete`)
 - [x] M4 — Running things (tag: `m4-complete`)
 - [x] M5 — The subpath survival kit (tag: `m5-complete`)
-- [ ] M6 — Always there
+- [x] M6 — Always there (tag: `m6-complete`)
 - [ ] M7 — Findable
 - [ ] M8 — HTTPS
 - [ ] M9 — PHP and add-ons
@@ -22,13 +22,27 @@
 
 ## Current milestone criteria
 
-- [x] Script (Windows, CI): `dropserve autostart enable` then `schtasks /Query /TN Dropserve /XML` succeeds and the XML contains `<LogonTrigger>`, `ExecutionTimeLimit` set to `PT0S`, and no `<RunLevel>HighestAvailable</RunLevel>`.
-- [x] Assert: `dropserve autostart status` after an external `schtasks /Delete` reports **disabled** — proving it reads the OS, not a stored flag.
-- [x] Script: `enable` twice in a row succeeds (idempotent); `disable` twice succeeds.
-- [x] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
-- [x] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
-- [x] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
-- [x] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
+- [ ] **Spike, first thing:** write `scripts/spike/mdns.go` that advertises `dropserve-spike.local` with `libp2p/zeroconf/v2`, runs for 20 seconds, and reports whether the bind succeeded. Run it on Windows (where the OS responder holds UDP/5353) and on Linux. If the default library fails to bind on Windows, repeat with `betamos/zeroconf`. Adopt whichever binds on both, record the result and the raw output in `STATE.md`, and write it up as an ADR. If **neither** binds on Windows, ship without mDNS on Windows — the `.local` URL is simply absent (invariant I3 is satisfied by hiding it) — and record that as the outcome. Do not spend more than one iteration on this.
+- [ ] Assert: virtual-adapter filtering — given a synthetic interface list containing `vEthernet (WSL)`, `Tailscale`, `VirtualBox Host-Only` and one real adapter, the real one is chosen.
+- [ ] Assert: when no LAN IP is available (loopback only), the Sharing panel shows the loopback URL and no broken entries — **I3** holds.
+- [ ] Assert: mDNS bind failure is caught, logged, and results in the `.local` URL being **absent** from `/api/urls`, not present-and-broken.
+- [ ] Assert: Tailscale detection with a faked `tailscale status --json` fixture parses `Self.DNSName` and produces the right URL; with a fixture where `BackendState` is `Stopped` or `NeedsLogin`, the panel shows the correct explanation and no URL.
+- [ ] Assert: with no `tailscale` binary present, the panel shows the "not installed" explanation and does not error.
+- [ ] Assert (**I5**): enabling Funnel requires a confirmation token that matches the app slug; a request without it is refused with 400 and no `tailscale funnel` process is spawned (verify with an injected fake executor).
+- [ ] Assert: Funnel state is persisted with a timestamp and auto-expires after 8 hours (test with an injected clock).
+- [ ] Assert: while Funnel is active, `/api/status` includes a `public_sharing_active` warning and it is non-dismissible in the UI.
+- [ ] Assert (**hazard 11**): simulate resume-from-sleep by injecting a network-change event with a different LAN IP and a listener that has been closed underneath the server. Within one monitor interval the server re-probes the network, re-establishes any dead listener, updates every advertised URL, and `/api/status` reports the new address. No restart, no lost apps.
+- [ ] Assert (**hazard 12**): when the LAN IP changes, the dashboard raises a persistent-until-dismissed notice naming the old and new addresses and linking to the DHCP-reservation explainer.
+- [ ] Manual (record in `STATE.md`): on a real tailnet, `tailscale serve` produces a working HTTPS URL and `unserve` cleanly removes it. Use a throwaway tailnet or do it once — repeated toggling burns Let's Encrypt rate limits (**hazard 14**).
+
+### M6 completion audit (closed)
+
+- [x] Deliverable: per-user autostart is implemented for Windows Scheduled Tasks, Linux systemd user units, and macOS LaunchAgents; enablement is idempotent and verifies actual OS state before reporting success.
+- [x] Deliverable: `--background` and the shipped Windows GUI/CLI pair work without a console window; the GUI is tray-tagged while the console and non-Windows builds remain fully headless.
+- [x] Deliverable: the optional tray supplies the exact seven-item menu contract and running, warning, public-sharing, and paused icon states.
+- [x] Deliverable: the one-screen first run has exactly the editable Apps folder, checked start-at-login choice, and Start button; it installs the useful converter once and uses state-file absence as its sole trigger.
+- [x] Deliverable: `dropserve doctor` covers the complete support surface with healthy/failing exit codes and bounded recent logs.
+- [x] Completion: ran the real Windows background and autostart demos, M2/M5 regression demos, tray-tagged race/lint checks, the full gate, and hosted CI; committed and tagged `m6-complete`.
 
 ### M5 completion audit (closed)
 
@@ -196,9 +210,17 @@
 - `TestDoctorExitCodesAndCoversSupportSurface` and `TestHealthyReportContainsEverySupportCheck` lock healthy exit 0, required-root failure exit 1, and explicit lines for version, port rationale, Windows excluded ranges and firewall, readable Apps roots, every app and warning, Node/Python/PHP availability, mDNS bind, Tailscale, OS-backed autostart, and error logs. Missing optional integrations are warnings; unreadable configured roots and missing runtimes required by detected apps are failures. `TestErrorLogsReturnOnlyNewestTwentyLines` locks the 20-line cap across chronologically ordered rotated files. A real binary run on this machine printed the full report and correctly exited 1 because the default Apps root does not exist; the full local gate is green.
 - `TestWindowsBuildShipsGUIAndConsoleVariants` failed first with no build plan, then locked `dropserve.exe` as a `-H=windowsgui` binary and `dropserve-cli.exe` as its console counterpart. Terminal smokes now use the CLI variant, while enabling autostart from it deliberately registers the colocated GUI binary. `scripts/smoke/m6-background.ps1` independently parses the PE subsystem and has the launched `--background` process report its own `GetConsoleWindow()` handle; both were respectively `IMAGE_SUBSYSTEM_WINDOWS_GUI` and `0` locally and in hosted Windows CI. Hosted run [33127169169](https://github.com/tanzir71/dropserve/actions/runs/33127169169) passed every Ubuntu/Windows gate, native smoke, lint, and secret-scan job.
 - `TestStateFileAloneControlsFirstRunAndExampleCopy` failed first with no first-run package, then exercised the real loopback-only setup form: exactly the editable Apps location, checked start-at-login choice, and Start button; config/state persistence; injected autostart; the embedded one-file “Welcome to Dropserve” converter; and a second run after deleting the example. The second run skipped the wizard and did not restore the example because only state-file absence controls setup. Real-binary browser verification found and fixed a completion-response shutdown race, then showed the dark-mode setup, one-card dashboard, working converter, zero console errors, and a subsequent 0-app dashboard after the example was moved out and the same isolated state restarted. Hosted CI [run 33127983506](https://github.com/tanzir71/dropserve/actions/runs/33127983506) passed both platform gates, every native smoke, lint, and secret scan.
+- `TestMenuContractMatchesHandover` and `TestEveryTrayStateHasAWindowsIcon` lock the optional tray's exact actions and self-contained running, amber-warning, public-sharing, and paused icons. The tray-tagged desktop mode starts and pauses the real server, opens the dashboard and chosen Apps folder, copies the local link, toggles actual OS autostart state, opens a doctor report, and quits cleanly. `TestWindowsBuildShipsGUIAndConsoleVariants` additionally locks the tray tag onto only the console-free GUI artifact; the default CLI and non-Windows builds remain headless. A dedicated zero-CGO Windows tray cross-build is now part of every `make check`, and separate tray-tagged race and lint runs passed locally.
+- `TestCompletedFirstRunSuppliesEditedAppsRootToDesktopMode` caught a final handoff edge: after the user edited the Apps path on the first-run screen, the tray originally retained the pre-wizard default. The first-run result now supplies the saved root directly to desktop mode, so “Open Apps Folder” opens exactly the chosen location.
+- `TestLaunchAgentRunsInBackgroundAndRestartsOnFailure` failed first with no macOS generator, then locked the escaped executable, `--background`, `RunAtLoad`, `KeepAlive.SuccessfulExit=false`, background process type, and throttle. Darwin now atomically installs `~/Library/LaunchAgents/dev.dropserve.agent.plist` and uses the current user's `launchctl bootstrap`, `kickstart`, `print`, and `bootout` domain. The zero-CGO Darwin/arm64 build passes.
+- `TestLinuxAutostartExplainsHeadlessLingerOption` failed first with no guidance. Successful Linux registration now prints the exact optional `loginctl enable-linger $USER` action and explains that it is for serving without an active login session.
+- `TestEnableVerificationRequiresActualOSRegistration` failed first with no post-registration verification. Windows, Linux, and macOS enable paths now query their actual scheduler after creation and refuse to claim success if the registration is absent or the status probe fails. The real Windows smoke passed after this stricter check.
+- Final local `make check` passed formatting, lint, race-enabled tests, version injection, Windows/Linux/macOS zero-CGO cross-builds, the optional tray build, and the shipped-file scan. The shipped CLI reported `dropserve 0.0.0-dev (26bb7a0)`; the real GUI background probe reported `GetConsoleWindow() == 0`; and the real Scheduled Task smoke verified safe XML, OS-backed status, and double enable/disable. M2 and M5 native regression demos also passed.
+- Hosted CI [run 33129074656](https://github.com/tanzir71/dropserve/actions/runs/33129074656) passed the Ubuntu and Windows gates, golangci-lint, secret scan, both native M2/M5 demos, the Linux systemd smoke, and the Windows Scheduled Task and console-free background smokes on commit `af98b72`.
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.
+  M6 Windows background smoke passed: the PE uses the GUI subsystem and GetConsoleWindow() returned 0.
   ```
 
 ## Decisions made this build (beyond the spec)
@@ -230,4 +252,4 @@
 
 ## Dependency count
 
-4 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, and Windows syscall bridge); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 5 modules including the main module.
+5 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, and build-tagged tray library); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 22 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.

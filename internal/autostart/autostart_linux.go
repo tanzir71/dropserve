@@ -31,7 +31,7 @@ func Enable(executable string) error {
 	if output, err := runSystemctl("--user", "enable", "--now", systemdUnitName); err != nil {
 		return commandError("enable the systemd user service", output, err)
 	}
-	return nil
+	return verifyEnabled("systemd user service", Enabled)
 }
 
 // Disable stops, disables, and removes the current user's Dropserve service.

@@ -118,7 +118,7 @@ func Enable(executable string) error {
 	if err != nil {
 		return commandError("create the Windows Scheduled Task", output, err)
 	}
-	return nil
+	return verifyEnabled("Windows Scheduled Task", Enabled)
 }
 
 // Disable removes the current user's Dropserve logon task. It is idempotent.

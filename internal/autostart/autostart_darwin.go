@@ -40,7 +40,7 @@ func Enable(executable string) error {
 	if output, err := runLaunchctl("kickstart", "-k", target); err != nil {
 		return launchctlError("start the launch agent", output, err)
 	}
-	return nil
+	return verifyEnabled("launch agent", Enabled)
 }
 
 // Disable unloads and removes the current user's Dropserve LaunchAgent.

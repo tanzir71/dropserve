@@ -1,55 +1,103 @@
 # Dropserve
 
-Dropserve is a free, open-source local web server for people who want to use a local server, not administer one. Drop a folder into your Apps directory and it becomes reachable from a searchable dashboard without configuration or a restart.
+[![CI](https://github.com/tanzir71/dropserve/actions/workflows/ci.yml/badge.svg)](https://github.com/tanzir71/dropserve/actions/workflows/ci.yml)
+[![MIT License](https://img.shields.io/badge/license-MIT-147d64.svg)](LICENSE)
 
-The current build serves static sites and supervised Node or Python apps, updates live as folders change, preserves stable per-app ports, and handles apps that cannot run safely below a URL prefix. It includes first-run setup, diagnostics, per-user autostart, and an optional desktop tray. LAN discovery, Tailscale sharing, HTTPS, runtime packs, and installers are the next milestones in the authoritative [build handover](DROPSERVE-HANDOVER.md).
+Dropserve turns folders on one computer into local websites. Put an app in your Apps folder and it appears on a searchable dashboard without configuration or a restart. Static sites work immediately; Node, Python, PHP, SQLite, MariaDB, and PostgreSQL are supported without bundling a heavyweight stack into the base install.
 
-## Getting started
+| Light | Dark |
+|---|---|
+| ![Dropserve dashboard in the light theme](docs/screenshots/dashboard-light.png) | ![Dropserve dashboard in the dark theme](docs/screenshots/dashboard-dark.png) |
 
-Requirements: Go 1.23 or newer and GNU Make.
+## What it does
+
+- Discovers app folders and serves them at stable, readable URLs.
+- Updates the dashboard within two seconds when folders change.
+- Serves static sites and supervises Node or Python command apps.
+- Handles subpath-hostile apps with stable dedicated ports and clear rescue links.
+- Offers optional, verified PHP, MariaDB, and PostgreSQL packs; the base install contains none of them.
+- Browses app-local SQLite databases read-only.
+- Shares verified loopback, LAN, mDNS, and Tailscale addresses with local QR codes.
+- Keeps public Tailscale Funnel sharing off until one app is explicitly confirmed.
+- Offers opt-in local HTTPS and never changes the operating-system trust store without an explicit action.
+- Starts at login, lives in the Windows tray, and includes a complete `doctor` report.
+
+## Try the current build
+
+The first tagged installer is still being acceptance-tested. Until it is published, build from source with Go 1.25 or newer and GNU Make:
 
 ```console
+git clone https://github.com/tanzir71/dropserve.git
+cd dropserve
 make check
 make build
 ```
 
-On Windows, `make build` creates two binaries:
+On Windows, `make build` creates:
 
-- `bin/dropserve.exe` is the console-free desktop build with the tray.
-- `bin/dropserve-cli.exe` is the terminal build for commands and diagnostics.
+- `bin/dropserve.exe` — the console-free desktop and tray application.
+- `bin/dropserve-cli.exe` — terminal commands and diagnostics.
 
-Run `dropserve.exe` with no arguments. The one-screen setup lets you choose the Apps folder and whether Dropserve should start at login. Starting setup creates a small example app, launches the server, and opens the dashboard. On Linux and macOS, run `bin/dropserve`; the same first-run flow opens in the default browser.
+Run `bin/dropserve.exe`. The one-screen setup asks for an Apps folder and whether Dropserve should start at login, creates a useful example app, and opens the dashboard. On Linux and macOS, run `bin/dropserve` for the same browser-based setup.
 
-Useful terminal commands:
+Useful commands:
 
 ```console
 dropserve serve
 dropserve add PATH
 dropserve status
+dropserve healthz
 dropserve doctor
 dropserve autostart enable
-dropserve autostart status
-dropserve autostart disable
+dropserve trust --install
+dropserve trust --uninstall
 ```
 
-Windows uses a current-user Scheduled Task, Linux uses a systemd user unit, and macOS uses a per-user LaunchAgent. Linux users who need serving to continue without an active login can enable systemd lingering after registration; the command prints the exact `loginctl` instruction.
+`dropserve add PATH` registers a folder without moving, copying, or modifying it. Windows uses a current-user Scheduled Task, Linux uses a systemd user unit, and macOS uses a per-user LaunchAgent.
 
-The Windows desktop tray can open the dashboard or Apps folder, copy the local link, pause serving, manage start-at-login, run the doctor, and quit. Source builds can opt into the tray with `go build -tags tray ./cmd/dropserve`; the normal source build remains fully headless.
+## Apps
 
-## Non-goals
+A plain folder with `index.html` is enough:
 
-- Dropserve is not a production internet-facing web server.
-- It is not a Docker replacement or an orchestrator.
-- It is not a build system and does not run package installation for apps.
-- It is not a WordPress or Laravel development environment first.
-- It is not multi-user.
-- It is not a file-sync tool.
+```text
+Apps/
+└── kitchen-timer/
+    ├── index.html
+    ├── app.js
+    └── app.css
+```
 
-App code runs with your user account's privileges. Anyone on the same LAN can reach apps configured with the default LAN visibility. These are deliberate parts of the personal-server threat model.
+Dropserve detects common static, Node, Python, and PHP layouts. An optional `dropserve.json` can set a display name, description, icon, command, environment, visibility, health path, SPA fallback, and other advanced behavior. App files remain yours: scanning, serving, and removal of optional runtimes do not write into them.
+
+## Network and security model
+
+Dropserve is a personal server for a home or office LAN, not a hardened public web server. By default, anyone on the same LAN can reach LAN-visible apps, and app processes run with your user account's privileges. Only add code you wrote or trust.
+
+Tailscale Serve is the preferred private remote-access path. Tailscale Funnel is the only public-internet path, is off by default, requires the exact app slug as confirmation, and expires automatically after eight hours. Local HTTPS is optional; installing its local certificate authority always requires a separate explicit action and can be fully undone.
+
+The only routine outbound request made by the base application is a bounded, once-per-day check of this repository's latest GitHub release metadata. It never downloads or installs an update. Set this in `config.toml` to turn the check off:
+
+```toml
+[updates]
+check = false
+```
+
+## Releases and Windows warnings
+
+Release builds publish checksums and provenance attestations. Windows binaries and the installer are Authenticode-signed with the project's own certificate. That provides publisher identity and tamper evidence, but a self-signed certificate does not build Microsoft SmartScreen reputation, so a direct browser download may still show “Windows protected your PC.” The project documents that warning instead of promising a warning-free install.
+
+The Windows uninstaller stops Dropserve and removes its start-at-login task, firewall rule, and any Dropserve local certificate authority before deleting the install directory. Your own Apps folders are never removed.
 
 ## Development
 
-`make check` is the merge gate. It verifies formatting, static analysis, race-enabled tests, version injection, zero-CGO Windows/Linux/macOS builds, the optional Windows tray build, and unfinished shipped text. See [CONTRIBUTING.md](CONTRIBUTING.md) for the product invariants that every change must preserve.
+`make check` is the merge gate. It runs formatting, static analysis, race-enabled tests, version injection, zero-CGO Windows/Linux/macOS builds, the optional Windows tray build, and a shipped-file scan. See [CONTRIBUTING.md](CONTRIBUTING.md) for the five product invariants every change must preserve and [DROPSERVE-HANDOVER.md](DROPSERVE-HANDOVER.md) for the authoritative build specification.
+
+## Non-goals
+
+- A production internet-facing web server.
+- A Docker replacement, orchestrator, build system, or file-sync tool.
+- A multi-user hosting service.
+- A mandatory Apache/PHP/database bundle.
 
 ## Licence
 

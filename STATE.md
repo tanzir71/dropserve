@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M8 — HTTPS (M7 real-tailnet check pending)
-**Last updated:** 2026-08-28T01:33:07Z
+**Last updated:** 2026-08-28T01:42:05Z
 **Gate status:** green
-**Iterations completed:** 123
+**Iterations completed:** 124
 
 ## Milestone progress
 
@@ -295,6 +295,7 @@
 - `TestHTTPRemainsAvailableWhenHTTPSIsEnabled` serves one live handler over separate HTTP and TLS listeners, follows no redirect, and observes a new leaf serial on the first handshake after address rotation. `TestHTTPSListenerFailureDegradesToHTTPOnly` occupies the configured TLS port in the real CLI path, requires a warning naming HTTPS and that port, and still receives HTTP 200 before a clean exit.
 - The inert `TrustController` has an injected `TrustStore` and its unit test records one matching install/remove pair with zero construction-time calls. The production adapter uses the handover-approved `github.com/smallstep/truststore` v0.13.0 (Go 1.18 module baseline); the full-server no-implicit-call proof, explicit CLI/dashboard actions, and real Windows install/remove verification remain intentionally pending.
 - Full local `make check` passes formatting, lint, race tests, version injection, Windows/Linux/macOS zero-CGO builds, optional tray build, and shipped-file scan with the new CA, ACL, dynamic TLS runtime, and monitor integration.
+- Hosted CI run 33133243044 exposed a test-only Windows SDDL portability error: GitHub's Administrator SID was canonically rendered as the well-known `LA` alias, so the string assertion could not find the numeric SID even though the protected DACL contained the correct sole grant. `TestWindowsRootKeyACLGrantsOnlyCurrentUser` now reads the actual ACE, compares its binary trustee SID to the process user, and verifies an allow/full-file-control grant; three local Windows runs and the full gate pass.
 
 ## Decisions made this build (beyond the spec)
 

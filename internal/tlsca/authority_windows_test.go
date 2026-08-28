@@ -4,8 +4,8 @@ package tlsca
 
 import (
 	"path/filepath"
-	"strings"
 	"testing"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
@@ -34,7 +34,22 @@ func TestWindowsRootKeyACLGrantsOnlyCurrentUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read current user SID: %v", err)
 	}
-	if security := descriptor.String(); !strings.Contains(security, user.User.Sid.String()) {
-		t.Fatalf("root-key security descriptor %q does not name current user %s", security, user.User.Sid)
+	var grant *windows.ACCESS_ALLOWED_ACE
+	if err := windows.GetAce(dacl, 0, &grant); err != nil {
+		t.Fatalf("read root-key access grant: %v", err)
+	}
+	// #nosec G103 -- ACCESS_ALLOWED_ACE stores its variable-length SID at SidStart by Windows API contract.
+	grantee := (*windows.SID)(unsafe.Pointer(&grant.SidStart))
+	const fileAllAccess = windows.STANDARD_RIGHTS_REQUIRED | windows.SYNCHRONIZE | 0x1ff
+	if grant.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE ||
+		grant.Mask != fileAllAccess ||
+		!grantee.Equals(user.User.Sid) {
+		t.Fatalf(
+			"root-key grant = type %d mask %#x SID %s, want full control for current user %s",
+			grant.Header.AceType,
+			grant.Mask,
+			grantee,
+			user.User.Sid,
+		)
 	}
 }

@@ -119,6 +119,9 @@ jobs:
       - name: Silent install and uninstall smoke
         shell: pwsh
         run: ./scripts/release/m10-installer.ps1 -Installer ./dist/installer/dropserve-0.0.0-ci-windows-amd64-setup.exe
+      - name: Fresh Windows VM and separate WSL2 network smoke
+        shell: pwsh
+        run: ./scripts/release/m10-fresh-machine.ps1 -Installer ./dist/installer/dropserve-0.0.0-ci-windows-amd64-setup.exe
 
   landing-page:
     name: Landing page

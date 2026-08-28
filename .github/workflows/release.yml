@@ -95,6 +95,11 @@ jobs:
         run: |
           $installer = Get-ChildItem -LiteralPath ./dist/installer -Filter '*-setup.exe' | Select-Object -First 1
           ./scripts/release/m10-installer.ps1 -Installer $installer.FullName
+      - name: Fresh Windows VM and separate WSL2 network smoke
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -LiteralPath ./dist/installer -Filter '*-setup.exe' | Select-Object -First 1
+          ./scripts/release/m10-fresh-machine.ps1 -Installer $installer.FullName
       - name: Extend release checksums
         shell: pwsh
         run: |

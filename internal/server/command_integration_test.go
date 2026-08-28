@@ -232,7 +232,7 @@ func TestImmediateFailureRestartsFiveTimesThenCrashes(t *testing.T) {
 	}
 }
 
-func TestCrashedAppDoesNotBlockHealthyApp(t *testing.T) {
+func TestOneBrokenAppDoesNotAffectOthers(t *testing.T) {
 	t.Parallel()
 
 	if _, err := exec.LookPath("node"); err != nil {

@@ -107,7 +107,7 @@ func formatMessage(format string, arguments ...any) string {
 	return fmt.Sprintf(format, arguments...)
 }
 
-func TestFunnelEnableWithoutMatchingSlugIsRefusedBeforeExecution(t *testing.T) {
+func TestNoImplicitPublicExposure(t *testing.T) {
 	executions := 0
 	funnel, err := discovery.NewFunnelManager(discovery.FunnelOptions{
 		Execute: func(context.Context, discovery.FunnelAction) error {
@@ -123,6 +123,12 @@ func TestFunnelEnableWithoutMatchingSlugIsRefusedBeforeExecution(t *testing.T) {
 		t.Fatalf("create dashboard: %v", err)
 	}
 	dashboard := httpHandler.(*handler)
+	if executions != 0 {
+		t.Fatalf("dashboard construction ran Funnel executor %d times, want 0", executions)
+	}
+	if _, active := funnel.Active("field-notes"); active {
+		t.Fatal("dashboard construction exposed field-notes without user action")
+	}
 	request := httptest.NewRequestWithContext(
 		context.Background(),
 		http.MethodPost,
@@ -139,6 +145,23 @@ func TestFunnelEnableWithoutMatchingSlugIsRefusedBeforeExecution(t *testing.T) {
 	}
 	if executions != 0 {
 		t.Fatalf("Funnel executor ran %d times, want 0", executions)
+	}
+
+	explicitRequest := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodPost,
+		"/_dropserve/api/sharing/funnel/field-notes",
+		strings.NewReader(`{"confirmation":"field-notes"}`),
+	)
+	explicitRequest.Header.Set("Content-Type", "application/json")
+	explicitRequest.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	explicitResponse := httptest.NewRecorder()
+	dashboard.ServeHTTP(explicitResponse, explicitRequest)
+	if explicitResponse.Code != http.StatusNoContent || executions != 1 {
+		t.Fatalf("explicit confirmed Funnel response = %d, executions=%d; want 204 and one", explicitResponse.Code, executions)
+	}
+	if _, active := funnel.Active("field-notes"); !active {
+		t.Fatal("explicit confirmed action did not expose field-notes")
 	}
 }
 

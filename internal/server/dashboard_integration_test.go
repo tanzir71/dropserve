@@ -456,7 +456,7 @@ func TestSearchRanksNameAboveFilename(t *testing.T) {
 	}
 }
 
-func TestEveryAdvertisedURLWorks(t *testing.T) {
+func TestAdvertisedURLsAllRespond(t *testing.T) {
 	t.Parallel()
 
 	server, err := dropserver.New(scanner.Options{Roots: []string{t.TempDir()}})

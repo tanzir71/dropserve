@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M11 — Hardening and polish (M7/M8 manual checks pending; M9/M10 tags withheld until prerequisites close)
-**Last updated:** 2026-08-28T04:13:30Z
+**Last updated:** 2026-08-28T04:17:55Z
 **Gate status:** green
-**Iterations completed:** 147
+**Iterations completed:** 148
 
 ## Milestone progress
 
@@ -22,7 +22,7 @@
 
 ## M11 criteria (active)
 
-- [ ] Assert: the five invariant tests from §4 all exist with the specified names and pass.
+- [x] Assert: the five invariant tests from §4 all exist with the specified names and pass.
 - [ ] Script: `govulncheck ./...` reports no known-vulnerable dependencies.
 - [ ] Script: `gosec ./...` passes, or every suppression has a one-line justification.
 - [ ] Assert: fuzz the slug sanitiser and path resolver for 60 seconds each with no crash or app-root escape.
@@ -30,6 +30,10 @@
 - [ ] Script: resident memory with 50 static apps stays below 60 MB after a five-minute soak.
 - [ ] Assert: automated dashboard accessibility covers keyboard navigation, accessible names, and WCAG AA contrast in both themes.
 - [ ] Manual: review every user-facing string against §9 and record each change in this ledger.
+
+### M11 evidence
+
+- `TestProductInvariantTestsKeepTheirSpecifiedNames` failed first because only I2 retained the §4 name. The contract now parses every checked-in Go test and requires all six specified functions. The existing full-behaviour I1/I3/I4 tests were renamed to `TestDropFolderBecomesReachable`, `TestAdvertisedURLsAllRespond`, and `TestOneBrokenAppDoesNotAffectOthers`; I2 was already exact. `TestNoImplicitPublicExposure` now proves dashboard construction and an unconfirmed CSRF-authenticated Funnel request make zero executor calls and create no active public mapping, while the exact typed slug is the only path that does. `TestTrustStoreRequiresExplicitConsent` proves startup/status and a CSRF-less request make no trust-store call, then explicit CSRF actions install and remove trust. Focused runs and the full race/lint/version/cross-build/tray/shipped-file gate pass.
 
 ## M7 criteria (manual tailnet check pending)
 

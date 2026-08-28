@@ -12,7 +12,7 @@ import (
 	"github.com/tanzir71/dropserve/internal/discovery"
 )
 
-func TestLocalHTTPSAndTrustActionsRequireExplicitCSRFRequests(t *testing.T) {
+func TestTrustStoreRequiresExplicitConsent(t *testing.T) {
 	status := LocalHTTPSStatus{Enabled: false}
 	var httpsTransitions []bool
 	var trustTransitions []bool

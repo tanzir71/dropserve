@@ -18,7 +18,7 @@ import (
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 )
 
-func TestFolderAddedIsServedWithinTwoSeconds(t *testing.T) {
+func TestDropFolderBecomesReachable(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()

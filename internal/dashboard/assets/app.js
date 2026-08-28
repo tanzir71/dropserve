@@ -12,6 +12,7 @@ const qrImage = document.querySelector('#qr-image');
 const qrAddress = document.querySelector('#qr-address');
 const qrCopy = document.querySelector('#qr-copy');
 const warningNotice = document.querySelector('#port-warning');
+const publicSharingWarning = document.querySelector('#public-sharing-warning');
 const logDialog = document.querySelector('#log-dialog');
 const logTitle = document.querySelector('#log-title');
 const logState = document.querySelector('#log-state');
@@ -217,6 +218,12 @@ function render() {
 function sharingRow(item) {
   const row = document.createElement('div');
   row.className = 'sharing-row';
+  if (!item.url) {
+    const message = document.createElement('p');
+    message.textContent = item.message || 'This sharing option is not available yet.';
+    row.append(message);
+    return row;
+  }
   const link = document.createElement('a');
   link.href = item.url;
   link.textContent = item.url;
@@ -300,11 +307,19 @@ fetch('/_dropserve/api/status')
   })
   .then(status => {
     if (!status.warnings?.length) return;
-    warningNotice.querySelector('p').textContent = status.warnings.join(' ');
-    warningNotice.hidden = false;
-    warningNotice.querySelector('button').addEventListener('click', () => {
-      window.location.assign('/_dropserve/api/status');
-    });
+    const publicWarnings = status.warnings.filter(warning => warning.startsWith('public_sharing_active:'));
+    const otherWarnings = status.warnings.filter(warning => !warning.startsWith('public_sharing_active:'));
+    if (publicWarnings.length) {
+      publicSharingWarning.querySelector('p').textContent = publicWarnings.map(warning => warning.replace('public_sharing_active:', 'Public sharing is active.')).join(' ');
+      publicSharingWarning.hidden = false;
+    }
+    if (otherWarnings.length) {
+      warningNotice.querySelector('p').textContent = otherWarnings.join(' ');
+      warningNotice.hidden = false;
+      warningNotice.querySelector('button').addEventListener('click', () => {
+        window.location.assign('/_dropserve/api/status');
+      });
+    }
   })
   .catch(() => {});
 

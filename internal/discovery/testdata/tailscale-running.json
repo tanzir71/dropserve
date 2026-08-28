@@ -1,0 +1,7 @@
+{
+  "BackendState": "Running",
+  "Self": {
+    "DNSName": "darkhorse.example-tailnet.ts.net.",
+    "TailscaleIPs": ["100.88.77.66", "fd7a:115c:a1e0::1234"]
+  }
+}

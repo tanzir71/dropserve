@@ -6,15 +6,19 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
+	"github.com/tanzir71/dropserve/internal/discovery"
 	"github.com/tanzir71/dropserve/internal/indexer"
 	"github.com/tanzir71/dropserve/internal/version"
 )
@@ -30,11 +34,15 @@ type handler struct {
 	started    time.Time
 	csrfToken  string
 	warnings   []string
+	discovery  func() discovery.Snapshot
+	funnel     *discovery.FunnelManager
 }
 
 // Options supplies runtime information displayed by the dashboard.
 type Options struct {
-	Warnings []string
+	Warnings  []string
+	Discovery func() discovery.Snapshot
+	Funnel    *discovery.FunnelManager
 }
 
 // New returns the embedded dashboard handler.
@@ -59,10 +67,16 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		started:    time.Now(),
 		csrfToken:  hex.EncodeToString(tokenBytes),
 		warnings:   append([]string{}, options.Warnings...),
+		discovery:  options.Discovery,
+		funnel:     options.Funnel,
 	}, nil
 }
 
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/sharing/funnel/") {
+		dashboard.serveFunnelEnable(response, request)
+		return
+	}
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		response.Header().Set("Allow", "GET, HEAD")
 		http.Error(response, "Method not allowed", http.StatusMethodNotAllowed)
@@ -122,6 +136,49 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	_, _ = response.Write(content)
 }
 
+func (dashboard *handler) serveFunnelEnable(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
+		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return
+	}
+	slug := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/sharing/funnel/")
+	if slug == "" || strings.Contains(slug, "/") || !dashboard.hasApp(slug) {
+		http.NotFound(response, request)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var payload struct {
+		Confirmation string `json:"confirmation"`
+	}
+	decoder := json.NewDecoder(request.Body)
+	if err := decoder.Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(response, "Type the app slug exactly to confirm public sharing.", http.StatusBadRequest)
+		return
+	}
+	if dashboard.funnel == nil {
+		http.Error(response, "Tailscale Funnel is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.funnel.Enable(request.Context(), slug, payload.Confirmation); err != nil {
+		if errors.Is(err, discovery.ErrFunnelConfirmation) {
+			http.Error(response, err.Error(), http.StatusBadRequest)
+			return
+		}
+		http.Error(response, "Dropserve could not enable Tailscale Funnel.", http.StatusBadGateway)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) hasApp(slug string) bool {
+	for _, application := range dashboard.apps {
+		if application.Slug == slug {
+			return true
+		}
+	}
+	return false
+}
+
 func (dashboard *handler) serveHealth(response http.ResponseWriter, request *http.Request) {
 	content := []byte("ok\n")
 	response.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -138,6 +195,22 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 	type ports struct {
 		HTTP int `json:"http"`
 	}
+	warnings := append([]string{}, dashboard.warnings...)
+	if dashboard.funnel != nil {
+		active := dashboard.funnel.ActiveEntries()
+		slugs := make([]string, 0, len(active))
+		for slug := range active {
+			slugs = append(slugs, slug)
+		}
+		sort.Strings(slugs)
+		for _, slug := range slugs {
+			warnings = append(warnings, fmt.Sprintf(
+				"public_sharing_active: %s is reachable from the public internet until %s.",
+				slug,
+				active[slug].ExpiresAt.UTC().Format(time.RFC3339),
+			))
+		}
+	}
 	payload := struct {
 		Version       string   `json:"version"`
 		Commit        string   `json:"commit"`
@@ -150,7 +223,7 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		Commit:        version.Commit,
 		UptimeSeconds: int64(time.Since(dashboard.started).Seconds()),
 		Ports:         ports{HTTP: requestHTTPPort(request)},
-		Warnings:      append([]string{}, dashboard.warnings...),
+		Warnings:      warnings,
 		CSRFToken:     dashboard.csrfToken,
 	}
 	dashboard.serveJSON(response, request, payload)
@@ -190,14 +263,24 @@ func (dashboard *handler) serveAppDetail(response http.ResponseWriter, request *
 }
 
 type advertisedURL struct {
-	Kind string `json:"kind"`
-	URL  string `json:"url"`
+	Kind    string `json:"kind"`
+	URL     string `json:"url,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 func (dashboard *handler) serveAdvertisedURLs(response http.ResponseWriter, request *http.Request) {
 	scheme := "http"
 	if request.TLS != nil {
 		scheme = "https"
+	}
+	if dashboard.discovery != nil {
+		endpoints := dashboard.discovery().Endpoints(scheme, requestHTTPPort(request))
+		advertised := make([]advertisedURL, 0, len(endpoints))
+		for _, endpoint := range endpoints {
+			advertised = append(advertised, advertisedURL{Kind: endpoint.Kind, URL: endpoint.URL, Message: endpoint.Message})
+		}
+		dashboard.serveJSON(response, request, advertised)
+		return
 	}
 	currentURL := scheme + "://" + request.Host + "/"
 	dashboard.serveJSON(response, request, []advertisedURL{{Kind: "current", URL: currentURL}})

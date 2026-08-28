@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M7 — Findable
-**Last updated:** 2026-08-28T00:31:40Z
+**Last updated:** 2026-08-28T00:46:49Z
 **Gate status:** green
-**Iterations completed:** 98
+**Iterations completed:** 106
 
 ## Milestone progress
 
@@ -23,14 +23,14 @@
 ## Current milestone criteria
 
 - [x] **Spike, first thing:** write `scripts/spike/mdns.go` that advertises `dropserve-spike.local` with `libp2p/zeroconf/v2`, runs for 20 seconds, and reports whether the bind succeeded. Run it on Windows (where the OS responder holds UDP/5353) and on Linux. If the default library fails to bind on Windows, repeat with `betamos/zeroconf`. Adopt whichever binds on both, record the result and the raw output in `STATE.md`, and write it up as an ADR. If **neither** binds on Windows, ship without mDNS on Windows — the `.local` URL is simply absent (invariant I3 is satisfied by hiding it) — and record that as the outcome. Do not spend more than one iteration on this.
-- [ ] Assert: virtual-adapter filtering — given a synthetic interface list containing `vEthernet (WSL)`, `Tailscale`, `VirtualBox Host-Only` and one real adapter, the real one is chosen.
-- [ ] Assert: when no LAN IP is available (loopback only), the Sharing panel shows the loopback URL and no broken entries — **I3** holds.
-- [ ] Assert: mDNS bind failure is caught, logged, and results in the `.local` URL being **absent** from `/api/urls`, not present-and-broken.
-- [ ] Assert: Tailscale detection with a faked `tailscale status --json` fixture parses `Self.DNSName` and produces the right URL; with a fixture where `BackendState` is `Stopped` or `NeedsLogin`, the panel shows the correct explanation and no URL.
-- [ ] Assert: with no `tailscale` binary present, the panel shows the "not installed" explanation and does not error.
-- [ ] Assert (**I5**): enabling Funnel requires a confirmation token that matches the app slug; a request without it is refused with 400 and no `tailscale funnel` process is spawned (verify with an injected fake executor).
-- [ ] Assert: Funnel state is persisted with a timestamp and auto-expires after 8 hours (test with an injected clock).
-- [ ] Assert: while Funnel is active, `/api/status` includes a `public_sharing_active` warning and it is non-dismissible in the UI.
+- [x] Assert: virtual-adapter filtering — given a synthetic interface list containing `vEthernet (WSL)`, `Tailscale`, `VirtualBox Host-Only` and one real adapter, the real one is chosen.
+- [x] Assert: when no LAN IP is available (loopback only), the Sharing panel shows the loopback URL and no broken entries — **I3** holds.
+- [x] Assert: mDNS bind failure is caught, logged, and results in the `.local` URL being **absent** from `/api/urls`, not present-and-broken.
+- [x] Assert: Tailscale detection with a faked `tailscale status --json` fixture parses `Self.DNSName` and produces the right URL; with a fixture where `BackendState` is `Stopped` or `NeedsLogin`, the panel shows the correct explanation and no URL.
+- [x] Assert: with no `tailscale` binary present, the panel shows the "not installed" explanation and does not error.
+- [x] Assert (**I5**): enabling Funnel requires a confirmation token that matches the app slug; a request without it is refused with 400 and no `tailscale funnel` process is spawned (verify with an injected fake executor).
+- [x] Assert: Funnel state is persisted with a timestamp and auto-expires after 8 hours (test with an injected clock).
+- [x] Assert: while Funnel is active, `/api/status` includes a `public_sharing_active` warning and it is non-dismissible in the UI.
 - [ ] Assert (**hazard 11**): simulate resume-from-sleep by injecting a network-change event with a different LAN IP and a listener that has been closed underneath the server. Within one monitor interval the server re-probes the network, re-establishes any dead listener, updates every advertised URL, and `/api/status` reports the new address. No restart, no lost apps.
 - [ ] Assert (**hazard 12**): when the LAN IP changes, the dashboard raises a persistent-until-dismissed notice naming the old and new addresses and linking to the DHCP-reservation explainer.
 - [ ] Manual (record in `STATE.md`): on a real tailnet, `tailscale serve` produces a working HTTPS URL and `unserve` cleanly removes it. Use a throwaway tailnet or do it once — repeated toggling burns Let's Encrypt rate limits (**hazard 14**).
@@ -236,6 +236,16 @@
   mDNS bind succeeded
   mDNS spike completed and shut down cleanly
   ```
+- Hosted CI [run 33130097424](https://github.com/tanzir71/dropserve/actions/runs/33130097424) passed both operating-system gates, all native M2/M5/M6 smokes, lint, and secret scanning for the adopted spike and ADR.
+- `TestVirtualAdaptersAreFilteredFromLANSelection` failed first with no discovery package, then selected the real default-route Ethernet RFC-1918 address from a synthetic surface containing WSL `vEthernet`, Tailscale, and VirtualBox host-only candidates. The selector also excludes Hyper-V, Docker, VMware, loopback, link-local, down, non-IPv4, and non-private candidates before falling back to a usable physical private address.
+- `TestLoopbackOnlySharingHasNoBrokenEntries` failed first with no live discovery snapshot support. The Sharing API now derives verified endpoints from an injected snapshot, uses `127.0.0.1` when no LAN address exists, returns exactly that entry, and the test fetches the advertised URL below 400 to preserve I3.
+- `TestMDNSBindFailureIsLoggedAndOmittedFromSharingURLs` injects a real-looking UDP/5353 bind failure through the selected responder boundary. The manager logs both the mDNS context and source error, leaves its `.local` hostname empty, and the dashboard API exposes no `mdns` or `.local` entry.
+- `TestTailscaleStatusFixturesExposeOnlyRunningURL` parses committed `Running`, `Stopped`, and `NeedsLogin` `tailscale status --json` fixtures. Running trims the terminal DNS dot and produces `http://darkhorse.example-tailnet.ts.net/`; stopped and needs-login produce specific user explanations and no URL. When MagicDNS is absent but the client is running, the parser falls back to a valid Tailscale IP with an explicit note.
+- `TestMissingTailscaleBinaryIsExplainedWithoutError` injects empty PATH/fixed-install probes, proves no command is run, and returns a normal `NotInstalled` panel explanation with no URL. Production lookup covers PATH plus the handover-prescribed Windows, macOS, and Linux install locations and bounds the status command to ten seconds.
+- `TestFunnelEnableWithoutMatchingSlugIsRefusedBeforeExecution` drives the POST dashboard boundary with a valid session CSRF token but no typed slug. It returns 400 and the injected Funnel executor remains at zero calls, proving the public-internet action is unreachable before exact per-app confirmation.
+- `TestFunnelStatePersistsAndAutoExpiresAfterEightHours` enables one confirmed app at an injected UTC instant, atomically reloads its `enabled_at` and `expires_at` timestamps, advances the clock just past eight hours, and observes the exact matching disable action plus persisted removal. Repeat enables within the active window are idempotent, and a persistence failure rolls back the external enable.
+- `TestActiveFunnelProducesNonDismissiblePublicSharingWarning` requires `/api/status` to contain the literal `public_sharing_active` code and an expiry for every active app. The dashboard separates those warnings into a dedicated `role=alert` public-sharing banner with no button or dismiss path while retaining the existing diagnostic notice for ordinary warnings.
+- The first full gate with zeroconf exposed its 2021 transitive `golang.org/x/net` release referring to a syscall symbol removed by modern Darwin linking. Pinning `x/net` v0.43.0—whose own module declares Go 1.23—also raised `x/sys` to v0.35.0; the corrected full gate passes every race test plus zero-CGO Windows, Linux, Darwin, and tray builds.
 
 - Raw Linux run used the same source with the checksum-verified official Go 1.27.0 Linux/amd64 toolchain under WSL2's Linux kernel. The temporary toolchain did not modify the distro and was removed after the run.
 
@@ -277,4 +287,4 @@
 
 ## Dependency count
 
-6 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, and selected mDNS responder); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 29 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.
+6 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, and selected mDNS responder); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 30 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.

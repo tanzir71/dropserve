@@ -1,0 +1,7 @@
+{
+  "BackendState": "NeedsLogin",
+  "Self": {
+    "DNSName": "",
+    "TailscaleIPs": []
+  }
+}

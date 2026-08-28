@@ -1,0 +1,7 @@
+{
+  "BackendState": "Stopped",
+  "Self": {
+    "DNSName": "darkhorse.example-tailnet.ts.net.",
+    "TailscaleIPs": ["100.88.77.66"]
+  }
+}

@@ -19,6 +19,8 @@ $archivePath = Join-Path $sandbox 'alpine-minirootfs.tar.gz'
 $wslDirectory = Join-Path $sandbox 'wsl'
 $server = $null
 $distroRegistered = $false
+$probeRuleName = 'DropserveM10WSL2Probe-' + $runID.Substring(0, 12)
+$probeRuleCreated = $false
 $transcript = [System.Collections.Generic.List[string]]::new()
 
 New-Item -ItemType Directory -Force -Path $appDirectory,$wslDirectory | Out-Null
@@ -45,6 +47,10 @@ try {
         throw "disposable guest has no virtual-network route: $guestRoutes"
     }
     $windowsGuestAddress = $Matches[1]
+    if ($guestRoutes -notmatch 'src ([0-9.]+)') {
+        throw "disposable guest route does not expose its source address: $guestRoutes"
+    }
+    $guestAddress = $Matches[1]
 
     $installArguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$installDirectory")
     if ($CurrentUser) {
@@ -89,6 +95,18 @@ try {
         throw "freshly installed Dropserve persisted invalid port $port"
     }
 
+    $installedRule = Get-NetFirewallRule -DisplayName Dropserve -ErrorAction Stop
+    $installedApplication = $installedRule | Get-NetFirewallApplicationFilter
+    if ($installedRule.Profile -ne 'Private' -or ![string]::Equals($installedApplication.Program, $desktopBinary, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "installer firewall rule is not restricted to the private profile and exact desktop binary: profile=$($installedRule.Profile) program=$($installedApplication.Program)"
+    }
+    # WSL2's synthetic Hyper-V adapter has no normal Private/Public profile, so
+    # the production private-profile rule intentionally cannot match it. Bridge
+    # only this disposable guest IP to this tested port/program, then remove the
+    # bridge immediately after the cross-VM request.
+    New-NetFirewallRule -Name $probeRuleName -DisplayName $probeRuleName -Direction Inbound -Action Allow -Program $desktopBinary -Protocol TCP -LocalPort $port -RemoteAddress $guestAddress -Profile Any | Out-Null
+    $probeRuleCreated = $true
+
     $remoteURL = "http://${windowsGuestAddress}:${port}/fresh-machine/"
     $remoteBody = (& wsl.exe -d $distro -- wget -T 15 -qO- $remoteURL 2>&1 | Out-String).Trim()
     if ($LASTEXITCODE -ne 0) {
@@ -97,11 +115,17 @@ try {
     if ($remoteBody -notmatch 'fresh-machine network proof') {
         throw "separate WSL2 guest received unexpected body from $remoteURL`: $remoteBody"
     }
+    Remove-NetFirewallRule -Name $probeRuleName -ErrorAction Stop
+    $probeRuleCreated = $false
+    if (Get-NetFirewallRule -Name $probeRuleName -ErrorAction SilentlyContinue) {
+        throw "fresh-machine smoke left its WSL2 bridge rule $probeRuleName"
+    }
 
     $transcript.Add("windows=$([System.Environment]::OSVersion.VersionString)")
     $transcript.Add("installer=$([System.IO.Path]::GetFileName($installerPath))")
     $transcript.Add("guest_kernel=$guestKernel")
     $transcript.Add("guest_route=$($guestRoutes -replace "`r?`n", '; ')")
+    $transcript.Add("firewall=production rule exact/private; disposable WSL2 bridge exact guest/port/program and removed")
     $transcript.Add("remote_url=$remoteURL")
     $transcript.Add("remote_body=$remoteBody")
 
@@ -141,6 +165,9 @@ finally {
         if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
             Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -WindowStyle Hidden | Out-Null
         }
+    }
+    if ($probeRuleCreated) {
+        Remove-NetFirewallRule -Name $probeRuleName -ErrorAction SilentlyContinue
     }
     if ($distroRegistered) {
         & wsl.exe --terminate $distro 2>$null | Out-Null

@@ -19,6 +19,8 @@ func TestFreshMachineSmokeUsesASeparatePinnedWSL2Guest(t *testing.T) {
 		"41f73e3cf5fa919b8aa5ca6b30dc48f0da2720776d7423e2a7748211456fe081",
 		"--version 2",
 		"wget -T 15 -qO-",
+		"New-NetFirewallRule",
+		"Remove-NetFirewallRule",
 		"M10 fresh-machine transcript",
 		"wsl.exe --unregister",
 	} {

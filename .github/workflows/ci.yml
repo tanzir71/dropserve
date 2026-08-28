@@ -100,6 +100,18 @@ jobs:
       - name: gosec
         run: go run github.com/securego/gosec/v2/cmd/gosec@v2.29.0 ./...
 
+  performance:
+    name: Performance floor
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - name: Measure the M11 floor
+        run: go run ./scripts/performance
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-latest

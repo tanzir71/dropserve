@@ -1,0 +1,35 @@
+name: Dashboard accessibility
+
+on:
+  schedule:
+    - cron: '17 4 * * 3'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  accessibility:
+    name: Keyboard, names, and WCAG AA
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version: stable
+          cache: true
+      - uses: actions/setup-node@v6.4.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: scripts/accessibility/package-lock.json
+      - name: Install pinned browser test dependencies
+        working-directory: scripts/accessibility
+        run: npm ci
+      - name: Install Chromium
+        working-directory: scripts/accessibility
+        run: npx playwright install --with-deps chromium
+      - name: Exercise the rendered dashboard
+        working-directory: scripts/accessibility
+        run: npm test

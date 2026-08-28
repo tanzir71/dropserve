@@ -93,7 +93,7 @@ func goFiles() ([]string, error) {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == "dist") {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == "dist" || entry.Name() == "node_modules") {
 			return fs.SkipDir
 		}
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
@@ -276,7 +276,7 @@ func scanShippedFiles() error {
 		}
 		clean := filepath.ToSlash(path)
 		if entry.IsDir() {
-			if clean == ".git" || clean == "docs/adr" || clean == "bin" || clean == "dist" {
+			if entry.Name() == "node_modules" || clean == ".git" || clean == "docs/adr" || clean == "bin" || clean == "dist" {
 				return fs.SkipDir
 			}
 			return nil

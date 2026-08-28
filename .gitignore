@@ -1,9 +1,10 @@
 /bin/
 /dist/
 /.tools/
+node_modules/
+test-results/
 *.exe
 *.test
 *.out
 coverage.txt
 .DS_Store
-

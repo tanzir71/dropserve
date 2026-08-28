@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M6 — Always there
-**Last updated:** 2026-08-27T23:44:35Z
+**Last updated:** 2026-08-28T00:00:11Z
 **Gate status:** green
-**Iterations completed:** 90
+**Iterations completed:** 91
 
 ## Milestone progress
 
@@ -28,7 +28,7 @@
 - [x] Script (Linux CI): the systemd user unit is written and `systemd-analyze verify` passes.
 - [x] Assert: `dropserve doctor` exits 0 on a healthy setup, exits 1 when a required condition fails, and its output contains a line for every check listed in §7.4.
 - [x] Script: the `-H=windowsgui` binary launched with `--background` produces no console window — verify by asserting the process has no attached console (`GetConsoleWindow() == 0` via a tiny test helper), since a screenshot test is not viable in CI.
-- [ ] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
+- [x] Assert: first-run detection is based on the absence of the state file; running it twice does not re-show the wizard or re-copy the example app if the user deleted it.
 
 ### M5 completion audit (closed)
 
@@ -195,6 +195,7 @@
   ```
 - `TestDoctorExitCodesAndCoversSupportSurface` and `TestHealthyReportContainsEverySupportCheck` lock healthy exit 0, required-root failure exit 1, and explicit lines for version, port rationale, Windows excluded ranges and firewall, readable Apps roots, every app and warning, Node/Python/PHP availability, mDNS bind, Tailscale, OS-backed autostart, and error logs. Missing optional integrations are warnings; unreadable configured roots and missing runtimes required by detected apps are failures. `TestErrorLogsReturnOnlyNewestTwentyLines` locks the 20-line cap across chronologically ordered rotated files. A real binary run on this machine printed the full report and correctly exited 1 because the default Apps root does not exist; the full local gate is green.
 - `TestWindowsBuildShipsGUIAndConsoleVariants` failed first with no build plan, then locked `dropserve.exe` as a `-H=windowsgui` binary and `dropserve-cli.exe` as its console counterpart. Terminal smokes now use the CLI variant, while enabling autostart from it deliberately registers the colocated GUI binary. `scripts/smoke/m6-background.ps1` independently parses the PE subsystem and has the launched `--background` process report its own `GetConsoleWindow()` handle; both were respectively `IMAGE_SUBSYSTEM_WINDOWS_GUI` and `0` locally and in hosted Windows CI. Hosted run [33127169169](https://github.com/tanzir71/dropserve/actions/runs/33127169169) passed every Ubuntu/Windows gate, native smoke, lint, and secret-scan job.
+- `TestStateFileAloneControlsFirstRunAndExampleCopy` failed first with no first-run package, then exercised the real loopback-only setup form: exactly the editable Apps location, checked start-at-login choice, and Start button; config/state persistence; injected autostart; the embedded one-file “Welcome to Dropserve” converter; and a second run after deleting the example. The second run skipped the wizard and did not restore the example because only state-file absence controls setup. Real-binary browser verification found and fixed a completion-response shutdown race, then showed the dark-mode setup, one-card dashboard, working converter, zero console errors, and a subsequent 0-app dashboard after the example was moved out and the same isolated state restarted. Hosted CI [run 33127983506](https://github.com/tanzir71/dropserve/actions/runs/33127983506) passed both platform gates, every native smoke, lint, and secret scan.
 
   ```text
   M6 Windows autostart smoke passed: safe registration, OS-backed status, and idempotence were verified.

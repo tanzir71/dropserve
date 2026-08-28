@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M11 — Hardening and polish (M7/M8 manual checks pending; M9/M10 tags withheld until prerequisites close)
-**Last updated:** 2026-08-28T04:27:30Z
+**Last updated:** 2026-08-28T04:32:40Z
 **Gate status:** green
-**Iterations completed:** 150
+**Iterations completed:** 151
 
 ## Milestone progress
 
@@ -25,7 +25,7 @@
 - [x] Assert: the five invariant tests from §4 all exist with the specified names and pass.
 - [x] Script: `govulncheck ./...` reports no known-vulnerable dependencies.
 - [x] Script: `gosec ./...` passes, or every suppression has a one-line justification.
-- [ ] Assert: fuzz the slug sanitiser and path resolver for 60 seconds each with no crash or app-root escape.
+- [x] Assert: fuzz the slug sanitiser and path resolver for 60 seconds each with no crash or app-root escape.
 - [ ] Script: with 200 fixture apps, dashboard first byte is under 100 ms, `/api/apps` under 200 ms, and a 10 KB static file sustains at least 500 requests/second on CI.
 - [ ] Script: resident memory with 50 static apps stays below 60 MB after a five-minute soak.
 - [ ] Assert: automated dashboard accessibility covers keyboard navigation, accessible names, and WCAG AA contrast in both themes.
@@ -36,6 +36,7 @@
 - `TestProductInvariantTestsKeepTheirSpecifiedNames` failed first because only I2 retained the §4 name. The contract now parses every checked-in Go test and requires all six specified functions. The existing full-behaviour I1/I3/I4 tests were renamed to `TestDropFolderBecomesReachable`, `TestAdvertisedURLsAllRespond`, and `TestOneBrokenAppDoesNotAffectOthers`; I2 was already exact. `TestNoImplicitPublicExposure` now proves dashboard construction and an unconfirmed CSRF-authenticated Funnel request make zero executor calls and create no active public mapping, while the exact typed slug is the only path that does. `TestTrustStoreRequiresExplicitConsent` proves startup/status and a CSRF-less request make no trust-store call, then explicit CSRF actions install and remove trust. Focused runs and the full race/lint/version/cross-build/tray/shipped-file gate pass.
 - Official `govulncheck` v1.7.0 first reported zero reachable/package vulnerabilities but two module-only advisories in direct `golang.org/x/mod` v0.37.0: GO-2026-6180 and GO-2026-6179, both fixed in v0.40.0. The module's Go floor remains 1.25, so the minimal upgrade to v0.40.0 removes both without changing the project floor. The verbose rescan of all 26 root packages, 20 modules, and Go 1.27.0 standard library now reports `No vulnerabilities found.` `TestCIRejectsReachableAndModuleOnlyGoVulnerabilities` failed before the workflow job existed; CI now pins the official tool and rejects either a nonzero scan or any verbose `Vulnerability #` module finding. Actionlint, the contract, the verbose scan, and the full gate pass. Hosted CI [33141427561](https://github.com/tanzir71/dropserve/actions/runs/33141427561) also passed every pre-existing job for the invariant-audit commit.
 - Official `gosec` v2.29.0 initially reported five high-severity G703 taint paths in first-run setup. The Apps root is intentionally the absolute path chosen in the loopback-only form, but the example installer no longer carries that tainted string through five ordinary filesystem calls: it opens the selected directory once with Go's confined `os.Root`, performs only constant-relative operations, creates `index.html` exclusively, and rolls back only the file and empty directory it created rather than recursively deleting. The only remaining two suppressions are the deliberate arbitrary-root creation and `os.OpenRoot` boundary, each with an inline reason. The rescan covers 68 files/11,226 lines with 46 justified suppressions and zero issues. `TestEveryGosecSuppressionHasAOneLineJustification` scans every Go source line, and CI pins the scanner. Focused first-run/security tests, actionlint, and the full gate pass.
+- `FuzzSlugSanitiser` seeds ASCII, Unicode, unsafe-prefix, reserved-looking, separator-heavy, control, and traversal-shaped names, then requires determinism, unsafe-prefix rejection, one lowercase ASCII segment, and idempotence for every generated input. Its required Windows campaign ran for 61.069 seconds: 4,105,105 executions, 130 new coverage-interesting cases (138 total), no crash or property failure. `FuzzPathResolver` seeds safe paths, both slash styles, encoded traversal, absolute/UNC forms, NUL, and an escaping symlink when the OS permits it; every successful resolution must remain relative beneath the symlink-resolved app root. Its 61.081-second Windows campaign completed 95,177 executions, 111 new interesting cases (120 total), with no escape or crash. A checked-in nightly/manual GitHub Actions workflow repeats each target for 60 seconds on Linux; its contract and actionlint pass. The full gate is green, and hosted CI [33141879441](https://github.com/tanzir71/dropserve/actions/runs/33141879441) passed every job including the new pinned govulncheck and gosec scans for the preceding commit.
 
 ## M7 criteria (manual tailnet check pending)
 

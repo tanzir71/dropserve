@@ -46,6 +46,8 @@ type handler struct {
 	rootCertificate      func() ([]byte, error)
 	dismissNetworkChange func() error
 	browseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
+	addons               func() []AddonStatus
+	changeAddon          func(context.Context, string, string) error
 }
 
 // LocalHTTPSStatus is the live opt-in local TLS and trust state.
@@ -55,6 +57,21 @@ type LocalHTTPSStatus struct {
 	TrustInstalled bool   `json:"trust_installed"`
 	RootAvailable  bool   `json:"root_available"`
 	Warning        string `json:"warning,omitempty"`
+}
+
+// AddonStatus is the dashboard-safe state of one optional runtime pack.
+type AddonStatus struct {
+	Name        string `json:"name"`
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Available   bool   `json:"available"`
+	Installed   bool   `json:"installed"`
+	Running     bool   `json:"running"`
+	Busy        bool   `json:"busy"`
+	Progress    int    `json:"progress,omitempty"`
+	Connection  string `json:"connection,omitempty"`
+	Message     string `json:"message,omitempty"`
 }
 
 // Options supplies runtime information displayed by the dashboard.
@@ -69,6 +86,8 @@ type Options struct {
 	RootCertificate      func() ([]byte, error)
 	DismissNetworkChange func() error
 	BrowseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
+	Addons               func() []AddonStatus
+	ChangeAddon          func(context.Context, string, string) error
 }
 
 // New returns the embedded dashboard handler.
@@ -104,10 +123,16 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		rootCertificate:      options.RootCertificate,
 		dismissNetworkChange: options.DismissNetworkChange,
 		browseDatabase:       options.BrowseDatabase,
+		addons:               options.Addons,
+		changeAddon:          options.ChangeAddon,
 	}, nil
 }
 
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/addons/") {
+		dashboard.serveAddonChange(response, request)
+		return
+	}
 	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/sharing/funnel/") {
 		dashboard.serveFunnelChange(response, request)
 		return
@@ -167,6 +192,13 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	case "/_dropserve/api/status":
 		dashboard.serveStatus(response, request)
 		return
+	case "/_dropserve/api/addons":
+		if dashboard.addons == nil {
+			dashboard.serveJSON(response, request, []AddonStatus{})
+		} else {
+			dashboard.serveJSON(response, request, dashboard.addons())
+		}
+		return
 	case "/_dropserve/api/https/root.pem":
 		dashboard.serveRootCertificate(response, request)
 		return
@@ -196,6 +228,41 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		return
 	}
 	_, _ = response.Write(content)
+}
+
+func (dashboard *handler) serveAddonChange(response http.ResponseWriter, request *http.Request) {
+	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
+		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return
+	}
+	name := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/addons/")
+	if name == "" || strings.Contains(name, "/") {
+		http.NotFound(response, request)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var payload struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		http.Error(response, "Choose an add-on action.", http.StatusBadRequest)
+		return
+	}
+	switch payload.Action {
+	case "install", "remove", "start", "stop":
+	default:
+		http.Error(response, "Choose install, remove, start, or stop.", http.StatusBadRequest)
+		return
+	}
+	if dashboard.changeAddon == nil {
+		http.Error(response, "Add-on changes are not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.changeAddon(request.Context(), name, payload.Action); err != nil {
+		http.Error(response, "Dropserve could not change this add-on: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
 }
 
 func (dashboard *handler) serveDatabase(response http.ResponseWriter, request *http.Request) {

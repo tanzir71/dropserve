@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,30 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestPackMissingDeclaredExecutableIsNotRegistered(t *testing.T) {
+	payload := runtimeZIP(t, "README.txt", "no executable here")
+	hash := sha256.Sum256(payload)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		_, _ = response.Write(payload)
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	_, err := (Installer{Root: root, Client: server.Client()}).Install(context.Background(), Pack{
+		Name: "php", Version: "broken", OS: "windows", Arch: "amd64", URL: server.URL,
+		SHA256: fmt.Sprintf("%x", hash), Format: FormatZIP, Executable: "php-cgi.exe",
+	})
+	if err == nil || !strings.Contains(err.Error(), "php-cgi.exe") {
+		t.Fatalf("pack without executable error = %v", err)
+	}
+	entries, readErr := os.ReadDir(root)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("pack without executable was registered: %v", entries)
+	}
+}
 
 func TestTamperedPackIsRejectedDeletedAndReportedClearly(t *testing.T) {
 	official := []byte("official runtime archive")

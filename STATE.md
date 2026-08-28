@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:36:52Z
+**Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
+**Last updated:** 2026-08-28T02:53:28Z
 **Gate status:** green
-**Iterations completed:** 135
+**Iterations completed:** 136
 
 ## Milestone progress
 
@@ -16,7 +16,7 @@
 - [x] M6 — Always there (tag: `m6-complete`)
 - [ ] M7 — Findable
 - [ ] M8 — HTTPS
-- [ ] M9 — PHP and add-ons
+- [x] M9 — PHP and add-ons (local acceptance complete; tag pending M7/M8 manual checks)
 - [ ] M10 — Shippable
 - [ ] M11 — Hardening and polish
 
@@ -54,7 +54,7 @@
 - [x] Assert (**hazard 13**): an issued leaf's `NotBefore` is at least one hour in the past, so a machine with a slightly wrong clock still accepts a freshly-issued certificate. Verify with an injected clock skewed 30 minutes fast and 30 minutes slow — the certificate validates in both cases.
 - [x] Assert: HTTPS listener failure (port taken) degrades to HTTP-only with a warning and does not prevent startup.
 
-## M9 criteria (active)
+## M9 criteria (local acceptance closed; tag pending prerequisite manual checks)
 
 - [x] Assert: pack integrity — a tampered download (wrong SHA-256) is rejected, deleted, and reported clearly.
 - [x] Assert: with the PHP pack installed, `testdata/fixtures/php/index.php` returns the expected output through `GET /php/`, including `$_GET`, `$_POST`, a file upload, and `PATH_INFO`.
@@ -64,7 +64,15 @@
 - [x] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
 - [x] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
 - [x] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
-- [ ] Assert: with no packs installed, the binary and all tests still pass — packs are genuinely optional.
+- [x] Assert: with no packs installed, the binary and all tests still pass — packs are genuinely optional.
+
+### M9 completion audit (local acceptance closed; tag pending prerequisite manual checks)
+
+- [x] Deliverable: the platform manifest pins official PHP 8.5.10, MariaDB 11.8.9, and PostgreSQL 18.6 Windows/amd64 artifacts by exact URL, SHA-256, archive type, and executable path. The installer streams progress, rejects tampering and unsafe archive/executable paths, verifies the declared executable before atomic registration, and confines removal to one pack.
+- [x] Deliverable: the production add-on manager discovers installed packs, starts an installed PHP pool, generates its managed `php.ini`, reconciles PHP apps after dashboard changes, and owns loopback MariaDB/PostgreSQL initialization, readiness, connection strings, Start/Stop, shutdown, and state-confined data removal.
+- [x] Deliverable: the CSRF-protected Add-ons dashboard makes every download explicit, reports installed/running/progress/error state, exposes database connection strings with copy actions, and names exactly what removal deletes and preserves.
+- [x] Deliverable: the SQLite browser discovers only app-local database files, renders a read-only first-100-row view, and closes its handle before returning.
+- [x] Completion: the real empty-state `serve` path created no runtime directory, served a static app, mounted a PHP app with the friendly optional-pack page, and reported no installed add-ons. Final `make check` passed race tests, lint, JavaScript/assets, version injection, Windows/Linux/macOS zero-CGO builds, optional tray build, compiled smoke, and shipped-file scanning.
 
 ### M6 completion audit (closed)
 
@@ -327,6 +335,11 @@
 - The SQLite gate's first Windows race run also observed the TLS monitor test reading `leaf.pem` during its few-millisecond backup/replace window. The test now treats transient read/parse errors as polling misses only inside its original 250 ms issuance deadline and reports the last error if no valid rotated leaf appears. Fifty focused race-detector runs and the subsequent full gate pass.
 - `TestDatabaseDataDirectoriesAreAlwaysUnderState` failed first with no database data boundary. The allowlisted `mariadb` and `postgres` engines now resolve only to `<state>/databases/<engine>/data`, reject missing/broad roots and unknown engines, verify path confinement before creating anything, and use private directory permissions. Both directories are proven outside a sibling Apps root while an app marker and directory snapshot remain unchanged; three focused runs and the full gate pass.
 - `TestDiscoveredSQLiteDatabaseIsBrowsableFromDashboard` failed first at the absent route. The scanner now records nested `.db`, `.sqlite`, and `.sqlite3` files as sorted app-relative paths; the server binds each immutable scan snapshot to exact absolute files; and the dashboard API refuses every slug/path pair not present in that snapshot. App action menus offer one Browse database action per file, and a responsive read-only dialog renders table headers/cells using text nodes. The end-to-end request returns one table's first 100 of 105 rows and releases its read handle before an immediate update; JavaScript syntax, asset wiring, three focused server runs, and the full gate pass.
+- `TestCurrentWindowsAddonManifestPinsAllOptionalEngines` locks the current official PHP, MariaDB, and PostgreSQL versions, SHA-256 values, and executable paths. `TestPackMissingDeclaredExecutableIsNotRegistered` then failed against an archive that passed its hash but omitted `php-cgi.exe`; registration now additionally requires the manifest executable to exist as a regular file below the traversal-checked unpack root.
+- `TestManagerInstallsStartsAndRemovesPHPWithoutAppWrites` drives an actual verified ZIP download into an empty state directory, injects a supervised pool boundary, observes generated settings plus a live handler, then removes the pool, runtime, and managed settings while an app file remains byte-identical. `TestPHPHandlerCanBecomeAvailableAfterReconcile` locks the production transition from the friendly pack-needed page to a live PHP handler without restarting Dropserve.
+- `TestManagerKeepsDatabaseDataUnderStateAndReturnsConnection` drives an actual verified MariaDB-shaped archive through install, explicit Start, loopback connection-string publication, Stop, and full removal. Its injected process boundary receives only `<state>/databases/mariadb/data`; the production starter uses the adjacent verified initializer/server tools, loopback-only arguments, a private ephemeral port, bounded readiness, hidden Windows processes, crash-visible status, and a five-second shutdown wait for both engines.
+- `TestAddonActionsRequireCSRFAndRemainExplicit` first failed at the absent dashboard contract, then refused an unauthenticated install without invoking its callback and accepted the exact CSRF-authorized `php:install` action. The embedded Add-ons panel describes the pack-free base, renders install/running/progress/error state, makes database connection strings copyable, refreshes its CSRF token after reconciliation, and uses separate exact removal warnings for PHP versus database data. `node --check`, asset markers, focused API tests, and the full gate pass.
+- `TestServeWithNoPacksKeepsBaseBinaryOperational` runs the real command path with a new machine-state directory and no downloaded packs. The server creates no `runtimes` directory, serves a static app, returns the designed optional-PHP page for a PHP app, exposes zero installed add-ons, and shuts down cleanly. The final full gate is green, closing the explicit pack-optional criterion.
 
 ## Decisions made this build (beyond the spec)
 

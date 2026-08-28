@@ -61,6 +61,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .sharing-button { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 650; }
+.topbar-actions { display: flex; gap: 8px; }
 .online-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #20a36c; box-shadow: 0 0 0 4px rgba(32, 163, 108, .12); }
 
 .sharing-panel { position: fixed; z-index: 20; top: 76px; right: max(20px, calc((100vw - 1120px) / 2)); width: min(390px, calc(100vw - 28px)); padding: 22px; border: 1px solid var(--line); border-radius: 20px; background: var(--card); box-shadow: var(--shadow); backdrop-filter: blur(18px); }
@@ -83,6 +84,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .local-https .local-https-state { color: var(--ink); }
 .local-https-actions { display: flex; flex-wrap: wrap; gap: 7px; }
 .local-https-actions a { text-decoration: none; }
+.addons-panel { right: max(20px, calc((100vw - 1120px) / 2 + 120px)); }
+.addons-list { display: grid; gap: 10px; }
+.addon-card { padding: 13px; border: 1px solid var(--line); border-radius: 14px; background: rgba(255,255,255,.42); }
+.addon-card h3 { margin: 0 0 5px; font-size: 14px; }
+.addon-card p { margin: 0 0 7px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.addon-card .addon-state { color: var(--ink); font-weight: 700; }
+.addon-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+.addon-actions button { padding: 6px 8px; border: 0; border-radius: 8px; color: var(--accent); background: var(--accent-soft); cursor: pointer; font-size: 11px; font-weight: 750; }
+.addon-connection { display: block; overflow: hidden; border-radius: 8px; padding: 7px; color: var(--ink); background: var(--paper); cursor: copy; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 
 .hero { max-width: 720px; padding: 76px 0 64px; }
 .eyebrow { margin: 0 0 9px; color: var(--accent); font-size: 12px; font-weight: 750; letter-spacing: .11em; text-transform: uppercase; }
@@ -204,6 +214,7 @@ footer a { color: var(--muted); }
   .topbar, main, footer { width: min(100% - 28px, 1120px); }
   .topbar { height: 72px; }
   .sharing-panel { top: 66px; right: 14px; }
+  .addons-panel { right: 14px; }
   .brand small, .search-help, kbd { display: none; }
   .hero { padding: 48px 0 48px; }
   .hero h1 { margin-bottom: 22px; }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"io"
 	"io/fs"
 	"net"
@@ -160,6 +161,104 @@ func TestHTTPSListenerFailureDegradesToHTTPOnly(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("server did not stop after cancellation")
+	}
+}
+
+func TestServeWithNoPacksKeepsBaseBinaryOperational(t *testing.T) {
+	sandbox := t.TempDir()
+	appsRoot := filepath.Join(sandbox, "Apps")
+	staticRoot := filepath.Join(appsRoot, "static")
+	phpRoot := filepath.Join(appsRoot, "php")
+	if err := os.MkdirAll(staticRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(phpRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(staticRoot, "index.html"), []byte("pack-free static"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(phpRoot, "index.php"), []byte("<?php echo 'optional';"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configuration := config.Default()
+	configuration.Server.AppsRoots = []string{appsRoot}
+	configuration.Server.Bind = "127.0.0.1"
+	configPath := filepath.Join(sandbox, "config.toml")
+	if err := config.Save(configPath, configuration); err != nil {
+		t.Fatal(err)
+	}
+	statePath := filepath.Join(sandbox, "machine", "state.json")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var stdout lockedBuffer
+	var stderr lockedBuffer
+	ready := make(chan string, 1)
+	done := make(chan int, 1)
+	go func() {
+		done <- serveCommandContextWithReady(
+			ctx,
+			[]string{"--config", configPath, "--state", statePath, "--listen", "127.0.0.1:0"},
+			&stdout,
+			&stderr,
+			"",
+			func(address string) { ready <- address },
+			nil,
+		)
+	}()
+	var address string
+	select {
+	case address = <-ready:
+	case code := <-done:
+		t.Fatalf("pack-free server exited with %d; stderr=%q", code, stderr.String())
+	case <-time.After(10 * time.Second):
+		t.Fatalf("pack-free server did not become ready; stderr=%q", stderr.String())
+	}
+	assertBody := func(path string, marker string) {
+		t.Helper()
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, address+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := http.DefaultClient.Do(request) // #nosec G107 -- address is the test-owned loopback listener.
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = response.Body.Close() }()
+		body, err := io.ReadAll(response.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if response.StatusCode != http.StatusOK || !strings.Contains(string(body), marker) {
+			t.Fatalf("GET %s = %d %q, want 200 containing %q", path, response.StatusCode, body, marker)
+		}
+	}
+	assertBody("/static/", "pack-free static")
+	assertBody("/php/", "Install the optional PHP pack")
+	addOnsRequest, err := http.NewRequestWithContext(ctx, http.MethodGet, address+"/_dropserve/api/addons", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	addOnsResponse, err := http.DefaultClient.Do(addOnsRequest) // #nosec G107 -- address is the test-owned loopback listener.
+	if err != nil {
+		t.Fatal(err)
+	}
+	addOnsBody, readErr := io.ReadAll(addOnsResponse.Body)
+	_ = addOnsResponse.Body.Close()
+	if readErr != nil || addOnsResponse.StatusCode != http.StatusOK || strings.Contains(string(addOnsBody), `"installed":true`) {
+		t.Fatalf("pack-free add-ons = %d %q read=%v", addOnsResponse.StatusCode, addOnsBody, readErr)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(statePath), "runtimes")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pack-free startup created a runtime directory: %v", err)
+	}
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("pack-free server exit = %d; stderr=%q", code, stderr.String())
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("pack-free server did not stop")
 	}
 }
 

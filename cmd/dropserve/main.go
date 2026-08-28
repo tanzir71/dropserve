@@ -22,11 +22,11 @@ import (
 	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
+	"github.com/tanzir71/dropserve/internal/dashboard"
 	"github.com/tanzir71/dropserve/internal/discovery"
 	"github.com/tanzir71/dropserve/internal/doctor"
 	"github.com/tanzir71/dropserve/internal/firstrun"
 	"github.com/tanzir71/dropserve/internal/launch"
-	phpfastcgi "github.com/tanzir71/dropserve/internal/php"
 	"github.com/tanzir71/dropserve/internal/ports"
 	"github.com/tanzir71/dropserve/internal/runtimes"
 	"github.com/tanzir71/dropserve/internal/scanner"
@@ -415,38 +415,49 @@ func serveCommandContextWithReady(
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not select a LAN address; loopback remains available: %v\n", probeErr)
 	}
 	var runtimeWarnings []string
-	var phpPool *phpfastcgi.Pool
+	var handler *dropserver.Server
+	var addonManager *runtimes.Manager
 	if stateDirectory != "" {
-		phpPack, packErr := runtimes.CurrentPHPPack()
-		if packErr == nil {
-			executable, installed, inspectErr := runtimes.InstalledExecutable(filepath.Join(stateDirectory, "runtimes"), phpPack)
-			if inspectErr != nil {
-				runtimeWarnings = append(runtimeWarnings, inspectErr.Error())
-			} else if installed {
-				iniPath := filepath.Join(stateDirectory, "php", "php.ini")
-				if iniErr := phpfastcgi.WriteINI(iniPath, time.Now().Location().String()); iniErr != nil {
-					runtimeWarnings = append(runtimeWarnings, iniErr.Error())
-				} else {
-					phpPool, packErr = phpfastcgi.StartPool(ctx, phpfastcgi.PoolOptions{
-						Executable: executable,
-						INIPath:    iniPath,
-						Output:     stderr,
-					})
-					if packErr != nil {
-						runtimeWarnings = append(runtimeWarnings, "Dropserve could not start the PHP pack: "+packErr.Error())
+		addonManager, err = runtimes.NewManager(runtimes.ManagerOptions{
+			Context:        ctx,
+			StateDirectory: stateDirectory,
+			Output:         stderr,
+			OnChange: func() {
+				if handler != nil {
+					if reconcileErr := handler.Reconcile(); reconcileErr != nil {
+						_, _ = fmt.Fprintf(stderr, "Dropserve could not refresh apps after an add-on change: %v\n", reconcileErr)
 					}
 				}
-			}
+			},
+		})
+		if err != nil {
+			runtimeWarnings = append(runtimeWarnings, "Dropserve could not prepare optional add-ons: "+err.Error())
+			addonManager = nil
 		}
 	}
-	if phpPool != nil {
-		defer func() { _ = phpPool.Close() }()
+	if addonManager != nil {
+		defer func() { _ = addonManager.Close() }()
 	}
 	var phpHandler func(app.App) (http.Handler, error)
-	if phpPool != nil {
+	var addons func() []dashboard.AddonStatus
+	var changeAddon func(context.Context, string, string) error
+	if addonManager != nil {
 		phpHandler = func(application app.App) (http.Handler, error) {
-			return phpPool.Handler(application.Path, application.Slug), nil
+			return addonManager.PHPHandler(application.Path, application.Slug)
 		}
+		addons = func() []dashboard.AddonStatus {
+			statuses := addonManager.Statuses()
+			result := make([]dashboard.AddonStatus, 0, len(statuses))
+			for _, status := range statuses {
+				result = append(result, dashboard.AddonStatus{
+					Name: status.Name, Title: status.Title, Version: status.Version, Description: status.Description,
+					Available: status.Available, Installed: status.Installed, Running: status.Running,
+					Busy: status.Busy, Progress: status.Progress, Connection: status.Connection, Message: status.Message,
+				})
+			}
+			return result
+		}
+		changeAddon = addonManager.Change
 	}
 	discoveryManager := discovery.NewManager(discovery.ManagerOptions{
 		LANIP:      lanIP,
@@ -494,7 +505,6 @@ func serveCommandContextWithReady(
 	}
 	httpsConfiguration := configuration
 	hostname, _ := os.Hostname()
-	var handler *dropserver.Server
 	httpsController := newLocalHTTPSController(localHTTPSOptions{
 		Bind:           *bindAddress,
 		PreferredPort:  configuration.Server.HTTPSPort,
@@ -548,6 +558,8 @@ func serveCommandContextWithReady(
 		RootCertificate:      httpsController.RootCertificate,
 		DismissNetworkChange: discoveryManager.DismissNetworkChange,
 		PHPHandler:           phpHandler,
+		Addons:               addons,
+		ChangeAddon:          changeAddon,
 	})
 	if err != nil {
 		_ = listener.Close()

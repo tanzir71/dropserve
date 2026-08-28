@@ -99,6 +99,16 @@ func (installer Installer) Install(ctx context.Context, pack Pack) (Installation
 	if err := unpack(pack.Format, payloadPath, contentPath, pack.Executable); err != nil {
 		return Installation{}, fmt.Errorf("unpack runtime pack %s: %w", pack.Name, err)
 	}
+	if pack.Executable != "" {
+		executable := filepath.Join(contentPath, filepath.FromSlash(pack.Executable))
+		info, inspectErr := os.Stat(executable)
+		if inspectErr != nil {
+			return Installation{}, fmt.Errorf("runtime pack %s does not contain declared executable %q: %w", pack.Name, pack.Executable, inspectErr)
+		}
+		if !info.Mode().IsRegular() {
+			return Installation{}, fmt.Errorf("runtime pack %s executable %q is not a regular file", pack.Name, pack.Executable)
+		}
+	}
 	destination := filepath.Join(installer.Root, pack.Name, pack.Version, pack.OS+"-"+pack.Arch)
 	if _, err := os.Stat(destination); err == nil {
 		return Installation{Pack: pack, Path: destination}, nil
@@ -179,6 +189,13 @@ func (installer Installer) download(ctx context.Context, pack Pack, path string)
 func validatePack(pack Pack) error {
 	if err := validatePackIdentity(pack); err != nil {
 		return err
+	}
+	if pack.Executable != "" {
+		portable := strings.ReplaceAll(pack.Executable, `\`, "/")
+		clean := filepath.Clean(filepath.FromSlash(portable))
+		if clean == "." || filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) || filepath.VolumeName(clean) != "" {
+			return fmt.Errorf("runtime pack %s has unsafe executable path %q", pack.Name, pack.Executable)
+		}
 	}
 	if pack.URL == "" {
 		return fmt.Errorf("runtime pack %s has no download URL", pack.Name)

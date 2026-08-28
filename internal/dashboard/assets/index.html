@@ -13,13 +13,24 @@
       <span class="brand-mark" aria-hidden="true">D</span>
       <span><strong>Dropserve</strong><small>Yours, from this computer.</small></span>
     </a>
-    <button id="sharing-toggle" class="sharing-button" type="button" aria-label="Open sharing options" aria-controls="sharing-panel" aria-expanded="false">
-      <span class="online-dot" aria-hidden="true"></span>
-      This device
-    </button>
+    <div class="topbar-actions">
+      <button id="addons-toggle" class="sharing-button" type="button" aria-label="Open add-ons" aria-controls="addons-panel" aria-expanded="false">Add-ons</button>
+      <button id="sharing-toggle" class="sharing-button" type="button" aria-label="Open sharing options" aria-controls="sharing-panel" aria-expanded="false">
+        <span class="online-dot" aria-hidden="true"></span>
+        This device
+      </button>
+    </div>
   </header>
 
   <main>
+    <aside id="addons-panel" class="sharing-panel addons-panel" aria-labelledby="addons-title" hidden>
+      <div class="panel-heading">
+        <div><p class="eyebrow">Optional downloads</p><h2 id="addons-title">Add-ons</h2></div>
+        <button id="addons-close" class="icon-button" type="button" aria-label="Close add-ons panel">×</button>
+      </div>
+      <p class="panel-copy">The base install includes no PHP or database engine. Install only what your apps need.</p>
+      <div id="addons-list" class="addons-list" aria-live="polite">Checking add-ons…</div>
+    </aside>
     <aside id="sharing-panel" class="sharing-panel" aria-labelledby="sharing-title" hidden>
       <div class="panel-heading">
         <div><p class="eyebrow">Reach this computer</p><h2 id="sharing-title">Sharing</h2></div>

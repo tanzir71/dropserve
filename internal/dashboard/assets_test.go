@@ -224,3 +224,19 @@ func TestDashboardSQLiteBrowserSurfaceIsWired(t *testing.T) {
 		t.Error("dashboard CSS does not style database tables")
 	}
 }
+
+func TestDashboardAddonSurfaceExplainsOptionalAndDestructiveActions(t *testing.T) {
+	t.Parallel()
+	index, _ := assets.ReadFile("assets/index.html")
+	script, _ := assets.ReadFile("assets/app.js")
+	for _, marker := range []string{`id="addons-panel"`, `id="addons-list"`, "base install includes no PHP"} {
+		if !strings.Contains(string(index), marker) {
+			t.Errorf("dashboard HTML does not contain add-on marker %q", marker)
+		}
+	}
+	for _, marker := range []string{"/_dropserve/api/addons/", "Removing the PHP pack deletes the downloaded PHP files. Your apps and their files are untouched.", "Dropserve-managed database data", "Downloading and verifying", "connection string"} {
+		if !strings.Contains(string(script), marker) {
+			t.Errorf("dashboard JavaScript does not contain add-on marker %q", marker)
+		}
+	}
+}

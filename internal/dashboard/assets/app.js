@@ -6,6 +6,10 @@ const count = document.querySelector('#app-count');
 const sharingToggle = document.querySelector('#sharing-toggle');
 const sharingPanel = document.querySelector('#sharing-panel');
 const sharingClose = document.querySelector('#sharing-close');
+const addonsToggle = document.querySelector('#addons-toggle');
+const addonsPanel = document.querySelector('#addons-panel');
+const addonsClose = document.querySelector('#addons-close');
+const addonsList = document.querySelector('#addons-list');
 const sharingURLs = document.querySelector('#sharing-urls');
 const localHTTPSState = document.querySelector('#local-https-state');
 const localHTTPSToggle = document.querySelector('#local-https-toggle');
@@ -90,6 +94,68 @@ function actionButton(label, action) {
   button.textContent = label;
   button.dataset.action = action;
   return button;
+}
+
+function addonCard(addon) {
+  const card = document.createElement('section');
+  card.className = 'addon-card';
+  const heading = document.createElement('h3');
+  heading.textContent = `${addon.title} ${addon.version || ''}`.trim();
+  const description = document.createElement('p');
+  description.textContent = addon.description || 'Optional Dropserve runtime.';
+  const state = document.createElement('p');
+  state.className = 'addon-state';
+  if (addon.busy) state.textContent = `Working… ${addon.progress || 0}%`;
+  else if (addon.running) state.textContent = 'Installed · running';
+  else if (addon.installed) state.textContent = 'Installed · stopped';
+  else state.textContent = addon.available ? 'Not installed' : (addon.message || 'Not available on this platform');
+  const actions = document.createElement('div');
+  actions.className = 'addon-actions';
+  if (addon.available && !addon.installed) actions.append(actionButton('Install', 'install-addon'));
+  if (addon.installed && addon.name !== 'php') actions.append(actionButton(addon.running ? 'Stop' : 'Start', addon.running ? 'stop-addon' : 'start-addon'));
+  if (addon.installed && addon.name === 'php' && !addon.running) actions.append(actionButton('Start', 'start-addon'));
+  if (addon.installed) actions.append(actionButton('Remove', 'remove-addon'));
+  for (const button of actions.querySelectorAll('button')) {
+    button.addEventListener('click', async () => {
+      const action = button.dataset.action.replace('-addon', '');
+      if (action === 'remove') {
+        const warning = addon.name === 'php'
+          ? 'Removing the PHP pack deletes the downloaded PHP files. Your apps and their files are untouched.'
+          : `Removing ${addon.title} deletes the downloaded ${addon.title} files and Dropserve-managed database data. Your apps and their files are untouched.`;
+        const confirmed = window.confirm(warning);
+        if (!confirmed) return;
+      }
+      button.disabled = true;
+      state.textContent = action === 'install' ? 'Downloading and verifying…' : `${action[0].toUpperCase()}${action.slice(1)}ing…`;
+      try {
+        await postSharing(`/_dropserve/api/addons/${encodeURIComponent(addon.name)}`, { action });
+        await refreshAddons();
+        await loadApps();
+        await loadStatus();
+      } catch (error) {
+        state.textContent = error.message;
+        button.disabled = false;
+      }
+    });
+  }
+  if (addon.connection) {
+    const connection = document.createElement('code');
+    connection.className = 'addon-connection';
+    connection.textContent = addon.connection;
+    connection.title = 'Click to copy connection string';
+    connection.addEventListener('click', () => copyText(addon.connection, connection));
+    card.append(heading, description, state, connection, actions);
+  } else {
+    card.append(heading, description, state, actions);
+  }
+  return card;
+}
+
+async function refreshAddons() {
+  const response = await fetch('/_dropserve/api/addons');
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const addons = await response.json();
+  addonsList.replaceChildren(...addons.map(addonCard));
 }
 
 function lastLogLines(logs, maximum = 50) {
@@ -444,11 +510,26 @@ function renderLocalHTTPS(status = {}) {
 function setSharingOpen(open) {
   sharingPanel.hidden = !open;
   sharingToggle.setAttribute('aria-expanded', String(open));
-  if (open) sharingClose.focus();
+  if (open) {
+    setAddonsOpen(false);
+    sharingClose.focus();
+  }
+}
+
+function setAddonsOpen(open) {
+  addonsPanel.hidden = !open;
+  addonsToggle.setAttribute('aria-expanded', String(open));
+  if (open) {
+    setSharingOpen(false);
+    refreshAddons().catch(() => { addonsList.textContent = 'Dropserve could not load add-ons.'; });
+    addonsClose.focus();
+  }
 }
 
 sharingToggle.addEventListener('click', () => setSharingOpen(sharingPanel.hidden));
 sharingClose.addEventListener('click', () => setSharingOpen(false));
+addonsToggle.addEventListener('click', () => setAddonsOpen(addonsPanel.hidden));
+addonsClose.addEventListener('click', () => setAddonsOpen(false));
 qrCopy.addEventListener('click', () => copyText(currentQRURL, qrCopy));
 logRefresh.addEventListener('click', refreshLogs);
 localHTTPSToggle.addEventListener('click', async () => {
@@ -514,7 +595,10 @@ document.addEventListener('keydown', event => {
     event.preventDefault();
     search.focus();
   }
-  if (event.key === 'Escape') setSharingOpen(false);
+  if (event.key === 'Escape') {
+    setSharingOpen(false);
+    setAddonsOpen(false);
+  }
 });
 
 function loadApps() {

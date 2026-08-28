@@ -56,6 +56,8 @@ type Options struct {
 	RootCertificate      func() ([]byte, error)
 	DismissNetworkChange func() error
 	PHPHandler           func(app.App) (http.Handler, error)
+	Addons               func() []dashboard.AddonStatus
+	ChangeAddon          func(context.Context, string, string) error
 }
 
 // New scans the configured roots and registered apps, then mounts every app.
@@ -182,6 +184,11 @@ func (server *Server) reconcile() error {
 				applicationHandler = needsPHPRuntimeHandler()
 			} else {
 				applicationHandler, err = server.options.PHPHandler(application)
+				if err == nil && applicationHandler == nil {
+					application.Status = "needs-runtime"
+					result.Apps[applicationIndex].Status = application.Status
+					applicationHandler = needsPHPRuntimeHandler()
+				}
 			}
 		default:
 			applicationHandler = staticserver.New(application)
@@ -226,6 +233,8 @@ func (server *Server) reconcile() error {
 		SetLocalTrust:        server.options.SetLocalTrust,
 		RootCertificate:      server.options.RootCertificate,
 		DismissNetworkChange: server.options.DismissNetworkChange,
+		Addons:               server.options.Addons,
+		ChangeAddon:          server.options.ChangeAddon,
 		BrowseDatabase: func(ctx context.Context, slug, file string) (sqlitebrowser.Snapshot, error) {
 			files, found := databasePaths[slug]
 			if !found {

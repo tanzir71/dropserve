@@ -60,6 +60,40 @@ func TestPHPFixtureSupportsGetPostUploadAndPathInfo(t *testing.T) {
 	assertPHPFixtureBehavior(t, pool)
 }
 
+func TestPHPHandlerCanBecomeAvailableAfterReconcile(t *testing.T) {
+	t.Parallel()
+	active := false
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner: scanner.Options{Registered: []string{phpFixtureRoot(t)}},
+		PHPHandler: func(app.App) (http.Handler, error) {
+			if !active {
+				return nil, nil
+			}
+			return http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(response, "installed at runtime")
+			}), nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("mount optional PHP fixture: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	before := httptest.NewRecorder()
+	server.Handler().ServeHTTP(before, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/php/", nil))
+	if before.Code != http.StatusOK || !strings.Contains(before.Body.String(), "PHP pack") {
+		t.Fatalf("PHP before install = %d %q", before.Code, before.Body.String())
+	}
+	active = true
+	if err := server.Reconcile(); err != nil {
+		t.Fatalf("reconcile after PHP install: %v", err)
+	}
+	after := httptest.NewRecorder()
+	server.Handler().ServeHTTP(after, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/php/", nil))
+	if after.Code != http.StatusOK || after.Body.String() != "installed at runtime" {
+		t.Fatalf("PHP after install = %d %q", after.Code, after.Body.String())
+	}
+}
+
 func TestRealOfficialPHPPackFixture(t *testing.T) {
 	if os.Getenv("DROPSERVE_REAL_PHP") != "1" {
 		t.Skip("set DROPSERVE_REAL_PHP=1 for the official PHP pack smoke test")

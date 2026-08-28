@@ -34,6 +34,9 @@ type Options struct {
 	RestartDelays []time.Duration
 	LogDirectory  string
 	PortPath      string
+	FirstPort     int
+	LastPort      int
+	OnChange      func()
 }
 
 // Snapshot is the observable state and bounded logs for one command app.
@@ -48,6 +51,9 @@ type Snapshot struct {
 // Manager preserves healthy command processes across scanner reconciliations.
 type Manager struct {
 	mu        sync.Mutex
+	startups  sync.WaitGroup
+	ctx       context.Context
+	cancel    context.CancelFunc
 	processes map[string]*Process
 	options   Options
 	closed    bool
@@ -60,8 +66,25 @@ func NewManager(options Options) *Manager {
 	if len(options.RestartDelays) == 0 {
 		options.RestartDelays = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second}
 	}
-	ports, err := newPortRegistry(options.PortPath)
-	return &Manager{processes: make(map[string]*Process), options: options, ports: ports, portErr: err}
+	ports, err := newPortRegistry(options.PortPath, options.FirstPort, options.LastPort)
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Manager{ctx: ctx, cancel: cancel, processes: make(map[string]*Process), options: options, ports: ports, portErr: err}
+}
+
+// SetPortRange changes the allocation range for future apps without moving
+// existing stable assignments.
+func (manager *Manager) SetPortRange(first, last int) (int, int) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.ports == nil {
+		return 0, 0
+	}
+	previousFirst, previousLast := manager.ports.first, manager.ports.last
+	if manager.ports != nil && first > 0 && last >= first {
+		manager.ports.first = first
+		manager.ports.last = last
+	}
+	return previousFirst, previousLast
 }
 
 // Handler returns a process proxy, preserving lazy apps in a stopped state until requested.
@@ -69,6 +92,9 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 	key := filepath.Clean(application.Path)
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
+	if manager.closed {
+		return nil, errors.New("command-app manager is closed")
+	}
 	if process, found := manager.processes[key]; found {
 		return process.Handler(), nil
 	}
@@ -80,6 +106,59 @@ func (manager *Manager) Handler(application app.App) (http.Handler, error) {
 		return manager.publishLocked(key, stopped, nil), nil
 	}
 	return manager.startLocked(application, nil, nil)
+}
+
+// HandlerAsync publishes a stable starting route immediately while an
+// autostart command performs its health check in the background.
+func (manager *Manager) HandlerAsync(application app.App) (http.Handler, error) {
+	key := filepath.Clean(application.Path)
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.closed {
+		return nil, errors.New("command-app manager is closed")
+	}
+	if process, found := manager.processes[key]; found {
+		return process.Handler(), nil
+	}
+	if !application.Autostart {
+		stopped := newProcess(application)
+		stopped.status = "stopped"
+		lazy := &lazyHandler{manager: manager, application: application, placeholder: stopped}
+		stopped.proxy = lazy
+		return manager.publishLocked(key, stopped, nil), nil
+	}
+	if manager.portErr != nil {
+		return nil, manager.portErr
+	}
+	port, err := manager.ports.assign(application.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("assign port for %s: %w", application.Slug, err)
+	}
+	if len(application.Command) != 0 {
+		if _, err := exec.LookPath(application.Command[0]); err != nil {
+			missing := newProcess(application)
+			missing.port = port
+			missing.status = "needs-runtime"
+			missing.proxy = needsRuntimeHandler(application)
+			return manager.publishLocked(key, missing, nil), nil
+		}
+	}
+	logs, err := newLogSink(manager.options.LogDirectory, application.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("prepare logs for %s: %w", application.Slug, err)
+	}
+	startupContext, cancelStartup := context.WithCancel(manager.ctx)
+	starting := newProcess(application)
+	starting.port = port
+	starting.logs = logs.ring
+	starting.output = logs
+	starting.status = "starting"
+	starting.proxy = startingHandler(application)
+	starting.startupCancel = cancelStartup
+	handler := manager.publishLocked(key, starting, nil)
+	manager.startups.Add(1)
+	go manager.startPublished(startupContext, starting, logs)
+	return handler, nil
 }
 
 func (manager *Manager) startLocked(
@@ -147,6 +226,91 @@ func (manager *Manager) startLocked(
 	return manager.publishLocked(key, crashed, mount), nil
 }
 
+func (manager *Manager) startPublished(ctx context.Context, starting *Process, logs *logSink) {
+	defer manager.startups.Done()
+	defer starting.startupCancel()
+	application := starting.application
+	key := filepath.Clean(application.Path)
+	var lastError error
+	for attempt := 1; attempt <= maximumStartAttempts; attempt++ {
+		manager.mu.Lock()
+		if manager.closed || manager.processes[key] != starting {
+			manager.mu.Unlock()
+			_ = logs.Close()
+			return
+		}
+		starting.attempts = attempt
+		manager.mu.Unlock()
+
+		process := newProcess(application)
+		process.port = starting.port
+		process.logs = logs.ring
+		process.output = logs
+		process.attempts = attempt
+		err := process.StartContext(ctx)
+		if err == nil {
+			process.status = "ready"
+			process.logCloser = logs
+			manager.mu.Lock()
+			if manager.closed || manager.processes[key] != starting {
+				manager.mu.Unlock()
+				_ = process.Close()
+				return
+			}
+			manager.publishLocked(key, process, starting.mount)
+			manager.mu.Unlock()
+			go manager.monitor(process)
+			manager.notify()
+			return
+		}
+		lastError = err
+		if ctx.Err() != nil {
+			_ = logs.Close()
+			return
+		}
+		if attempt < maximumStartAttempts {
+			delayIndex := attempt - 1
+			if delayIndex >= len(manager.options.RestartDelays) {
+				delayIndex = len(manager.options.RestartDelays) - 1
+			}
+			timer := time.NewTimer(manager.options.RestartDelays[delayIndex])
+			select {
+			case <-ctx.Done():
+				if !timer.Stop() {
+					<-timer.C
+				}
+				_ = logs.Close()
+				return
+			case <-timer.C:
+			}
+		}
+	}
+
+	crashed := newProcess(application)
+	crashed.port = starting.port
+	crashed.logs = logs.ring
+	crashed.output = logs
+	crashed.logCloser = logs
+	crashed.attempts = maximumStartAttempts
+	crashed.status = "crashed"
+	crashed.proxy = crashedHandler(application, lastError)
+	manager.mu.Lock()
+	if manager.closed || manager.processes[key] != starting {
+		manager.mu.Unlock()
+		_ = crashed.Close()
+		return
+	}
+	manager.publishLocked(key, crashed, starting.mount)
+	manager.mu.Unlock()
+	manager.notify()
+}
+
+func (manager *Manager) notify() {
+	if manager.options.OnChange != nil {
+		manager.options.OnChange()
+	}
+}
+
 func (manager *Manager) startLazy(application app.App, placeholder *Process) (http.Handler, error) {
 	key := filepath.Clean(application.Path)
 	manager.mu.Lock()
@@ -201,18 +365,20 @@ func (manager *Manager) monitor(process *Process) {
 		process.mount.Set(process.proxy)
 		_ = process.Close()
 		manager.mu.Unlock()
+		manager.notify()
 		return
 	}
 	process.status = "starting"
 	process.mount.Set(startingHandler(process.application))
 	delay := manager.options.RestartDelays[0]
 	manager.mu.Unlock()
+	manager.notify()
 
 	timer := time.NewTimer(delay)
 	<-timer.C
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
 	if manager.closed || manager.processes[key] != process {
+		manager.mu.Unlock()
 		return
 	}
 	_ = process.Close()
@@ -222,6 +388,8 @@ func (manager *Manager) monitor(process *Process) {
 		process.proxy = crashedHandler(process.application, err)
 		manager.publishLocked(key, process, process.mount)
 	}
+	manager.mu.Unlock()
+	manager.notify()
 }
 
 type lazyHandler struct {
@@ -277,6 +445,45 @@ func (manager *Manager) Snapshot(slug string) (Snapshot, bool) {
 	return Snapshot{}, false
 }
 
+// Restart explicitly stops and starts one command app, resetting its automatic
+// restart budget while preserving the stable route and assigned port.
+func (manager *Manager) Restart(slug string) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.closed {
+		return errors.New("command-app manager is closed")
+	}
+	var key string
+	var current *Process
+	for candidateKey, process := range manager.processes {
+		if process.application.Slug == slug {
+			key = candidateKey
+			current = process
+			break
+		}
+	}
+	if current == nil {
+		return fmt.Errorf("command app %q was not found", slug)
+	}
+	if current.status == "starting" {
+		return fmt.Errorf("command app %s is still starting", slug)
+	}
+	application := current.application
+	mount := current.mount
+	if err := current.Close(); err != nil {
+		return fmt.Errorf("stop command app %s: %w", slug, err)
+	}
+	delete(manager.processes, key)
+	if _, err := manager.startLocked(application, mount, nil); err != nil {
+		failed := newProcess(application)
+		failed.status = "crashed"
+		failed.proxy = crashedHandler(application, err)
+		manager.publishLocked(key, failed, mount)
+		return fmt.Errorf("restart command app %s: %w", slug, err)
+	}
+	return nil
+}
+
 // Reconcile stops command processes that no longer appear in the scan.
 func (manager *Manager) Reconcile(applications []app.App) error {
 	active := make(map[string]struct{}, len(applications))
@@ -303,17 +510,31 @@ func (manager *Manager) Reconcile(applications []app.App) error {
 // Close stops every managed command process.
 func (manager *Manager) Close() error {
 	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if manager.closed {
+		manager.mu.Unlock()
+		manager.startups.Wait()
+		return nil
+	}
 	manager.closed = true
-	var stopErrors []error
+	manager.cancel()
+	manager.mu.Unlock()
+	manager.startups.Wait()
+
+	manager.mu.Lock()
+	processes := make([]*Process, 0, len(manager.processes))
 	for key, process := range manager.processes {
-		if err := process.Close(); err != nil {
-			stopErrors = append(stopErrors, err)
-		}
+		processes = append(processes, process)
 		delete(manager.processes, key)
 	}
 	if manager.ports != nil {
 		manager.ports.release()
+	}
+	manager.mu.Unlock()
+	var stopErrors []error
+	for _, process := range processes {
+		if err := process.Close(); err != nil {
+			stopErrors = append(stopErrors, err)
+		}
 	}
 	return errors.Join(stopErrors...)
 }
@@ -336,6 +557,7 @@ type Process struct {
 	attempts       int
 	failureTimes   []time.Time
 	prefersOwnPort bool
+	startupCancel  context.CancelFunc
 }
 
 func newProcess(application app.App) *Process {
@@ -345,6 +567,12 @@ func newProcess(application app.App) *Process {
 
 // Start launches the command and waits until its loopback HTTP endpoint is healthy.
 func (process *Process) Start() error {
+	return process.StartContext(context.Background())
+}
+
+// StartContext launches the command and lets a background startup be canceled
+// while it is waiting for the app's health endpoint.
+func (process *Process) StartContext(ctx context.Context) error {
 	if len(process.application.Command) == 0 {
 		return errors.New("command app has no command")
 	}
@@ -361,7 +589,7 @@ func (process *Process) Start() error {
 	if err != nil {
 		return fmt.Errorf("prepare process isolation for %s: %w", process.application.Slug, err)
 	}
-	command := exec.CommandContext(context.Background(), process.application.Command[0], process.application.Command[1:]...) // #nosec G204 -- command comes from local app detection/configuration.
+	command := exec.CommandContext(context.WithoutCancel(ctx), process.application.Command[0], process.application.Command[1:]...) // #nosec G204 -- command comes from local app detection/configuration.
 	control.configure(command)
 	command.Dir = process.application.Path
 	command.Env = commandEnvironment(process.application, port)
@@ -383,7 +611,7 @@ func (process *Process) Start() error {
 		process.done <- command.Wait()
 		close(process.done)
 	}()
-	if err := process.waitHealthy(); err != nil {
+	if err := process.waitHealthy(ctx); err != nil {
 		_ = process.Close()
 		return err
 	}
@@ -456,6 +684,9 @@ func (process *Process) Snapshot() Snapshot {
 // Close terminates the command and waits for it to exit.
 func (process *Process) Close() error {
 	process.closeOnce.Do(func() {
+		if process.startupCancel != nil {
+			process.startupCancel()
+		}
 		defer func() {
 			if process.logCloser == nil {
 				return
@@ -495,7 +726,7 @@ func (process *Process) Close() error {
 	return process.closeErr
 }
 
-func (process *Process) waitHealthy() error {
+func (process *Process) waitHealthy(ctx context.Context) error {
 	deadline := time.Now().Add(healthDeadline)
 	delay := 100 * time.Millisecond
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -506,19 +737,21 @@ func (process *Process) waitHealthy() error {
 	target := "http://127.0.0.1:" + strconv.Itoa(process.port) + "/" + strings.TrimPrefix(healthPath, "/")
 	for {
 		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%s startup canceled: %w", process.application.Slug, ctx.Err())
 		case err := <-process.done:
 			return fmt.Errorf("%s exited before it became healthy: %w; logs: %s", process.application.Slug, err, process.logs.String())
 		default:
 		}
 		dialer := net.Dialer{Timeout: 250 * time.Millisecond}
 		connection, dialErr := dialer.DialContext(
-			context.Background(),
+			ctx,
 			"tcp",
 			net.JoinHostPort("127.0.0.1", strconv.Itoa(process.port)),
 		)
 		if dialErr == nil {
 			_ = connection.Close()
-			request, requestErr := http.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
+			request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 			if requestErr == nil {
 				response, requestErr := client.Do(request)
 				if requestErr == nil {
@@ -534,6 +767,11 @@ func (process *Process) waitHealthy() error {
 		}
 		timer := time.NewTimer(delay)
 		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return fmt.Errorf("%s startup canceled: %w", process.application.Slug, ctx.Err())
 		case err := <-process.done:
 			if !timer.Stop() {
 				<-timer.C

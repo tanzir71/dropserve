@@ -16,22 +16,90 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/tanzir71/dropserve/internal/config"
+	"github.com/tanzir71/dropserve/internal/dashboard"
 	"github.com/tanzir71/dropserve/internal/doctor"
 	"github.com/tanzir71/dropserve/internal/firstrun"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	"github.com/tanzir71/dropserve/internal/state"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
+	"github.com/tanzir71/dropserve/internal/updatecheck"
 )
 
 type lockedBuffer struct {
 	mu     sync.Mutex
 	buffer bytes.Buffer
+}
+
+func TestUpdateMonitorCanBeEnabledByAHotConfigReload(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var enabled atomic.Bool
+	var enabledReads atomic.Int32
+	initialRead := make(chan struct{})
+	var initialOnce sync.Once
+	trigger := make(chan struct{}, 1)
+	checkerCalls := make(chan updatecheck.Options, 2)
+	notices := make(chan dashboard.UpdateNotice, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		monitorUpdates(
+			ctx,
+			"1.0.0",
+			&atomic.Pointer[dashboard.UpdateNotice]{},
+			func(notice dashboard.UpdateNotice) { notices <- notice },
+			nil,
+			func() bool {
+				enabledReads.Add(1)
+				initialOnce.Do(func() { close(initialRead) })
+				return enabled.Load()
+			},
+			trigger,
+			func(_ context.Context, options updatecheck.Options) (updatecheck.Notification, error) {
+				checkerCalls <- options
+				return updatecheck.Notification{Available: true, Version: "1.1.0", URL: "https://github.com/tanzir71/dropserve/releases/tag/v1.1.0"}, nil
+			},
+		)
+	}()
+	select {
+	case <-initialRead:
+	case <-time.After(time.Second):
+		t.Fatal("update monitor did not evaluate its initial disabled state")
+	}
+	enabled.Store(true)
+	trigger <- struct{}{}
+	select {
+	case options := <-checkerCalls:
+		if options.CurrentVersion != "1.0.0" {
+			t.Fatalf("update check version = %q", options.CurrentVersion)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("enabling update checks did not trigger a check")
+	}
+	select {
+	case notice := <-notices:
+		if !notice.Available || notice.Version != "1.1.0" {
+			t.Fatalf("hot-enabled update notice = %#v", notice)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("hot-enabled update check did not publish its notice")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("update monitor did not stop")
+	}
+	if enabledReads.Load() < 2 || len(checkerCalls) != 0 {
+		t.Fatalf("enabled reads=%d extra checker calls=%d", enabledReads.Load(), len(checkerCalls))
+	}
 }
 
 func (buffer *lockedBuffer) Write(content []byte) (int, error) {

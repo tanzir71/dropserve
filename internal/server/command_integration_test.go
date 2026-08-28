@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -108,6 +109,125 @@ func TestNodeFixtureIsDetectedStartedHealthyAndProxied(t *testing.T) {
 	}
 }
 
+func TestSlowCommandAppPublishesAStartingCardWithoutBlockingTheDashboard(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	root := t.TempDir()
+	manifest := `{"type":"command","command":"node server.js"}`
+	script := `const http = require('http'); setTimeout(() => http.createServer((_, response) => response.end('slow app ready')).listen(Number(process.env.PORT), '127.0.0.1'), 1500);`
+	if err := os.WriteFile(filepath.Join(root, "dropserve.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatalf("write slow-app manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "server.js"), []byte(script), 0o600); err != nil {
+		t.Fatalf("write slow app: %v", err)
+	}
+
+	startedAt := time.Now()
+	server, err := dropserver.NewWithOptions(dropserver.Options{
+		Scanner:           scanner.Options{Registered: []string{root}},
+		AsyncCommandStart: true,
+	})
+	if err != nil {
+		t.Fatalf("create asynchronous command-app server: %v", err)
+	}
+	defer func() { _ = server.Close() }()
+	if elapsed := time.Since(startedAt); elapsed >= time.Second {
+		t.Fatalf("dashboard construction waited %s for a deliberately slow app", elapsed)
+	}
+	current := server.Scan()
+	if len(current.Apps) != 1 || current.Apps[0].Status != "starting" {
+		t.Fatalf("initial slow-app state = %#v, want starting", current.Apps)
+	}
+
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+	status, body := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/"+current.Apps[0].Slug+"/")
+	if status != http.StatusOK || !strings.Contains(body, "starting") {
+		t.Fatalf("starting response = %d %q", status, body)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		status, body = requestCommandApp(t, httpServer.Client(), httpServer.URL+"/"+current.Apps[0].Slug+"/")
+		if status == http.StatusOK && body == "slow app ready" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("slow app did not become ready: %d %q", status, body)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	for {
+		current = server.Scan()
+		if len(current.Apps) == 1 && current.Apps[0].Status == "ready" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("dashboard card did not leave starting state: %#v", current.Apps)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestCommandAppCanBeExplicitlyRestarted(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed; CI installs Node so this acceptance test runs there")
+	}
+	if _, err := exec.LookPath("npm"); err != nil {
+		t.Skip("npm is not installed; the package.json start rule requires it")
+	}
+	fixture, err := filepath.Abs(filepath.Join("..", "..", "testdata", "fixtures", "node"))
+	if err != nil {
+		t.Fatalf("resolve node fixture: %v", err)
+	}
+	server, err := dropserver.New(scanner.Options{Registered: []string{fixture}})
+	if err != nil {
+		t.Fatalf("create command-app server: %v", err)
+	}
+	defer func() { _ = server.Close() }()
+	httpServer := httptest.NewServer(server.Handler())
+	defer httpServer.Close()
+
+	_, oldPID := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/node/pid")
+	statusRequest, err := http.NewRequestWithContext(context.Background(), http.MethodGet, httpServer.URL+"/_dropserve/api/status", nil)
+	if err != nil {
+		t.Fatalf("create status request: %v", err)
+	}
+	statusResponse, err := httpServer.Client().Do(statusRequest)
+	if err != nil {
+		t.Fatalf("request dashboard status: %v", err)
+	}
+	var dashboardStatus struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.NewDecoder(statusResponse.Body).Decode(&dashboardStatus); err != nil {
+		_ = statusResponse.Body.Close()
+		t.Fatalf("decode dashboard status: %v", err)
+	}
+	_ = statusResponse.Body.Close()
+
+	restartRequest, err := http.NewRequestWithContext(context.Background(), http.MethodPost, httpServer.URL+"/_dropserve/api/apps/node/restart", nil)
+	if err != nil {
+		t.Fatalf("create restart request: %v", err)
+	}
+	restartRequest.Header.Set("X-Dropserve-CSRF", dashboardStatus.CSRFToken)
+	restartRequest.Header.Set("Origin", httpServer.URL)
+	restartResponse, err := httpServer.Client().Do(restartRequest)
+	if err != nil {
+		t.Fatalf("restart node fixture: %v", err)
+	}
+	_ = restartResponse.Body.Close()
+	if restartResponse.StatusCode != http.StatusNoContent {
+		t.Fatalf("restart response = %d, want 204", restartResponse.StatusCode)
+	}
+	_, newPID := requestCommandApp(t, httpServer.Client(), httpServer.URL+"/node/pid")
+	if strings.TrimSpace(oldPID) == strings.TrimSpace(newPID) {
+		t.Fatalf("restart kept process %q, want a new child PID", oldPID)
+	}
+}
+
 func TestPythonFixtureIsDetectedStartedHealthyAndProxied(t *testing.T) {
 	t.Parallel()
 
@@ -203,6 +323,22 @@ func TestImmediateFailureRestartsFiveTimesThenCrashes(t *testing.T) {
 	}
 	if !strings.Contains(snapshot.Logs, "intentional fixture failure") {
 		t.Fatalf("crashed logs do not contain fixture error: %q", snapshot.Logs)
+	}
+	streamRequest, err := http.NewRequestWithContext(context.Background(), http.MethodGet, httpServer.URL+"/_dropserve/api/logs/broken", nil)
+	if err != nil {
+		t.Fatalf("create live-log request: %v", err)
+	}
+	streamRequest.Header.Set("Accept", "text/event-stream")
+	streamResponse, err := httpServer.Client().Do(streamRequest)
+	if err != nil {
+		t.Fatalf("request live logs: %v", err)
+	}
+	reader := bufio.NewReader(streamResponse.Body)
+	eventLine, readEventErr := reader.ReadString('\n')
+	dataLine, readDataErr := reader.ReadString('\n')
+	_ = streamResponse.Body.Close()
+	if readEventErr != nil || readDataErr != nil || eventLine != "event: logs\n" || !strings.Contains(dataLine, "intentional fixture failure") {
+		t.Fatalf("live log event = %q %q; errors=%v/%v", eventLine, dataLine, readEventErr, readDataErr)
 	}
 
 	detailRequest, err := http.NewRequestWithContext(

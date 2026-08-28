@@ -229,3 +229,58 @@ func TestReservedSlugsAreRefusedWithWarnings(t *testing.T) {
 		}
 	}
 }
+
+func TestStaticManifestControlsIndexPresentationAndSPAFallback(t *testing.T) {
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "plain-folder")
+	if err := os.MkdirAll(filepath.Join(appRoot, "web"), 0o750); err != nil {
+		t.Fatalf("create app fixture: %v", err)
+	}
+	manifest := `{
+		"name":"Manifest Name","description":"Manifest description","icon":"🏛️","tags":["reference"],
+		"type":"static","index":"web/home.html","spa":true,"directory_listing":false,
+		"visibility":"local","pinned":true,"hidden":true,"mystery":1
+	}`
+	if err := os.WriteFile(filepath.Join(appRoot, "dropserve.json"), []byte(manifest), 0o600); err != nil {
+		t.Fatalf("write manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "web", "home.html"), []byte("manifest home"), 0o600); err != nil {
+		t.Fatalf("write manifest index: %v", err)
+	}
+
+	result, err := scanner.Scan(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatalf("scan manifest app: %v", err)
+	}
+	if len(result.Apps) != 1 {
+		t.Fatalf("apps = %#v", result.Apps)
+	}
+	application := result.Apps[0]
+	if application.Name != "Manifest Name" || application.Description != "Manifest description" || application.Icon != "🏛️" || strings.Join(application.Tags, ",") != "reference" {
+		t.Fatalf("presentation = %#v", application)
+	}
+	if application.Index != "web/home.html" || !application.SPA || application.DirectoryListing || application.Visibility != "local" || !application.Pinned || !application.Hidden {
+		t.Fatalf("static settings = %#v", application)
+	}
+	if len(result.Warnings) != 1 || result.Warnings[0].Code != "manifest_unknown_key" || !strings.Contains(result.Warnings[0].Message, "mystery") {
+		t.Fatalf("warnings = %#v", result.Warnings)
+	}
+}
+
+func TestGlobalLazyStartStopsCommandAppsUntilFirstRequest(t *testing.T) {
+	root := t.TempDir()
+	appRoot := filepath.Join(root, "node-app")
+	if err := os.Mkdir(appRoot, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appRoot, "package.json"), []byte(`{"scripts":{"start":"node server.js"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := scanner.Scan(scanner.Options{Roots: []string{root}, LazyStartCommands: true})
+	if err != nil {
+		t.Fatalf("scan lazy app: %v", err)
+	}
+	if len(result.Apps) != 1 || result.Apps[0].Autostart {
+		t.Fatalf("lazy scan apps = %#v", result.Apps)
+	}
+}

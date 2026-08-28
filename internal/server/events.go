@@ -1,9 +1,11 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
 
 const maximumEventClients = 64
@@ -26,6 +28,10 @@ func (hub *eventHub) serveHTTP(response http.ResponseWriter, request *http.Reque
 	flusher, supported := response.(http.Flusher)
 	if !supported {
 		http.Error(response, "Streaming is not supported by this HTTP connection.", http.StatusInternalServerError)
+		return
+	}
+	if err := http.NewResponseController(response).SetWriteDeadline(time.Time{}); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		http.Error(response, "Dropserve could not prepare the live dashboard stream.", http.StatusInternalServerError)
 		return
 	}
 	client, registered := hub.register()

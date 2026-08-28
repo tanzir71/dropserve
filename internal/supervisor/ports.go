@@ -20,6 +20,8 @@ const (
 type portRegistry struct {
 	path     string
 	assigned map[string]int
+	first    int
+	last     int
 }
 
 var processPortReservations = struct {
@@ -27,8 +29,14 @@ var processPortReservations = struct {
 	owners map[int]*portRegistry
 }{owners: make(map[int]*portRegistry)}
 
-func newPortRegistry(path string) (*portRegistry, error) {
-	registry := &portRegistry{path: path, assigned: make(map[string]int)}
+func newPortRegistry(path string, first, last int) (*portRegistry, error) {
+	if first == 0 {
+		first = firstAppPort
+	}
+	if last == 0 {
+		last = lastAppPort
+	}
+	registry := &portRegistry{path: path, assigned: make(map[string]int), first: first, last: last}
 	if path == "" {
 		return registry, nil
 	}
@@ -44,7 +52,7 @@ func newPortRegistry(path string) (*portRegistry, error) {
 		return nil, fmt.Errorf("parse app ports: %w", err)
 	}
 	for slug, port := range registry.assigned {
-		if port < firstAppPort || port > lastAppPort {
+		if port < registry.first || port > registry.last {
 			delete(registry.assigned, slug)
 		}
 	}
@@ -64,7 +72,7 @@ func (registry *portRegistry) assign(slug string) (int, error) {
 			used[port] = struct{}{}
 		}
 	}
-	for port := firstAppPort; port <= lastAppPort; port++ {
+	for port := registry.first; port <= registry.last; port++ {
 		if _, found := used[port]; found || !registry.canClaim(port) {
 			continue
 		}
@@ -76,7 +84,7 @@ func (registry *portRegistry) assign(slug string) (int, error) {
 		}
 		return port, nil
 	}
-	return 0, errors.New("no app port is available from 7400 through 7999")
+	return 0, fmt.Errorf("no app port is available from %d through %d", registry.first, registry.last)
 }
 
 func (registry *portRegistry) canClaim(port int) bool {

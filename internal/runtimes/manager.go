@@ -57,6 +57,7 @@ type ManagerOptions struct {
 // Manager installs optional packs and owns their supervised processes.
 type Manager struct {
 	mu              sync.Mutex
+	changes         sync.WaitGroup
 	ctx             context.Context
 	cancel          context.CancelFunc
 	stateDirectory  string
@@ -165,26 +166,58 @@ func (manager *Manager) Statuses() []AddonStatus {
 	return statuses
 }
 
-// Change performs one explicit install, remove, start, or stop action.
-func (manager *Manager) Change(ctx context.Context, name, action string) (changeErr error) {
+// Change performs one explicit install, remove, start, or stop action and waits
+// for it to finish.
+func (manager *Manager) Change(ctx context.Context, name, action string) error {
+	pack, err := manager.beginChange(name, action)
+	if err != nil {
+		return err
+	}
+	return manager.runChange(ctx, name, action, pack)
+}
+
+// ChangeAsync queues one explicit add-on action against the manager lifetime.
+// The caller can poll Statuses for progress and the terminal result.
+func (manager *Manager) ChangeAsync(_ context.Context, name, action string) error {
+	pack, err := manager.beginChange(name, action)
+	if err != nil {
+		return err
+	}
+	go func() {
+		_ = manager.runChange(manager.ctx, name, action, pack)
+	}()
+	return nil
+}
+
+func (manager *Manager) beginChange(name, action string) (Pack, error) {
+	switch action {
+	case "install", "remove", "start", "stop":
+	default:
+		return Pack{}, fmt.Errorf("unknown add-on action %q", action)
+	}
 	manager.mu.Lock()
 	pack, found := manager.packs[name]
 	if !found {
 		manager.mu.Unlock()
-		return fmt.Errorf("unknown add-on %q", name)
+		return Pack{}, fmt.Errorf("unknown add-on %q", name)
 	}
 	if manager.closed {
 		manager.mu.Unlock()
-		return errors.New("add-on manager is closed")
+		return Pack{}, errors.New("add-on manager is closed")
 	}
 	if manager.busy[name] {
 		manager.mu.Unlock()
-		return fmt.Errorf("add-on %s is already changing", name)
+		return Pack{}, fmt.Errorf("add-on %s is already changing", name)
 	}
 	manager.busy[name] = true
 	manager.progress[name] = 0
 	manager.messages[name] = ""
+	manager.changes.Add(1)
 	manager.mu.Unlock()
+	return pack, nil
+}
+
+func (manager *Manager) runChange(ctx context.Context, name, action string, pack Pack) (changeErr error) {
 	defer func() {
 		manager.mu.Lock()
 		manager.busy[name] = false
@@ -193,10 +226,24 @@ func (manager *Manager) Change(ctx context.Context, name, action string) (change
 		}
 		manager.mu.Unlock()
 		manager.notify()
+		manager.changes.Done()
 	}()
 
 	switch action {
 	case "install":
+		_, installed, err := InstalledExecutable(manager.runtimeRoot, pack)
+		if err != nil {
+			return err
+		}
+		if installed {
+			manager.mu.Lock()
+			manager.progress[name] = 100
+			manager.mu.Unlock()
+			if name == "php" {
+				return manager.start(pack)
+			}
+			return nil
+		}
 		installer := Installer{Root: manager.runtimeRoot, Client: manager.client, Progress: func(progress Progress) {
 			percent := 0
 			if progress.Total > 0 {
@@ -231,9 +278,8 @@ func (manager *Manager) Change(ctx context.Context, name, action string) (change
 		return manager.start(pack)
 	case "stop":
 		return manager.stop(name)
-	default:
-		return fmt.Errorf("unknown add-on action %q", action)
 	}
+	return nil
 }
 
 // PHPHandler returns nil when PHP is not installed or is not running.
@@ -357,6 +403,11 @@ func (manager *Manager) Close() error {
 		return nil
 	}
 	manager.closed = true
+	manager.cancel()
+	manager.mu.Unlock()
+	manager.changes.Wait()
+
+	manager.mu.Lock()
 	phpPool := manager.php
 	manager.php = nil
 	processes := make([]DatabaseRuntime, 0, len(manager.databases))
@@ -365,7 +416,6 @@ func (manager *Manager) Close() error {
 	}
 	manager.databases = make(map[string]DatabaseRuntime)
 	manager.mu.Unlock()
-	manager.cancel()
 	var closeErrors []error
 	if phpPool != nil {
 		closeErrors = append(closeErrors, phpPool.Close())

@@ -22,6 +22,7 @@ type HTTPSRuntime struct {
 	active      bool
 	closing     bool
 	lastError   error
+	connections chan struct{}
 }
 
 // NewHTTPSRuntime creates an additive TLS serving boundary. It performs no
@@ -37,20 +38,26 @@ func NewHTTPSRuntime(handler http.Handler, certificate func() (tls.Certificate, 
 			MaxHeaderBytes:    1 << 20,
 		},
 		certificate: certificate,
+		connections: make(chan struct{}, maximumConnections),
 	}
 }
 
 // Start begins serving TLS on listener without changing the HTTP runtime.
 func (runtime *HTTPSRuntime) Start(listener net.Listener) {
+	limited := &connectionLimitedListener{
+		Listener: listener,
+		slots:    runtime.connections,
+		done:     make(chan struct{}),
+	}
 	runtime.mu.Lock()
 	if runtime.closing || runtime.active {
 		runtime.mu.Unlock()
-		_ = listener.Close()
+		_ = limited.Close()
 		return
 	}
 	runtime.generation++
 	generation := runtime.generation
-	runtime.listener = listener
+	runtime.listener = limited
 	runtime.address = listener.Addr().String()
 	runtime.active = true
 	runtime.lastError = nil
@@ -66,7 +73,7 @@ func (runtime *HTTPSRuntime) Start(listener net.Listener) {
 			return &certificate, nil
 		},
 	}
-	tlsListener := tls.NewListener(listener, configuration)
+	tlsListener := tls.NewListener(limited, configuration)
 	go func() {
 		err := runtime.server.Serve(tlsListener)
 		if errors.Is(err, http.ErrServerClosed) {

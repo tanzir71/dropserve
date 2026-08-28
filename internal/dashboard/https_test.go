@@ -139,7 +139,7 @@ func postHTTPSControl(t *testing.T, dashboard *handler, path, body string) {
 	t.Helper()
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	authorizeTestMutation(request, dashboard.csrfToken)
 	response := httptest.NewRecorder()
 	dashboard.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {

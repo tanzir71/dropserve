@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tanzir71/dropserve/internal/access"
 	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
@@ -33,6 +34,8 @@ import (
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 	"github.com/tanzir71/dropserve/internal/state"
+	"github.com/tanzir71/dropserve/internal/supervisor"
+	"github.com/tanzir71/dropserve/internal/systemmemory"
 	"github.com/tanzir71/dropserve/internal/updatecheck"
 	"github.com/tanzir71/dropserve/internal/version"
 )
@@ -40,15 +43,23 @@ import (
 const usage = `Dropserve hosts folders as local websites.
 
 Usage:
-  dropserve serve      run in the foreground
-  dropserve status     print the current runtime state as JSON
-  dropserve healthz    verify the running local server
-  dropserve doctor     check this computer's Dropserve setup
-  dropserve autostart  manage starting Dropserve when you log in
-  dropserve trust      explicitly install or remove local HTTPS trust
-  dropserve version    print the version and build commit
-  dropserve add PATH   register an app folder without moving it
-  dropserve help       show this help
+  dropserve serve                         run in the foreground
+  dropserve status                        print live state and apps as JSON
+  dropserve open                          open the dashboard
+  dropserve apps                          list discovered apps
+  dropserve add PATH                      register an app folder without moving it
+  dropserve logs SLUG [-f]                print or follow one command app's logs
+  dropserve restart SLUG                  restart one command app
+  dropserve autostart enable|disable|status
+  dropserve trust install|uninstall|status
+  dropserve firewall allow                allow private-network access on Windows
+  dropserve tailscale status|serve|unserve|funnel SLUG|unfunnel SLUG
+  dropserve runtime install php|mariadb|postgres
+  dropserve config path|validate|edit
+  dropserve healthz                       verify the running local server
+  dropserve doctor                        check this computer's setup
+  dropserve version                       print the version and build commit
+  dropserve help                          show this help
 `
 
 func main() {
@@ -84,6 +95,14 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return serveCommand(args[1:], stdout, stderr, configPath)
 	case "status":
 		return statusCommand(args[1:], stdout, stderr)
+	case "open":
+		return openCommand(args[1:], stdout, stderr)
+	case "apps":
+		return appsCommand(args[1:], stdout, stderr)
+	case "logs":
+		return logsCommand(args[1:], stdout, stderr)
+	case "restart":
+		return restartCommand(args[1:], stdout, stderr)
 	case "healthz":
 		return healthzCommand(args[1:], stdout, stderr)
 	case "doctor":
@@ -92,6 +111,14 @@ func runWithConfigPath(args []string, stdout, stderr io.Writer, configPath strin
 		return autostartCommand(args[1:], stdout, stderr)
 	case "trust":
 		return trustCommand(args[1:], stdout, stderr)
+	case "firewall":
+		return firewallCommand(args[1:], stdout, stderr)
+	case "tailscale":
+		return tailscaleCommand(args[1:], stdout, stderr)
+	case "runtime":
+		return runtimeCommand(args[1:], stdout, stderr)
+	case "config":
+		return configCommand(args[1:], stdout, stderr, configPath)
 	case "version", "--version", "-v":
 		if _, err := fmt.Fprintf(stdout, "dropserve %s (%s)\n", version.Version, version.Commit); err != nil {
 			return 1
@@ -376,6 +403,8 @@ func serveCommandContextWithReady(
 	if *bindAddress == "" {
 		*bindAddress = configuration.Server.Bind
 	}
+	var liveConfiguration atomic.Pointer[config.Config]
+	liveConfiguration.Store(&configuration)
 	if *statePath == "" && *listenAddress == "" {
 		var err error
 		*statePath, err = state.DefaultPath()
@@ -422,6 +451,7 @@ func serveCommandContextWithReady(
 	}
 	var runtimeWarnings []string
 	var handler *dropserver.Server
+	var servedHandler http.Handler
 	var updateNotice atomic.Pointer[dashboard.UpdateNotice]
 	var addonManager *runtimes.Manager
 	if stateDirectory != "" {
@@ -464,16 +494,18 @@ func serveCommandContextWithReady(
 			}
 			return result
 		}
-		changeAddon = addonManager.Change
+		changeAddon = addonManager.ChangeAsync
 	}
 	discoveryManager := discovery.NewManager(discovery.ManagerOptions{
-		LANIP:      lanIP,
-		HTTPPort:   mainPort,
-		NoticePath: networkStatePath,
+		LANIP:        lanIP,
+		HTTPPort:     mainPort,
+		MDNSHostname: configuration.Discovery.MDNSName,
+		NoticePath:   networkStatePath,
 		Logf: func(format string, arguments ...any) {
 			_, _ = fmt.Fprintf(stderr, format+"\n", arguments...)
 		},
 	})
+	discoveryManager.SetTailscaleEnabled(configuration.Discovery.Tailscale)
 	defer discoveryManager.Close()
 	tailscaleProbes := discovery.TailscaleProbes{}
 	probeTailscale := func(probeContext context.Context) (discovery.TailscaleStatus, error) {
@@ -490,11 +522,13 @@ func serveCommandContextWithReady(
 		status.ServeEnabled = serveEnabled
 		return status, nil
 	}
-	tailscaleStatus, tailscaleErr := probeTailscale(ctx)
-	if tailscaleErr != nil {
-		_, _ = fmt.Fprintf(stderr, "Dropserve could not read Tailscale status: %v\n", tailscaleErr)
-	} else {
-		discoveryManager.UpdateTailscale(tailscaleStatus)
+	if live := liveConfiguration.Load(); live != nil && live.Discovery.Tailscale {
+		tailscaleStatus, tailscaleErr := probeTailscale(ctx)
+		if tailscaleErr != nil {
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not read Tailscale status: %v\n", tailscaleErr)
+		} else {
+			discoveryManager.UpdateTailscale(tailscaleStatus)
+		}
 	}
 	funnel, funnelErr := discovery.NewFunnelManager(discovery.FunnelOptions{
 		StatePath: funnelStatePath,
@@ -510,7 +544,6 @@ func serveCommandContextWithReady(
 	if httpsConfigPath == "" {
 		httpsConfigPath, httpsConfigPathErr = config.DefaultPath()
 	}
-	httpsConfiguration := configuration
 	hostname, _ := os.Hostname()
 	httpsController := newLocalHTTPSController(localHTTPSOptions{
 		Bind:           *bindAddress,
@@ -525,40 +558,53 @@ func serveCommandContextWithReady(
 			return nil
 		},
 		Handler: func() http.Handler {
-			if handler == nil {
-				return nil
-			}
-			return handler.Handler()
+			return servedHandler
 		},
 		PersistPort: func(port int) error {
 			if httpsConfigPathErr != nil {
 				return httpsConfigPathErr
 			}
-			updated := httpsConfiguration
+			updated, loadErr := config.Load(httpsConfigPath)
+			if loadErr != nil {
+				return loadErr
+			}
 			updated.Server.HTTPSPort = port
 			if err := config.Save(httpsConfigPath, updated); err != nil {
 				return err
 			}
-			httpsConfiguration = updated
 			return nil
 		},
 	})
 
+	setTailscaleServe := func(changeContext context.Context, enabled bool) error {
+		live := liveConfiguration.Load()
+		if live == nil || !live.Discovery.Tailscale {
+			return errors.New("tailscale integration is disabled in config.toml")
+		}
+		if err := discovery.SetTailscaleServe(changeContext, mainPort, enabled, tailscaleProbes); err != nil {
+			return err
+		}
+		return discoveryManager.SetTailscaleServeEnabled(enabled)
+	}
 	handler, err = dropserver.NewWithOptions(dropserver.Options{
 		Scanner: scanner.Options{
-			Roots:      configuration.Server.AppsRoots,
-			Registered: configuration.Server.RegisteredApps,
+			Roots:             configuration.Server.AppsRoots,
+			Registered:        configuration.Server.RegisteredApps,
+			LazyStartCommands: globalLazyStart(configuration.Runtimes.LazyStart),
 		},
-		IndexPath: indexPath,
-		Warnings:  runtimeWarnings,
-		Discovery: discoveryManager.Snapshot,
-		Funnel:    funnel,
-		SetTailscaleServe: func(changeContext context.Context, enabled bool) error {
-			if err := discovery.SetTailscaleServe(changeContext, mainPort, enabled, tailscaleProbes); err != nil {
-				return err
-			}
-			return discoveryManager.SetTailscaleServeEnabled(enabled)
+		IndexPath:      indexPath,
+		DashboardTitle: configuration.Dashboard.Title,
+		DashboardTheme: configuration.Dashboard.Theme,
+		PinToRoot:      configuration.Dashboard.PinToRoot,
+		Supervisor: supervisor.Options{
+			FirstPort: configuration.Server.AppPortRange[0],
+			LastPort:  configuration.Server.AppPortRange[1],
 		},
+		AsyncCommandStart:    true,
+		Warnings:             runtimeWarnings,
+		Discovery:            discoveryManager.Snapshot,
+		Funnel:               funnel,
+		SetTailscaleServe:    setTailscaleServe,
 		LocalHTTPSStatus:     httpsController.Status,
 		SetLocalHTTPS:        httpsController.SetEnabled,
 		SetLocalTrust:        httpsController.SetTrust,
@@ -567,6 +613,28 @@ func serveCommandContextWithReady(
 		PHPHandler:           phpHandler,
 		Addons:               addons,
 		ChangeAddon:          changeAddon,
+		OpenFolder: func(_ context.Context, slug string) error {
+			path := ""
+			live := liveConfiguration.Load()
+			if slug == "" && live != nil && len(live.Server.AppsRoots) != 0 {
+				path = live.Server.AppsRoots[0]
+			}
+			if slug != "" && handler != nil {
+				for _, application := range handler.Scan().Apps {
+					if application.Slug == slug {
+						path = application.Path
+						break
+					}
+				}
+			}
+			if path == "" {
+				return errors.New("the requested Apps folder was not found")
+			}
+			if info, statErr := os.Stat(path); statErr == nil && !info.IsDir() {
+				path = filepath.Dir(path)
+			}
+			return launch.OpenPath(path)
+		},
 		Update: func() dashboard.UpdateNotice {
 			current := updateNotice.Load()
 			if current == nil {
@@ -583,11 +651,22 @@ func serveCommandContextWithReady(
 		return 1
 	}
 	defer func() { _ = handler.Close() }()
-	if configuration.Updates.Check && !strings.HasPrefix(version.Version, "0.0.0-") {
-		go monitorUpdates(ctx, version.Version, &updateNotice, updateChanged, handler.Reconcile)
+	accessGate, err := access.New(handler.Handler(), configuration.Security.PINEnabled, configuration.Security.PINHash)
+	if err != nil {
+		_ = listener.Close()
+		_, _ = fmt.Fprintf(stderr, "Dropserve could not apply its PIN lock: %v\n", err)
+		return 1
+	}
+	servedHandler = accessGate
+	updateTriggers := make(chan struct{}, 1)
+	if !strings.HasPrefix(version.Version, "0.0.0-") {
+		go monitorUpdates(ctx, version.Version, &updateNotice, updateChanged, handler.Reconcile, func() bool {
+			live := liveConfiguration.Load()
+			return live != nil && live.Updates.Check
+		}, updateTriggers, updatecheck.Check)
 	}
 
-	listenerRuntime := dropserver.NewListenerRuntime(handler.Handler())
+	listenerRuntime := dropserver.NewListenerRuntime(servedHandler)
 	listenerRuntime.Start(listener)
 	if configuration.Server.HTTPSPort > 0 {
 		if httpsErr := httpsController.SetEnabled(ctx, true); httpsErr != nil {
@@ -604,12 +683,16 @@ func serveCommandContextWithReady(
 		ProbeLANIP:      probeLANIP,
 		ListenerHealthy: listenerRuntime.Healthy,
 		RecoverListener: func(recoveryContext context.Context) error {
+			currentConfiguration := configuration
+			if live := liveConfiguration.Load(); live != nil {
+				currentConfiguration = *live
+			}
 			recovered, recoveryErr := acquireMainListener(
 				recoveryContext,
 				*listenAddress,
 				*bindAddress,
 				*statePath,
-				configuration,
+				currentConfiguration,
 			)
 			if recoveryErr != nil {
 				return recoveryErr
@@ -617,10 +700,16 @@ func serveCommandContextWithReady(
 			listenerRuntime.Start(recovered)
 			return nil
 		},
-		ProbeTailscale: probeTailscale,
 		Logf: func(format string, arguments ...any) {
 			_, _ = fmt.Fprintf(stderr, format+"\n", arguments...)
 		},
+	}
+	monitorOptions.ProbeTailscale = func(probeContext context.Context) (discovery.TailscaleStatus, error) {
+		live := liveConfiguration.Load()
+		if live == nil || !live.Discovery.Tailscale {
+			return discovery.TailscaleStatus{}, nil
+		}
+		return probeTailscale(probeContext)
 	}
 	if funnel != nil {
 		monitorOptions.ExpireFunnels = funnel.Expire
@@ -628,6 +717,73 @@ func serveCommandContextWithReady(
 	monitorOptions.UpdateTLSAddresses = httpsController.UpdateAddresses
 	monitor := discovery.NewMonitor(monitorOptions)
 	go monitor.Run(ctx)
+
+	if *configPath != "" {
+		go func() {
+			watchErr := config.Watch(ctx, *configPath, func(updated config.Config) {
+				if len(roots) != 0 {
+					updated.Server.AppsRoots = append([]string(nil), roots...)
+				}
+				scannerOptions := scanner.Options{
+					Roots:             updated.Server.AppsRoots,
+					Registered:        updated.Server.RegisteredApps,
+					LazyStartCommands: globalLazyStart(updated.Runtimes.LazyStart),
+				}
+				if updateErr := handler.UpdateConfiguration(
+					scannerOptions,
+					updated.Dashboard.Title,
+					updated.Dashboard.Theme,
+					updated.Dashboard.PinToRoot,
+					updated.Server.AppPortRange[0],
+					updated.Server.AppPortRange[1],
+				); updateErr != nil {
+					_, _ = fmt.Fprintf(stderr, "Dropserve ignored a config edit and kept the last good settings: %v\n", updateErr)
+					return
+				}
+				if updateErr := accessGate.Update(updated.Security.PINEnabled, updated.Security.PINHash); updateErr != nil {
+					_, _ = fmt.Fprintf(stderr, "Dropserve ignored a PIN config edit and kept the last good PIN: %v\n", updateErr)
+					return
+				}
+				previous := liveConfiguration.Load()
+				liveConfiguration.Store(&updated)
+				if previous != nil && previous.Updates.Check != updated.Updates.Check {
+					if updated.Updates.Check {
+						select {
+						case updateTriggers <- struct{}{}:
+						default:
+						}
+					} else {
+						cleared := dashboard.UpdateNotice{}
+						updateNotice.Store(&cleared)
+						if updateChanged != nil {
+							updateChanged(cleared)
+						}
+						_ = handler.Reconcile()
+					}
+				}
+				discoveryManager.SetTailscaleEnabled(updated.Discovery.Tailscale)
+				discoveryManager.ConfigureMDNS(updated.Discovery.MDNS, updated.Discovery.MDNSName)
+				if updated.Discovery.Tailscale && (previous == nil || !previous.Discovery.Tailscale) {
+					go func() {
+						status, probeErr := probeTailscale(ctx)
+						if probeErr == nil {
+							discoveryManager.UpdateTailscale(status)
+						}
+					}()
+				}
+				if previous != nil && (updated.Server.Bind != previous.Server.Bind || updated.Server.HTTPPort != previous.Server.HTTPPort || updated.Server.HTTPSPort != previous.Server.HTTPSPort) {
+					_, _ = fmt.Fprintln(stderr, "Dropserve reloaded config.toml; listener bind and port changes take effect after restart.")
+				} else {
+					_, _ = fmt.Fprintln(stderr, "Dropserve reloaded config.toml.")
+				}
+			}, func(loadErr error) {
+				_, _ = fmt.Fprintf(stderr, "Dropserve ignored a malformed config edit and kept the last good settings: %v\n", loadErr)
+			})
+			if watchErr != nil && ctx.Err() == nil {
+				_, _ = fmt.Fprintf(stderr, "Dropserve could not watch config.toml: %v\n", watchErr)
+			}
+		}()
+	}
 
 	address := listenerURL(listener.Addr())
 	if _, err := fmt.Fprintf(stdout, "Dropserve is ready at %s\n", address); err != nil {
@@ -643,7 +799,9 @@ func serveCommandContextWithReady(
 	if ready != nil {
 		ready(address)
 	}
-	discoveryManager.StartMDNS()
+	if configuration.Discovery.MDNS {
+		discoveryManager.StartMDNS()
+	}
 	<-ctx.Done()
 	shutdownContext, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancelShutdown()
@@ -657,17 +815,34 @@ func serveCommandContextWithReady(
 	return 0
 }
 
+func globalLazyStart(setting string) bool {
+	switch strings.ToLower(strings.TrimSpace(setting)) {
+	case "always":
+		return true
+	case "auto":
+		return systemmemory.LowMemory()
+	default:
+		return false
+	}
+}
+
 func monitorUpdates(
 	ctx context.Context,
 	currentVersion string,
 	notice *atomic.Pointer[dashboard.UpdateNotice],
 	notify func(dashboard.UpdateNotice),
 	onChange func() error,
+	enabled func() bool,
+	trigger <-chan struct{},
+	checkUpdate func(context.Context, updatecheck.Options) (updatecheck.Notification, error),
 ) {
 	check := func() {
+		if enabled != nil && !enabled() {
+			return
+		}
 		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		latest, err := updatecheck.Check(checkContext, updatecheck.Options{CurrentVersion: currentVersion})
+		latest, err := checkUpdate(checkContext, updatecheck.Options{CurrentVersion: currentVersion})
 		if err != nil {
 			return
 		}
@@ -687,6 +862,8 @@ func monitorUpdates(
 		select {
 		case <-ctx.Done():
 			return
+		case <-trigger:
+			check()
 		case <-ticker.C:
 			check()
 		}
@@ -771,11 +948,42 @@ func statusCommand(arguments []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
+	if snapshot.HTTPPort > 0 && snapshot.HTTPPort <= 65535 {
+		api := localAPIForPort(snapshot.HTTPPort)
+		var live map[string]any
+		if liveErr := api.get(context.Background(), "/_dropserve/api/status", &live); liveErr == nil {
+			var applications []cliApp
+			if appsErr := api.get(context.Background(), "/_dropserve/api/apps", &applications); appsErr != nil {
+				_, _ = fmt.Fprintf(stderr, "Dropserve could not read its live app list: %v\n", appsErr)
+				return 1
+			}
+			live["apps"] = applications
+			live["port"] = snapshot.HTTPPort
+			live["running"] = true
+			warnings := append([]state.Warning(nil), snapshot.Warnings...)
+			if liveWarnings, ok := live["warnings"].([]any); ok {
+				for _, item := range liveWarnings {
+					if message, valid := item.(string); valid && message != "" {
+						warnings = append(warnings, state.Warning{Code: "runtime_status", Message: message})
+					}
+				}
+			}
+			live["warnings"] = warnings
+			live["discovery"] = map[string]any{"network": live["network"], "sharing": live["sharing"]}
+			delete(live, "csrf_token")
+			if err := json.NewEncoder(stdout).Encode(live); err != nil {
+				return 1
+			}
+			return 0
+		}
+	}
 	output := struct {
 		Version  string          `json:"version"`
 		Commit   string          `json:"commit"`
 		Port     int             `json:"port"`
 		Warnings []state.Warning `json:"warnings"`
+		Apps     []cliApp        `json:"apps"`
+		Running  bool            `json:"running"`
 	}{
 		Version:  version.Version,
 		Commit:   version.Commit,

@@ -46,6 +46,7 @@ type Manager struct {
 	closed        bool
 	noticePath    string
 	lastLANIP     string
+	tailscaleOn   bool
 }
 
 // NewManager creates a discovery manager without starting optional network
@@ -53,7 +54,10 @@ type Manager struct {
 func NewManager(options ManagerOptions) *Manager {
 	hostname := strings.TrimSpace(options.MDNSHostname)
 	if hostname == "" {
-		hostname = "dropserve.local."
+		hostname = "dropserve"
+	}
+	if !strings.HasSuffix(strings.ToLower(hostname), ".local") && !strings.HasSuffix(strings.ToLower(hostname), ".local.") {
+		hostname += ".local"
 	}
 	if !strings.HasSuffix(hostname, ".") {
 		hostname += "."
@@ -77,6 +81,7 @@ func NewManager(options ManagerOptions) *Manager {
 		logf:         logf,
 		registerMDNS: register,
 		noticePath:   options.NoticePath,
+		tailscaleOn:  true,
 	}
 	manager.initializeNetworkState()
 	return manager
@@ -172,8 +177,54 @@ func (manager *Manager) UpdateLANIP(address netip.Addr) {
 // UpdateTailscale publishes the latest installed-client status.
 func (manager *Manager) UpdateTailscale(status TailscaleStatus) {
 	manager.mu.Lock()
+	if !manager.tailscaleOn {
+		manager.snapshot.Tailscale = TailscaleStatus{}
+		manager.mu.Unlock()
+		return
+	}
 	manager.snapshot.Tailscale = status
 	manager.mu.Unlock()
+}
+
+// SetTailscaleEnabled controls whether probed Tailscale state is published.
+func (manager *Manager) SetTailscaleEnabled(enabled bool) {
+	manager.mu.Lock()
+	manager.tailscaleOn = enabled
+	if !enabled {
+		manager.snapshot.Tailscale = TailscaleStatus{}
+	}
+	manager.mu.Unlock()
+}
+
+// ConfigureMDNS hot-reloads best-effort advertising. Disabling or renaming
+// shuts down the old responder before any replacement is published.
+func (manager *Manager) ConfigureMDNS(enabled bool, hostname string) {
+	hostname = strings.TrimSpace(hostname)
+	if hostname == "" {
+		hostname = "dropserve"
+	}
+	if !strings.HasSuffix(strings.ToLower(hostname), ".local") {
+		hostname += ".local"
+	}
+	if !strings.HasSuffix(hostname, ".") {
+		hostname += "."
+	}
+	manager.mu.Lock()
+	changed := manager.mdnsHostname != hostname
+	manager.mdnsHostname = hostname
+	manager.mdnsRequested = enabled
+	responder := manager.responder
+	if !enabled || changed {
+		manager.responder = nil
+		manager.snapshot.MDNSHostname = ""
+	}
+	manager.mu.Unlock()
+	if responder != nil && (!enabled || changed) {
+		responder.Shutdown()
+	}
+	if enabled && (changed || responder == nil) {
+		manager.StartMDNS()
+	}
 }
 
 // SetTailscaleServeEnabled publishes the verified state of the tailnet-only

@@ -9,22 +9,25 @@ import (
 	"time"
 )
 
+const maximumConnections = 256
+
 // ListenerRuntime keeps one HTTP handler/server alive while its underlying
 // network listener is replaced after sleep or adapter changes.
 type ListenerRuntime struct {
-	mu         sync.RWMutex
-	server     *http.Server
-	listener   net.Listener
-	address    string
-	generation uint64
-	active     bool
-	closing    bool
-	lastError  error
+	mu          sync.RWMutex
+	server      *http.Server
+	listener    net.Listener
+	address     string
+	generation  uint64
+	active      bool
+	closing     bool
+	lastError   error
+	connections chan struct{}
 }
 
 // NewListenerRuntime creates a recoverable HTTP serving boundary.
 func NewListenerRuntime(handler http.Handler) *ListenerRuntime {
-	return &ListenerRuntime{server: &http.Server{
+	return &ListenerRuntime{connections: make(chan struct{}, maximumConnections), server: &http.Server{
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -36,22 +39,27 @@ func NewListenerRuntime(handler http.Handler) *ListenerRuntime {
 
 // Start serves through listener without replacing the handler or app state.
 func (runtime *ListenerRuntime) Start(listener net.Listener) {
+	limited := &connectionLimitedListener{
+		Listener: listener,
+		slots:    runtime.connections,
+		done:     make(chan struct{}),
+	}
 	runtime.mu.Lock()
 	if runtime.closing || runtime.active {
 		runtime.mu.Unlock()
-		_ = listener.Close()
+		_ = limited.Close()
 		return
 	}
 	runtime.generation++
 	generation := runtime.generation
-	runtime.listener = listener
+	runtime.listener = limited
 	runtime.address = listener.Addr().String()
 	runtime.active = true
 	runtime.lastError = nil
 	runtime.mu.Unlock()
 
 	go func() {
-		err := runtime.server.Serve(listener)
+		err := runtime.server.Serve(limited)
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil
 		}
@@ -63,6 +71,44 @@ func (runtime *ListenerRuntime) Start(listener net.Listener) {
 		}
 		runtime.mu.Unlock()
 	}()
+}
+
+type connectionLimitedListener struct {
+	net.Listener
+	slots     chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func (listener *connectionLimitedListener) Accept() (net.Conn, error) {
+	select {
+	case listener.slots <- struct{}{}:
+	case <-listener.done:
+		return nil, net.ErrClosed
+	}
+	connection, err := listener.Listener.Accept()
+	if err != nil {
+		<-listener.slots
+		return nil, err
+	}
+	return &limitedConnection{Conn: connection, release: func() { <-listener.slots }}, nil
+}
+
+func (listener *connectionLimitedListener) Close() error {
+	listener.closeOnce.Do(func() { close(listener.done) })
+	return listener.Listener.Close()
+}
+
+type limitedConnection struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (connection *limitedConnection) Close() error {
+	err := connection.Conn.Close()
+	connection.once.Do(connection.release)
+	return err
 }
 
 // Healthy reports whether an active listener is currently serving.

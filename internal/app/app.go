@@ -17,9 +17,13 @@ const (
 type App struct {
 	Slug             string
 	Name             string
+	Description      string
+	Icon             string
+	Tags             []string
 	Path             string
 	Kind             Kind
 	Index            string
+	SPA              bool
 	LooseFile        bool
 	DirectoryListing bool
 	FileCount        int64
@@ -31,6 +35,9 @@ type App struct {
 	Environment      map[string]string
 	BaseHref         string
 	Autostart        bool
+	Visibility       string
+	Pinned           bool
+	Hidden           bool
 	Status           string
 	Port             int
 	PrefersOwnPort   bool

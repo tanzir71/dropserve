@@ -46,11 +46,17 @@ Useful commands:
 dropserve serve
 dropserve add PATH
 dropserve status
-dropserve healthz
+dropserve open
+dropserve apps
+dropserve logs SLUG -f
+dropserve restart SLUG
 dropserve doctor
 dropserve autostart enable
-dropserve trust --install
-dropserve trust --uninstall
+dropserve trust install
+dropserve firewall allow
+dropserve tailscale status
+dropserve runtime install php
+dropserve config validate
 ```
 
 `dropserve add PATH` registers a folder without moving, copying, or modifying it. Windows uses a current-user Scheduled Task, Linux uses a systemd user unit, and macOS uses a per-user LaunchAgent.
@@ -69,9 +75,49 @@ Apps/
 
 Dropserve detects common static, Node, Python, and PHP layouts. An optional `dropserve.json` can set a display name, description, icon, command, environment, visibility, health path, SPA fallback, and other advanced behavior. App files remain yours: scanning, serving, and removal of optional runtimes do not write into them.
 
+All manifest fields are optional. Unknown keys produce a dashboard warning, and malformed JSON falls back to normal detection instead of hiding the app. The reference shape is:
+
+```json
+{
+  "name": "Invoice Maker",
+  "description": "Makes PDF invoices",
+  "icon": "📄",
+  "tags": ["work", "pdf"],
+  "type": "command",
+  "command": "node server.js",
+  "port_env": "PORT",
+  "env": {"NODE_ENV": "production"},
+  "health_path": "/",
+  "autostart": true,
+  "index": "index.html",
+  "spa": false,
+  "directory_listing": false,
+  "base_href": "auto",
+  "visibility": "lan",
+  "pinned": false,
+  "hidden": false
+}
+```
+
+`config.toml` supports the documented `[server]`, `[dashboard]`, `[discovery]`, `[security]`, `[runtimes]`, and `[updates]` sections. `dropserve config edit` creates and opens it, `dropserve config validate` checks syntax and values, and safe settings are hot-reloaded. A malformed edit leaves the last good configuration running. Listener bind/port changes are reported and take effect after restart. Dropserve v1 accepts `runtimes.php_version = "8.3"` and currently pins the official PHP 8.3.33 Windows pack; per-app PHP versions remain out of scope.
+
+The optional PIN lock expects the SHA-256 digest of a six-digit PIN. For example, PowerShell can generate it without sending the PIN anywhere:
+
+```powershell
+$pin = Read-Host 'Six-digit PIN'
+$bytes = [Text.Encoding]::UTF8.GetBytes($pin)
+$hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLower()
+```
+
+Set `security.pin_enabled = true` and `security.pin_hash = "<hash>"`. Loopback access and the health check remain exempt so the owner cannot lock themselves out locally.
+
+The dashboard's local JSON and SSE endpoints are documented in [docs/api.md](docs/api.md).
+
 ## Network and security model
 
 Dropserve is a personal server for a home or office LAN, not a hardened public web server. By default, anyone on the same LAN can reach LAN-visible apps, and app processes run with your user account's privileges. Only add code you wrote or trust.
+
+Per-app `visibility` is enforced before serving or proxying: `lan` (default), `local` (loopback only), `tailnet` (`100.64.0.0/10` sources only), or `public`. The optional PIN lock protects every non-loopback route except the health check. See [SECURITY.md](SECURITY.md) for the complete threat model and private reporting instructions.
 
 Tailscale Serve is the preferred private remote-access path. Tailscale Funnel is the only public-internet path, is off by default, requires the exact app slug as confirmation, and expires automatically after eight hours. Local HTTPS is optional; installing its local certificate authority always requires a separate explicit action and can be fully undone.
 
@@ -113,6 +159,10 @@ The Windows uninstaller stops Dropserve and removes its start-at-login task, fir
 - A Docker replacement, orchestrator, build system, or file-sync tool.
 - A multi-user hosting service.
 - A mandatory Apache/PHP/database bundle.
+
+## Glossary
+
+**App** — a folder in an Apps root. **Slug** — the URL-safe name derived from the folder name. **Apps root** — a folder Dropserve watches. **Mount** — making an app reachable at a URL. **Pack** — an optional downloadable PHP, MariaDB, or PostgreSQL runtime. **Own port** — the stable dedicated app port that remains available when path mounting is incompatible. **Tailnet** — your private Tailscale network. **Funnel** — Tailscale's public-internet exposure feature.
 
 ## Licence
 

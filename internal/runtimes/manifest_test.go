@@ -18,7 +18,7 @@ func TestCurrentWindowsAddonManifestPinsAllOptionalEngines(t *testing.T) {
 		sha256     string
 		executable string
 	}{
-		"php":      {"8.5.10", "22ec430195984d233eb9e62c637a945bbcda06efca2f392d9d96d62c6acd34f8", "php-cgi.exe"},
+		"php":      {"8.3.33", "534399107056313246f424adbbb7937337e40fbbf6aa7bc26287ba9cfd2e4a2a", "php-cgi.exe"},
 		"mariadb":  {"11.8.9", "830c46727d9278eae212ae3eca44eeb9e71b2a68704e95f344a64fba7b1963f5", "mariadb-11.8.9-winx64/bin/mariadbd.exe"},
 		"postgres": {"18.6", "fbe23da234ee31547bf8a36d29dfd81e82b849df2d2b78d2eecb43d360252f8c", "pgsql/bin/postgres.exe"},
 	}

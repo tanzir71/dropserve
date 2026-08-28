@@ -27,6 +27,31 @@ type testMDNSResponder struct{}
 
 func (testMDNSResponder) Shutdown() {}
 
+type trackedMDNSResponder struct{ stopped *int }
+
+func (responder trackedMDNSResponder) Shutdown() { *responder.stopped++ }
+
+func TestConfigureMDNSRenamesAndDisablesLiveResponder(t *testing.T) {
+	var registrations []MDNSRegistration
+	stopped := 0
+	manager := NewManager(ManagerOptions{
+		LANIP: netip.MustParseAddr("192.168.1.10"),
+		RegisterMDNS: func(registration MDNSRegistration) (MDNSResponder, error) {
+			registrations = append(registrations, registration)
+			return trackedMDNSResponder{stopped: &stopped}, nil
+		},
+	})
+	manager.StartMDNS()
+	manager.ConfigureMDNS(true, "my-apps")
+	if len(registrations) != 2 || registrations[1].Hostname != "my-apps.local." || stopped != 1 || manager.Snapshot().MDNSHostname != "my-apps.local" {
+		t.Fatalf("renamed registrations=%#v stopped=%d snapshot=%#v", registrations, stopped, manager.Snapshot())
+	}
+	manager.ConfigureMDNS(false, "my-apps")
+	if stopped != 2 || manager.Snapshot().MDNSHostname != "" {
+		t.Fatalf("disabled stopped=%d snapshot=%#v", stopped, manager.Snapshot())
+	}
+}
+
 func TestMDNSStartsWhenLANAppearsAfterOfflineStartup(t *testing.T) {
 	var registrations []MDNSRegistration
 	manager := NewManager(ManagerOptions{

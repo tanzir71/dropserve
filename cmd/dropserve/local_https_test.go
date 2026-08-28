@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -14,8 +15,11 @@ import (
 	"path/filepath"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/tanzir71/dropserve/internal/tlsca"
 )
 
 type localHTTPSRecordingTrustStore struct {
@@ -187,5 +191,21 @@ func TestTrustCommandIsExplicitAndReversible(t *testing.T) {
 	}
 	if !reflect.DeepEqual(store.installed, []string{rootPath}) || !reflect.DeepEqual(store.uninstalled, []string{rootPath}) {
 		t.Fatalf("trust command effects: installs=%v uninstalls=%v", store.installed, store.uninstalled)
+	}
+}
+
+func TestTrustStatusReadsTheActualSystemBoundary(t *testing.T) {
+	root := t.TempDir()
+	statePath := filepath.Join(root, "state.json")
+	if _, err := tlsca.New(tlsca.Options{Directory: filepath.Join(root, "ca"), Hostname: "cli-trust-status"}); err != nil {
+		t.Fatalf("create isolated authority: %v", err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if code := trustCommandWithStore([]string{"status"}, &stdout, &stderr, statePath, nil); code != 0 {
+		t.Fatalf("trust status returned %d; stderr=%q", code, stderr.String())
+	}
+	if strings.TrimSpace(stdout.String()) != "not trusted" {
+		t.Fatalf("trust status = %q, want not trusted", stdout.String())
 	}
 }

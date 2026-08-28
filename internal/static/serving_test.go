@@ -85,6 +85,29 @@ func TestDirectoryListingWhenNoIndexExists(t *testing.T) {
 	}
 }
 
+func TestSPAManifestFallsBackToIndexForUnmatchedSafePaths(t *testing.T) {
+	root := t.TempDir()
+	index := []byte("<!doctype html><title>SPA shell</title>")
+	if err := os.WriteFile(filepath.Join(root, "index.html"), index, 0o600); err != nil {
+		t.Fatalf("write SPA index: %v", err)
+	}
+	handler := staticserver.New(app.App{Path: root, Index: "index.html", SPA: true})
+
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/client/route", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || response.Body.String() != string(index) {
+		t.Fatalf("SPA fallback = %d %q", response.Code, response.Body.String())
+	}
+
+	request = httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/..%2fsecret", nil)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("unsafe SPA path returned %d, want 404", response.Code)
+	}
+}
+
 type staticResponse struct {
 	StatusCode int
 	Header     http.Header

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-dropserve-theme="auto">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,7 +9,7 @@
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/" aria-label="Dropserve home">
+    <a class="brand" href="/_dropserve/" aria-label="Dropserve home">
       <span class="brand-mark" aria-hidden="true">D</span>
       <span><strong>Dropserve</strong><small>Yours, from this computer.</small></span>
     </a>
@@ -48,6 +48,11 @@
           <button id="local-trust-toggle" class="mini-button" type="button" hidden>Trust on this computer</button>
           <a id="local-root-download" class="mini-button" href="/_dropserve/api/https/root.pem" download hidden>Download certificate</a>
         </div>
+      </section>
+      <section class="funnel-apps-section" aria-labelledby="funnel-apps-title">
+        <h3 id="funnel-apps-title">Public app sharing</h3>
+        <p>Public links are off by default, apply to one app, require confirmation, and expire after eight hours.</p>
+        <div id="funnel-apps" class="funnel-apps" aria-live="polite">Loading apps…</div>
       </section>
     </aside>
 
@@ -92,7 +97,10 @@
           <p class="eyebrow">On this computer</p>
           <h2 id="apps-title">Your apps</h2>
         </div>
-        <span id="app-count" class="count-pill">Checking…</span>
+        <div class="section-controls">
+          <button id="hidden-apps-toggle" class="hidden-apps-toggle" type="button" aria-pressed="false" hidden>Show hidden apps</button>
+          <span id="app-count" class="count-pill">Checking…</span>
+        </div>
       </div>
       <div id="app-grid" class="app-grid" aria-live="polite" aria-busy="true"></div>
       <div id="empty-state" class="empty-state" hidden>
@@ -105,6 +113,7 @@
         <div class="empty-icon" aria-hidden="true">↻</div>
         <h2>We couldn’t refresh your apps</h2>
         <p>Your sites are still available. Try refreshing this page in a moment.</p>
+        <button type="button" id="rescan-apps">Rescan apps</button>
       </div>
     </section>
   </main>

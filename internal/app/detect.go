@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -13,13 +14,33 @@ import (
 
 // Detection is the first matching rule for one app directory.
 type Detection struct {
-	Kind        Kind
-	Command     []string
-	Runtime     string
-	Reason      string
-	Environment map[string]string
-	BaseHref    string
-	Autostart   bool
+	Kind             Kind
+	Command          []string
+	Runtime          string
+	Reason           string
+	Name             string
+	Description      string
+	Icon             string
+	Tags             []string
+	Environment      map[string]string
+	HealthPath       string
+	PortEnv          string
+	Index            *string
+	SPA              bool
+	DirectoryListing *bool
+	BaseHref         string
+	Autostart        bool
+	Visibility       string
+	Pinned           bool
+	Hidden           bool
+	Warnings         []ManifestWarning
+}
+
+// ManifestWarning is a non-fatal problem in dropserve.json. Detection remains
+// available so one bad optional setting never makes an app disappear.
+type ManifestWarning struct {
+	Code    string
+	Message string
 }
 
 // Detect applies the ordered app-detection rules implemented so far.
@@ -27,6 +48,16 @@ func Detect(root string) (Detection, error) {
 	settings, err := readManifestSettings(root)
 	if err != nil {
 		return Detection{}, err
+	}
+	switch strings.ToLower(strings.TrimSpace(settings.Type)) {
+	case "static":
+		return withManifestSettings(Detection{Kind: KindStatic, Autostart: true}, settings), nil
+	case "php":
+		return withManifestSettings(Detection{Kind: KindPHP, Runtime: "php", Autostart: true}, settings), nil
+	case "command":
+		if command, commandErr := splitCommandLine(settings.Command); commandErr == nil && len(command) != 0 {
+			return withManifestSettings(Detection{Kind: KindCommand, Command: command, Runtime: commandRuntime(command[0]), Autostart: true}, settings), nil
+		}
 	}
 	procfileDetection, found, err := detectProcfile(root)
 	if err != nil {
@@ -240,9 +271,24 @@ func commandRuntime(command string) string {
 }
 
 type manifestSettings struct {
-	Autostart   *bool             `json:"autostart"`
-	Environment map[string]string `json:"env"`
-	BaseHref    string            `json:"base_href"`
+	Name             string            `json:"name"`
+	Description      string            `json:"description"`
+	Icon             string            `json:"icon"`
+	Tags             []string          `json:"tags"`
+	Type             string            `json:"type"`
+	Command          string            `json:"command"`
+	PortEnv          string            `json:"port_env"`
+	Environment      map[string]string `json:"env"`
+	HealthPath       string            `json:"health_path"`
+	Autostart        *bool             `json:"autostart"`
+	Index            *string           `json:"index"`
+	SPA              bool              `json:"spa"`
+	DirectoryListing *bool             `json:"directory_listing"`
+	BaseHref         string            `json:"base_href"`
+	Visibility       string            `json:"visibility"`
+	Pinned           bool              `json:"pinned"`
+	Hidden           bool              `json:"hidden"`
+	Warnings         []ManifestWarning `json:"-"`
 }
 
 func readManifestSettings(root string) (manifestSettings, error) {
@@ -257,12 +303,42 @@ func readManifestSettings(root string) (manifestSettings, error) {
 	}
 	var settings manifestSettings
 	if err := json.Unmarshal(content, &settings); err != nil {
-		return manifestSettings{}, fmt.Errorf("parse %q: %w", manifestPath, err)
+		return manifestSettings{Warnings: []ManifestWarning{{
+			Code:    "manifest_parse",
+			Message: fmt.Sprintf("Could not parse %s; Dropserve used automatic detection instead: %v", manifestPath, err),
+		}}}, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(content, &fields); err == nil {
+		known := map[string]struct{}{
+			"name": {}, "description": {}, "icon": {}, "tags": {}, "type": {}, "command": {},
+			"port_env": {}, "env": {}, "health_path": {}, "autostart": {}, "index": {}, "spa": {},
+			"directory_listing": {}, "base_href": {}, "visibility": {}, "pinned": {}, "hidden": {},
+		}
+		for key := range fields {
+			if _, ok := known[key]; !ok {
+				settings.Warnings = append(settings.Warnings, ManifestWarning{
+					Code:    "manifest_unknown_key",
+					Message: fmt.Sprintf("dropserve.json ignores unknown key %q", key),
+				})
+			}
+		}
 	}
 	return settings, nil
 }
 
 func withManifestSettings(detection Detection, settings manifestSettings) Detection {
+	detection.Warnings = append(detection.Warnings, settings.Warnings...)
+	detection.Name = strings.TrimSpace(settings.Name)
+	detection.Description = strings.TrimSpace(settings.Description)
+	if icon := strings.TrimSpace(settings.Icon); icon != "" {
+		if validManifestRelativePath(icon) {
+			detection.Icon = filepath.ToSlash(icon)
+		} else {
+			detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_icon", Message: fmt.Sprintf("dropserve.json icon %q must stay inside the app; using a generated icon", settings.Icon)})
+		}
+	}
+	detection.Tags = cleanManifestTags(settings.Tags)
 	if settings.Autostart != nil {
 		detection.Autostart = *settings.Autostart
 	}
@@ -272,15 +348,184 @@ func withManifestSettings(detection Detection, settings manifestSettings) Detect
 			detection.Environment[name] = value
 		}
 	}
+	if healthPath := strings.TrimSpace(settings.HealthPath); healthPath != "" {
+		if strings.HasPrefix(healthPath, "/") {
+			detection.HealthPath = healthPath
+		} else {
+			detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_health_path", Message: "dropserve.json health_path must start with /; using /"})
+		}
+	}
+	if portEnv := strings.TrimSpace(settings.PortEnv); portEnv != "" {
+		if validEnvironmentName(portEnv) {
+			detection.PortEnv = portEnv
+		} else {
+			detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_port_env", Message: fmt.Sprintf("dropserve.json port_env %q is not a valid environment variable name; using PORT", portEnv)})
+		}
+	}
+	if settings.Index != nil {
+		index := filepath.ToSlash(strings.TrimSpace(*settings.Index))
+		if validManifestRelativePath(index) {
+			detection.Index = &index
+		} else {
+			detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_index", Message: fmt.Sprintf("dropserve.json index %q must stay inside the app; using automatic index detection", *settings.Index)})
+		}
+	}
+	detection.SPA = settings.SPA
+	detection.DirectoryListing = settings.DirectoryListing
 	switch strings.ToLower(strings.TrimSpace(settings.BaseHref)) {
 	case "always":
 		detection.BaseHref = "always"
 	case "never":
 		detection.BaseHref = "never"
+	case "", "auto":
+		detection.BaseHref = "auto"
 	default:
 		detection.BaseHref = "auto"
+		detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_base_href", Message: fmt.Sprintf("dropserve.json base_href %q is invalid; using auto", settings.BaseHref)})
+	}
+	switch visibility := strings.ToLower(strings.TrimSpace(settings.Visibility)); visibility {
+	case "", "lan":
+		detection.Visibility = "lan"
+	case "local", "tailnet", "public":
+		detection.Visibility = visibility
+	default:
+		detection.Visibility = "lan"
+		detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_visibility", Message: fmt.Sprintf("dropserve.json visibility %q is invalid; using lan", settings.Visibility)})
+	}
+	detection.Pinned = settings.Pinned
+	detection.Hidden = settings.Hidden
+
+	manifestType := strings.ToLower(strings.TrimSpace(settings.Type))
+	manifestCommand, commandErr := splitCommandLine(settings.Command)
+	if commandErr != nil {
+		detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_command", Message: "dropserve.json command has unmatched quoting; using automatic detection"})
+		manifestCommand = nil
+	}
+	if manifestType != "" {
+		switch Kind(manifestType) {
+		case KindStatic:
+			detection.Kind = KindStatic
+			detection.Command = nil
+			detection.Runtime = ""
+			detection.Reason = "Static app from dropserve.json type override"
+		case KindPHP:
+			detection.Kind = KindPHP
+			detection.Command = nil
+			detection.Runtime = "php"
+			detection.Reason = "PHP app from dropserve.json type override"
+		case KindCommand:
+			command := manifestCommand
+			if len(command) == 0 && detection.Kind != KindCommand {
+				detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_command", Message: "dropserve.json type command needs a non-empty command; using automatic detection"})
+			} else {
+				detection.Kind = KindCommand
+				if len(command) != 0 {
+					detection.Command = command
+					detection.Runtime = commandRuntime(command[0])
+				}
+				detection.Reason = "Command app from dropserve.json type override"
+			}
+		default:
+			detection.Warnings = append(detection.Warnings, ManifestWarning{Code: "manifest_type", Message: fmt.Sprintf("dropserve.json type %q is invalid; using automatic detection", settings.Type)})
+		}
+	} else if command := manifestCommand; len(command) != 0 && detection.Kind == KindCommand {
+		detection.Command = command
+		detection.Runtime = commandRuntime(command[0])
+		detection.Reason = "Command app with dropserve.json command override"
 	}
 	return detection
+}
+
+func splitCommandLine(value string) ([]string, error) {
+	var arguments []string
+	var current strings.Builder
+	var quote rune
+	started := false
+	flush := func() {
+		if started {
+			arguments = append(arguments, current.String())
+			current.Reset()
+			started = false
+		}
+	}
+	characters := []rune(strings.TrimSpace(value))
+	for index := 0; index < len(characters); index++ {
+		character := characters[index]
+		if character == '\\' && quote != '\'' {
+			if index+1 < len(characters) {
+				next := characters[index+1]
+				if next == '\\' || next == quote || (quote == 0 && strings.ContainsRune(" \t\r\n", next)) {
+					current.WriteRune(next)
+					index++
+					started = true
+					continue
+				}
+			}
+			current.WriteRune(character)
+			started = true
+			continue
+		}
+		if quote != 0 {
+			if character == quote {
+				quote = 0
+			} else {
+				current.WriteRune(character)
+			}
+			started = true
+			continue
+		}
+		switch character {
+		case '\'', '"':
+			quote = character
+			started = true
+		case ' ', '\t', '\r', '\n':
+			flush()
+		default:
+			current.WriteRune(character)
+			started = true
+		}
+	}
+	if quote != 0 {
+		return nil, errors.New("unmatched command quoting")
+	}
+	flush()
+	return arguments, nil
+}
+
+func cleanManifestTags(tags []string) []string {
+	cleaned := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		key := strings.ToLower(tag)
+		if tag == "" {
+			continue
+		}
+		if _, duplicate := seen[key]; duplicate {
+			continue
+		}
+		seen[key] = struct{}{}
+		cleaned = append(cleaned, tag)
+	}
+	return cleaned
+}
+
+func validEnvironmentName(name string) bool {
+	for index, character := range name {
+		if (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || character == '_' || (index > 0 && character >= '0' && character <= '9') {
+			continue
+		}
+		return false
+	}
+	return name != ""
+}
+
+func validManifestRelativePath(value string) bool {
+	if value == "" || filepath.IsAbs(value) || strings.HasPrefix(value, "/") || strings.Contains(value, `\`) {
+		return false
+	}
+	cleaned := path.Clean(value)
+	return cleaned != "." && cleaned != ".." && !strings.HasPrefix(cleaned, "../")
 }
 
 func packageStartCommand(root string) []string {

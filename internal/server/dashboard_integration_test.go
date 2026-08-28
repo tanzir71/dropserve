@@ -54,6 +54,22 @@ func TestDashboardAtRoot(t *testing.T) {
 	}
 }
 
+func TestGlobalRequestBodyLimitRejectsKnownOversizeBeforeRouting(t *testing.T) {
+	root := t.TempDir()
+	server, err := dropserver.New(scanner.Options{Roots: []string{root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://dropserve.test/anything", nil)
+	request.ContentLength = 64<<20 + 1
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversize request returned %d, want 413", response.Code)
+	}
+}
+
 func TestServerPersistsIndexOutsideAppRoot(t *testing.T) {
 	t.Parallel()
 

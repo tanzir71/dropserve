@@ -1,10 +1,45 @@
 package tlsca
 
 import (
+	"crypto/x509"
+	"encoding/pem"
+	"errors"
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/smallstep/truststore"
 )
+
+// IsTrusted asks the operating system whether the exact persisted Dropserve
+// root currently chains through its system trust roots. It performs no write.
+func IsTrusted(rootPath string) (bool, error) {
+	content, err := os.ReadFile(rootPath) // #nosec G304 -- caller supplies Dropserve's fixed root path.
+	if err != nil {
+		return false, fmt.Errorf("read Dropserve local root: %w", err)
+	}
+	block, _ := pem.Decode(content)
+	if block == nil || block.Type != "CERTIFICATE" {
+		return false, errors.New("dropserve local root is not a PEM certificate")
+	}
+	certificate, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return false, fmt.Errorf("parse Dropserve local root: %w", err)
+	}
+	roots, err := x509.SystemCertPool()
+	if err != nil {
+		return false, fmt.Errorf("read system trust roots: %w", err)
+	}
+	_, err = certificate.Verify(x509.VerifyOptions{
+		Roots:       roots,
+		CurrentTime: certificate.NotBefore.Add(time.Second),
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+	})
+	if err != nil {
+		return false, nil
+	}
+	return true, nil
+}
 
 // TrustStore is the only boundary allowed to change a machine trust store.
 type TrustStore interface {

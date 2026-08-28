@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/router"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
@@ -65,6 +66,44 @@ func TestMissingTrailingSlashRedirects(t *testing.T) {
 	}
 	if got, want := response.Header().Get("Location"), "/static/?from=dashboard"; got != want {
 		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestManifestVisibilityIsEnforcedBeforeAppHandler(t *testing.T) {
+	t.Parallel()
+	called := false
+	appHandler := http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		called = true
+		response.WriteHeader(http.StatusNoContent)
+	})
+
+	for _, test := range []struct {
+		name       string
+		visibility string
+		remote     string
+		want       int
+	}{
+		{name: "local loopback", visibility: "local", remote: "127.0.0.1:5000", want: http.StatusNoContent},
+		{name: "local LAN refusal", visibility: "local", remote: "192.168.1.40:5000", want: http.StatusForbidden},
+		{name: "tailnet address", visibility: "tailnet", remote: "100.101.2.3:5000", want: http.StatusNoContent},
+		{name: "tailnet LAN refusal", visibility: "tailnet", remote: "192.168.1.40:5000", want: http.StatusForbidden},
+		{name: "LAN default", visibility: "lan", remote: "192.168.1.40:5000", want: http.StatusNoContent},
+		{name: "public", visibility: "public", remote: "203.0.113.20:5000", want: http.StatusNoContent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			called = false
+			handler := router.New([]router.Mount{{App: app.App{Slug: "notes", Visibility: test.visibility}, Handler: appHandler}})
+			request := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/notes/", nil)
+			request.RemoteAddr = test.remote
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("response = %d, want %d: %s", response.Code, test.want, response.Body.String())
+			}
+			if called != (test.want == http.StatusNoContent) {
+				t.Fatalf("handler called=%t for status %d", called, test.want)
+			}
+		})
 	}
 }
 

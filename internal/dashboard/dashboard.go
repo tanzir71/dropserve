@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
@@ -34,6 +35,7 @@ type handler struct {
 	script               []byte
 	dhcpHelp             []byte
 	apps                 []indexer.Entry
+	appWarnings          map[string][]string
 	started              time.Time
 	csrfToken            string
 	warnings             []string
@@ -48,6 +50,10 @@ type handler struct {
 	browseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
 	addons               func() []AddonStatus
 	changeAddon          func(context.Context, string, string) error
+	restartApp           func(context.Context, string) error
+	openFolder           func(context.Context, string) error
+	rescan               func() error
+	changeAppSettings    func(context.Context, string, AppSettingsChange) error
 	update               func() UpdateNotice
 }
 
@@ -82,9 +88,18 @@ type UpdateNotice struct {
 	URL       string `json:"url,omitempty"`
 }
 
+// AppSettingsChange carries only the dashboard preferences the user changed.
+type AppSettingsChange struct {
+	Pinned *bool `json:"pinned"`
+	Hidden *bool `json:"hidden"`
+}
+
 // Options supplies runtime information displayed by the dashboard.
 type Options struct {
+	Title                string
+	Theme                string
 	Warnings             []string
+	AppWarnings          map[string][]string
 	Discovery            func() discovery.Snapshot
 	Funnel               *discovery.FunnelManager
 	SetTailscaleServe    func(context.Context, bool) error
@@ -96,6 +111,10 @@ type Options struct {
 	BrowseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
 	Addons               func() []AddonStatus
 	ChangeAddon          func(context.Context, string, string) error
+	RestartApp           func(context.Context, string) error
+	OpenFolder           func(context.Context, string) error
+	Rescan               func() error
+	ChangeAppSettings    func(context.Context, string, AppSettingsChange) error
 	Update               func() UpdateNotice
 }
 
@@ -114,12 +133,26 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("create dashboard security token: %w", err)
 	}
+	title := strings.TrimSpace(options.Title)
+	if title == "" {
+		title = "Dropserve"
+	}
+	theme := strings.ToLower(strings.TrimSpace(options.Theme))
+	if theme != "light" && theme != "dark" {
+		theme = "auto"
+	}
+	indexText := string(index)
+	indexText = strings.Replace(indexText, "<title>Dropserve</title>", "<title>"+html.EscapeString(title)+"</title>", 1)
+	indexText = strings.Replace(indexText, "<strong>Dropserve</strong>", "<strong>"+html.EscapeString(title)+"</strong>", 1)
+	indexText = strings.Replace(indexText, `data-dropserve-theme="auto"`, `data-dropserve-theme="`+theme+`"`, 1)
+	index = []byte(indexText)
 	return &handler{
 		index:                index,
 		stylesheet:           stylesheet,
 		script:               script,
 		dhcpHelp:             dhcpHelp,
 		apps:                 append([]indexer.Entry{}, applications...),
+		appWarnings:          cloneAppWarnings(options.AppWarnings),
 		started:              time.Now(),
 		csrfToken:            hex.EncodeToString(tokenBytes),
 		warnings:             append([]string{}, options.Warnings...),
@@ -134,11 +167,39 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		browseDatabase:       options.BrowseDatabase,
 		addons:               options.Addons,
 		changeAddon:          options.ChangeAddon,
+		restartApp:           options.RestartApp,
+		openFolder:           options.OpenFolder,
+		rescan:               options.Rescan,
+		changeAppSettings:    options.ChangeAppSettings,
 		update:               options.Update,
 	}, nil
 }
 
+func cloneAppWarnings(source map[string][]string) map[string][]string {
+	cloned := make(map[string][]string, len(source))
+	for slug, warnings := range source {
+		cloned[slug] = append([]string(nil), warnings...)
+	}
+	return cloned
+}
+
 func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.Request) {
+	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/apps/") && strings.HasSuffix(request.URL.Path, "/settings") {
+		dashboard.serveAppSettings(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/open-folder" {
+		dashboard.serveOpenFolder(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && request.URL.Path == "/_dropserve/api/rescan" {
+		dashboard.serveRescan(response, request)
+		return
+	}
+	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/apps/") && strings.HasSuffix(request.URL.Path, "/restart") {
+		dashboard.serveAppRestart(response, request)
+		return
+	}
 	if request.Method == http.MethodPost && strings.HasPrefix(request.URL.Path, "/_dropserve/api/addons/") {
 		dashboard.serveAddonChange(response, request)
 		return
@@ -171,7 +232,7 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 
 	var content []byte
 	switch request.URL.Path {
-	case "/":
+	case "/", "/_dropserve/":
 		response.Header().Set("Content-Type", "text/html; charset=utf-8")
 		response.Header().Set("Cache-Control", "no-store")
 		content = dashboard.index
@@ -188,10 +249,10 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 		response.Header().Set("Cache-Control", "public, max-age=3600")
 		content = dashboard.dhcpHelp
 	case "/_dropserve/api/apps":
-		dashboard.serveJSON(response, request, dashboard.apps)
+		dashboard.serveJSON(response, request, dashboard.visibleApps(request.URL.Query().Get("include_hidden") == "1"))
 		return
 	case "/_dropserve/api/search":
-		dashboard.serveJSON(response, request, indexer.Search(dashboard.apps, request.URL.Query().Get("q")))
+		dashboard.serveJSON(response, request, indexer.Search(dashboard.visibleApps(false), request.URL.Query().Get("q")))
 		return
 	case "/_dropserve/api/urls":
 		dashboard.serveAdvertisedURLs(response, request)
@@ -240,9 +301,126 @@ func (dashboard *handler) ServeHTTP(response http.ResponseWriter, request *http.
 	_, _ = response.Write(content)
 }
 
-func (dashboard *handler) serveAddonChange(response http.ResponseWriter, request *http.Request) {
+func (dashboard *handler) authorizeMutation(response http.ResponseWriter, request *http.Request) bool {
 	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
 		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+		return false
+	}
+	origin, err := url.Parse(request.Header.Get("Origin"))
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	if err != nil || origin.Scheme != scheme || !strings.EqualFold(origin.Host, request.Host) {
+		http.Error(response, "This change must come from the open Dropserve dashboard or local CLI.", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (dashboard *handler) serveOpenFolder(response http.ResponseWriter, request *http.Request) {
+	if !dashboard.authorizeMutation(response, request) {
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var payload struct {
+		Slug string `json:"slug"`
+	}
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
+		http.Error(response, "Choose an app folder to open.", http.StatusBadRequest)
+		return
+	}
+	if payload.Slug != "" && (strings.Contains(payload.Slug, "/") || !dashboard.hasApp(payload.Slug)) {
+		http.NotFound(response, request)
+		return
+	}
+	if dashboard.openFolder == nil {
+		http.Error(response, "Opening the Apps folder is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.openFolder(request.Context(), payload.Slug); err != nil {
+		http.Error(response, "Dropserve could not open this folder: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) serveRescan(response http.ResponseWriter, request *http.Request) {
+	if !dashboard.authorizeMutation(response, request) {
+		return
+	}
+	if dashboard.rescan == nil {
+		http.Error(response, "Rescan is not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.rescan(); err != nil {
+		http.Error(response, "Dropserve could not rescan your apps: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) serveAppSettings(response http.ResponseWriter, request *http.Request) {
+	if !dashboard.authorizeMutation(response, request) {
+		return
+	}
+	slug := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/_dropserve/api/apps/"), "/settings")
+	if slug == "" || strings.Contains(slug, "/") || !dashboard.hasApp(slug) {
+		http.NotFound(response, request)
+		return
+	}
+	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
+	var change AppSettingsChange
+	if err := json.NewDecoder(request.Body).Decode(&change); err != nil || (change.Pinned == nil && change.Hidden == nil) {
+		http.Error(response, "Choose whether this app is pinned or hidden.", http.StatusBadRequest)
+		return
+	}
+	if dashboard.changeAppSettings == nil {
+		http.Error(response, "App display settings are not available.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.changeAppSettings(request.Context(), slug, change); err != nil {
+		http.Error(response, "Dropserve could not save this app setting: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) serveAppRestart(response http.ResponseWriter, request *http.Request) {
+	if !dashboard.authorizeMutation(response, request) {
+		return
+	}
+	slug := strings.TrimSuffix(strings.TrimPrefix(request.URL.Path, "/_dropserve/api/apps/"), "/restart")
+	if slug == "" || strings.Contains(slug, "/") || !dashboard.hasApp(slug) {
+		http.NotFound(response, request)
+		return
+	}
+	if dashboard.restartApp == nil {
+		http.Error(response, "Restart is not available for this app.", http.StatusServiceUnavailable)
+		return
+	}
+	if err := dashboard.restartApp(request.Context(), slug); err != nil {
+		http.Error(response, "Dropserve could not restart this app: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	response.WriteHeader(http.StatusNoContent)
+}
+
+func (dashboard *handler) visibleApps(includeHidden bool) []indexer.Entry {
+	if includeHidden {
+		return append([]indexer.Entry(nil), dashboard.apps...)
+	}
+	visible := make([]indexer.Entry, 0, len(dashboard.apps))
+	for _, application := range dashboard.apps {
+		if !application.Hidden {
+			visible = append(visible, application)
+		}
+	}
+	return visible
+}
+
+func (dashboard *handler) serveAddonChange(response http.ResponseWriter, request *http.Request) {
+	if !dashboard.authorizeMutation(response, request) {
 		return
 	}
 	name := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/addons/")
@@ -313,8 +491,7 @@ func (dashboard *handler) serveDatabase(response http.ResponseWriter, request *h
 }
 
 func (dashboard *handler) serveLocalHTTPSChange(response http.ResponseWriter, request *http.Request) {
-	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
-		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+	if !dashboard.authorizeMutation(response, request) {
 		return
 	}
 	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
@@ -337,8 +514,7 @@ func (dashboard *handler) serveLocalHTTPSChange(response http.ResponseWriter, re
 }
 
 func (dashboard *handler) serveLocalTrustChange(response http.ResponseWriter, request *http.Request) {
-	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
-		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+	if !dashboard.authorizeMutation(response, request) {
 		return
 	}
 	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
@@ -381,8 +557,7 @@ func (dashboard *handler) serveRootCertificate(response http.ResponseWriter, req
 }
 
 func (dashboard *handler) serveNetworkChangeDismiss(response http.ResponseWriter, request *http.Request) {
-	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
-		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+	if !dashboard.authorizeMutation(response, request) {
 		return
 	}
 	if dashboard.dismissNetworkChange == nil {
@@ -397,8 +572,7 @@ func (dashboard *handler) serveNetworkChangeDismiss(response http.ResponseWriter
 }
 
 func (dashboard *handler) serveFunnelChange(response http.ResponseWriter, request *http.Request) {
-	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
-		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+	if !dashboard.authorizeMutation(response, request) {
 		return
 	}
 	slug := strings.TrimPrefix(request.URL.Path, "/_dropserve/api/sharing/funnel/")
@@ -440,8 +614,7 @@ func (dashboard *handler) serveFunnelChange(response http.ResponseWriter, reques
 }
 
 func (dashboard *handler) serveTailscaleServeChange(response http.ResponseWriter, request *http.Request) {
-	if request.Header.Get("X-Dropserve-CSRF") != dashboard.csrfToken {
-		http.Error(response, "Refresh the dashboard and try again.", http.StatusForbidden)
+	if !dashboard.authorizeMutation(response, request) {
 		return
 	}
 	request.Body = http.MaxBytesReader(response, request.Body, 4<<10)
@@ -600,10 +773,11 @@ func (dashboard *handler) serveAppDetail(response http.ResponseWriter, request *
 	}
 	for _, entry := range dashboard.apps {
 		if entry.Slug == slug {
+			warnings := append([]string{}, dashboard.appWarnings[slug]...)
 			payload := struct {
 				indexer.Entry
 				Warnings []string `json:"warnings"`
-			}{Entry: entry, Warnings: []string{}}
+			}{Entry: entry, Warnings: warnings}
 			dashboard.serveJSON(response, request, payload)
 			return
 		}

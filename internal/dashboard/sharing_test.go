@@ -136,7 +136,7 @@ func TestNoImplicitPublicExposure(t *testing.T) {
 		strings.NewReader(`{}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	authorizeTestMutation(request, dashboard.csrfToken)
 	response := httptest.NewRecorder()
 	dashboard.ServeHTTP(response, request)
 
@@ -154,7 +154,7 @@ func TestNoImplicitPublicExposure(t *testing.T) {
 		strings.NewReader(`{"confirmation":"field-notes"}`),
 	)
 	explicitRequest.Header.Set("Content-Type", "application/json")
-	explicitRequest.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	authorizeTestMutation(explicitRequest, dashboard.csrfToken)
 	explicitResponse := httptest.NewRecorder()
 	dashboard.ServeHTTP(explicitResponse, explicitRequest)
 	if explicitResponse.Code != http.StatusNoContent || executions != 1 {
@@ -276,7 +276,7 @@ func TestLANIPChangeNoticePersistsUntilDismissed(t *testing.T) {
 		t.Fatal("network change notice did not survive manager reload")
 	}
 	dismissRequest := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/_dropserve/api/network-change/dismiss", nil)
-	dismissRequest.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	authorizeTestMutation(dismissRequest, dashboard.csrfToken)
 	dismissResponse := httptest.NewRecorder()
 	dashboard.ServeHTTP(dismissResponse, dismissRequest)
 	if dismissResponse.Code != http.StatusNoContent {
@@ -354,7 +354,7 @@ func toggleTailscaleServe(t *testing.T, dashboard *handler, enabled bool) {
 		strings.NewReader(fmt.Sprintf(`{"enabled":%t}`, enabled)),
 	)
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Dropserve-CSRF", dashboard.csrfToken)
+	authorizeTestMutation(request, dashboard.csrfToken)
 	response := httptest.NewRecorder()
 	dashboard.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {

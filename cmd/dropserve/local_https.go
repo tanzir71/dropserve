@@ -55,14 +55,20 @@ func (controller *localHTTPSController) Status() dashboard.LocalHTTPSStatus {
 		warning = "The local HTTPS listener stopped: " + controller.runtime.LastError().Error()
 	}
 	rootAvailable := false
+	trustInstalled := controller.trustInstalled
 	if controller.options.StateDirectory != "" {
 		_, rootErr := os.Stat(controller.rootPath())
 		rootAvailable = rootErr == nil
+		if rootAvailable && controller.options.TrustStore == nil {
+			if installed, trustErr := tlsca.IsTrusted(controller.rootPath()); trustErr == nil {
+				trustInstalled = installed
+			}
+		}
 	}
 	return dashboard.LocalHTTPSStatus{
 		Enabled:        enabled,
 		Port:           controller.port,
-		TrustInstalled: controller.trustInstalled,
+		TrustInstalled: trustInstalled,
 		RootAvailable:  rootAvailable,
 		Warning:        warning,
 	}
@@ -250,7 +256,7 @@ func trustCommandWithStore(
 	store tlsca.TrustStore,
 ) int {
 	if len(arguments) != 1 {
-		_, _ = fmt.Fprintln(stderr, "Choose a trust action: dropserve trust --install or dropserve trust --uninstall")
+		_, _ = fmt.Fprintln(stderr, "Choose a trust action: dropserve trust install, uninstall, or status")
 		return 2
 	}
 	rootPath := filepath.Join(filepath.Dir(statePath), "ca", "root.pem")
@@ -274,8 +280,20 @@ func trustCommandWithStore(
 		}
 		_, _ = fmt.Fprintln(stdout, "This computer no longer trusts Dropserve's local HTTPS certificate. Dropserve's certificate files and your apps are unchanged.")
 		return 0
+	case "status", "--status":
+		installed, err := tlsca.IsTrusted(rootPath)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not read local HTTPS trust: %v\n", err)
+			return 1
+		}
+		if installed {
+			_, _ = fmt.Fprintln(stdout, "trusted")
+		} else {
+			_, _ = fmt.Fprintln(stdout, "not trusted")
+		}
+		return 0
 	default:
-		_, _ = fmt.Fprintln(stderr, "Choose a trust action: dropserve trust --install or dropserve trust --uninstall")
+		_, _ = fmt.Fprintln(stderr, "Choose a trust action: dropserve trust install, uninstall, or status")
 		return 2
 	}
 }

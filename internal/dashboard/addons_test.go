@@ -13,7 +13,7 @@ func TestAddonActionsRequireCSRFAndRemainExplicit(t *testing.T) {
 	var actions []string
 	handler, err := NewWithOptions(nil, Options{
 		Addons: func() []AddonStatus {
-			return []AddonStatus{{Name: "php", Title: "PHP", Version: "8.5.10", Available: true}}
+			return []AddonStatus{{Name: "php", Title: "PHP", Version: "8.3.33", Available: true}}
 		},
 		ChangeAddon: func(_ context.Context, name, action string) error {
 			actions = append(actions, name+":"+action)
@@ -42,7 +42,7 @@ func TestAddonActionsRequireCSRFAndRemainExplicit(t *testing.T) {
 	}
 
 	request := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "http://dropserve.test/_dropserve/api/addons/php", bytes.NewReader(body))
-	request.Header.Set("X-Dropserve-CSRF", status.CSRFToken)
+	authorizeTestMutation(request, status.CSRFToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent || len(actions) != 1 || actions[0] != "php:install" {

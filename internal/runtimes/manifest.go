@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	phpVersionWindowsAMD64      = "8.5.10"
-	phpSHA256WindowsAMD64       = "22ec430195984d233eb9e62c637a945bbcda06efca2f392d9d96d62c6acd34f8"
+	phpVersionWindowsAMD64      = "8.3.33"
+	phpSHA256WindowsAMD64       = "534399107056313246f424adbbb7937337e40fbbf6aa7bc26287ba9cfd2e4a2a"
 	mariaDBVersionWindowsAMD64  = "11.8.9"
 	mariaDBSHA256WindowsAMD64   = "830c46727d9278eae212ae3eca44eeb9e71b2a68704e95f344a64fba7b1963f5"
 	postgresVersionWindowsAMD64 = "18.6"
@@ -24,7 +24,7 @@ func CurrentAddonPacks() []Pack {
 	return []Pack{
 		{
 			Name: "php", Version: phpVersionWindowsAMD64, OS: runtime.GOOS, Arch: runtime.GOARCH,
-			URL:    "https://downloads.php.net/~windows/releases/php-8.5.10-nts-Win32-vs17-x64.zip",
+			URL:    "https://downloads.php.net/~windows/releases/php-8.3.33-nts-Win32-vs16-x64.zip",
 			SHA256: phpSHA256WindowsAMD64, Format: FormatZIP, Executable: "php-cgi.exe",
 		},
 		{

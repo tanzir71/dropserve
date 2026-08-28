@@ -2,7 +2,9 @@
 package router
 
 import (
+	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -60,6 +62,10 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 		serveNotFound(response, request)
 		return
 	}
+	if !visibilityAllows(mount.App.Visibility, request.RemoteAddr) {
+		serveVisibilityDenied(response, request, mount.App.Visibility)
+		return
+	}
 	if !hasSlash {
 		target := "/" + slug + "/"
 		if request.URL.RawQuery != "" {
@@ -74,6 +80,50 @@ func (router *Router) ServeHTTP(response http.ResponseWriter, request *http.Requ
 	proxied.URL.Path = "/" + remainder
 	proxied.URL.RawPath = ""
 	mount.Handler.ServeHTTP(response, proxied)
+}
+
+var tailnetPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+func visibilityAllows(visibility, remoteAddress string) bool {
+	switch strings.ToLower(strings.TrimSpace(visibility)) {
+	case "local":
+		address, ok := remoteIP(remoteAddress)
+		return ok && address.IsLoopback()
+	case "tailnet":
+		address, ok := remoteIP(remoteAddress)
+		return ok && address.Is4() && tailnetPrefix.Contains(address)
+	default:
+		return true
+	}
+}
+
+func remoteIP(remoteAddress string) (netip.Addr, bool) {
+	host, _, err := net.SplitHostPort(remoteAddress)
+	if err != nil {
+		host = strings.Trim(remoteAddress, "[]")
+	}
+	address, err := netip.ParseAddr(host)
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	return address.Unmap(), true
+}
+
+func serveVisibilityDenied(response http.ResponseWriter, request *http.Request, visibility string) {
+	explanation := "This app is not available from your current network."
+	switch strings.ToLower(strings.TrimSpace(visibility)) {
+	case "local":
+		explanation = "This app is set to local visibility and can only be opened on the Dropserve computer."
+	case "tailnet":
+		explanation = "This app is set to tailnet visibility and can only be opened through Tailscale."
+	}
+	content := `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>App access blocked · Dropserve</title><body><main><h1>Dropserve blocked this request.</h1><p>` + explanation + `</p><p>Change the app's <code>visibility</code> in <code>dropserve.json</code> if this was not intended.</p></main></body></html>`
+	response.Header().Set("Content-Type", "text/html; charset=utf-8")
+	response.Header().Set("Content-Length", strconv.Itoa(len(content)))
+	response.WriteHeader(http.StatusForbidden)
+	if request.Method != http.MethodHead {
+		_, _ = response.Write([]byte(content))
+	}
 }
 
 func serveNotFound(response http.ResponseWriter, request *http.Request) {

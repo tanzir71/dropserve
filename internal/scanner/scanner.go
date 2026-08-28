@@ -33,8 +33,9 @@ var ignoredNames = map[string]struct{}{
 
 // Options controls one scan.
 type Options struct {
-	Roots      []string
-	Registered []string
+	Roots             []string
+	Registered        []string
+	LazyStartCommands bool
 }
 
 // Warning describes an app that could not be mounted exactly as discovered.
@@ -53,7 +54,7 @@ type Result struct {
 // Scan reads each root in order and discovers immediate child directories and
 // loose HTML files. It never writes below a root.
 func Scan(options Options) (Result, error) {
-	collector := newCollector()
+	collector := newCollector(options.LazyStartCommands)
 	for _, configuredRoot := range options.Roots {
 		root, err := filepath.Abs(configuredRoot)
 		if err != nil {
@@ -110,13 +111,15 @@ type collector struct {
 	slugUses   map[string]int
 	slugOwners map[string]string
 	seenPaths  map[string]struct{}
+	lazyStart  bool
 }
 
-func newCollector() *collector {
+func newCollector(lazyStart bool) *collector {
 	return &collector{
 		slugUses:   make(map[string]int),
 		slugOwners: make(map[string]string),
 		seenPaths:  make(map[string]struct{}),
+		lazyStart:  lazyStart,
 	}
 }
 
@@ -198,6 +201,7 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		Autostart:  true,
 		HealthPath: "/",
 		PortEnv:    "PORT",
+		Visibility: "lan",
 		Status:     "ready",
 	}
 	var err error
@@ -210,16 +214,59 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		application.Command = detection.Command
 		application.Runtime = detection.Runtime
 		application.Detection = detection.Reason
+		if detection.Name != "" {
+			application.Name = detection.Name
+		}
+		application.Description = detection.Description
+		application.Icon = detection.Icon
+		application.Tags = append([]string(nil), detection.Tags...)
 		application.Environment = detection.Environment
+		if detection.HealthPath != "" {
+			application.HealthPath = detection.HealthPath
+		}
+		if detection.PortEnv != "" {
+			application.PortEnv = detection.PortEnv
+		}
 		application.BaseHref = detection.BaseHref
 		application.Autostart = detection.Autostart
+		if collector.lazyStart && application.Kind == app.KindCommand {
+			application.Autostart = false
+		}
+		application.SPA = detection.SPA
+		application.Visibility = detection.Visibility
+		application.Pinned = detection.Pinned
+		application.Hidden = detection.Hidden
+		for _, warning := range detection.Warnings {
+			collector.result.Warnings = append(collector.result.Warnings, Warning{
+				Code:    warning.Code,
+				Path:    filepath.Join(fullPath, "dropserve.json"),
+				Message: warning.Message,
+			})
+		}
 		if application.Kind == app.KindStatic {
-			application.Index, err = findIndex(fullPath)
+			if detection.Index != nil {
+				candidate := filepath.Join(fullPath, filepath.FromSlash(*detection.Index))
+				if info, statErr := os.Stat(candidate); statErr == nil && info.Mode().IsRegular() {
+					application.Index = *detection.Index
+				} else {
+					collector.result.Warnings = append(collector.result.Warnings, Warning{
+						Code:    "manifest_index_missing",
+						Path:    filepath.Join(fullPath, "dropserve.json"),
+						Message: fmt.Sprintf("dropserve.json index %q is not a readable file; using automatic index detection", *detection.Index),
+					})
+				}
+			}
+			if application.Index == "" {
+				application.Index, err = findIndex(fullPath)
+			}
 		}
 		if err != nil {
 			return err
 		}
 		application.DirectoryListing = application.Kind == app.KindStatic && application.Index == ""
+		if detection.DirectoryListing != nil {
+			application.DirectoryListing = application.Kind == app.KindStatic && *detection.DirectoryListing
+		}
 		application.FileCount, err = countFiles(fullPath)
 		if err != nil {
 			return fmt.Errorf("walk app %q: %w", fullPath, err)

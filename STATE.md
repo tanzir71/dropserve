@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M7/M8 manual acceptance (M9–M11 local acceptance complete; ordered tags withheld until prerequisites close)
-**Last updated:** 2026-08-28T05:13:34Z
+**Current milestone:** v1 completion audit — automated/local closure complete; human hardware acceptance pending
+**Last updated:** 2026-08-28T06:31:11Z
 **Gate status:** green
-**Iterations completed:** 160
+**Iterations completed:** 161
 
 ## Milestone progress
 
@@ -43,6 +43,17 @@
 - The manual §9 review read the dashboard HTML/JavaScript and API errors, first-run wizard/example/help pages, tray labels, CLI/trust/doctor output, scanner/network/runtime status messages, generated app/error pages, landing page, and README. The resulting changes are: scanner notices now say “Apps folder” and give a rename action instead of “Apps root,” “URL-safe,” or “mounted”; doctor uses `[OK]`/`[WARN]`/`[FAIL]` instead of emoji and says “Apps folder”; Add-ons describes needed files without “runtime,” “FastCGI worker pool,” “platform,” or “connection string”; raw `HTTP 500`-style browser fallbacks now name the failed action and say to retry; local HTTPS explains browser trust without “certificate authority” or “trust store,” and both dashboard/CLI trust removal state that certificate files and apps remain unchanged; public-sharing errors use the shown app name and public/tailnet language instead of “slug,” Tailscale Serve, or Tailscale Funnel internals except where the user must enable the named Funnel feature; the PHP error tells the user to start PHP in Add-ons; the landing comparison replaces “document root,” “vhost,” and “several hundred” with plain language and `150 MB or more`; and removing the example folder now says other apps remain unchanged. Ordinary dashboard warnings gained a session-scoped Dismiss action and reappear when their text changes, leaving live public sharing as the only permanent warning. `TestPrimaryCopyFollowsTheVoiceRules` first failed on every listed violation and now locks the wording, destructive-action explanations, and dismiss action. JavaScript syntax, focused package tests, all three rendered accessibility checks after the edits, and the full race/lint/cross-build/tray/shipped-file gate pass. This closes every M11 acceptance criterion; the ordered `m11-complete` tag remains withheld until the M7 and M8 manual prerequisites can be performed.
 - Hosted CI run [33143670488](https://github.com/tanzir71/dropserve/actions/runs/33143670488) exposed a Linux-only gosec G115 finding that the Windows local lint could not type-check: the RSS reader converted `os.Getpagesize()` from `int` to `uint64` without an explicit range proof. The reader now rejects non-positive page sizes, checks multiplication against `math.MaxUint64`, and carries a one-line G115 justification on the checked positive conversion. A local `GOOS=linux CGO_ENABLED=0 golangci-lint run ./scripts/memory/...` reports zero issues, the focused memory packages pass, and the full gate remains green.
 - Replacement hosted CI [33143854005](https://github.com/tanzir71/dropserve/actions/runs/33143854005) passed both operating-system gates, golangci-lint, govulncheck and gosec, secret scanning, the performance floor, the landing-page validator, every native smoke, and the full Windows installer/fresh-VM lifecycle after the Linux RSS proof fix. The companion Pages run [33143853399](https://github.com/tanzir71/dropserve/actions/runs/33143853399) also built and deployed successfully. This closes the CI regression that generated the failure notification.
+
+## v1 completion audit (automated/local closure complete; human hardware acceptance pending)
+
+- The handover surface audit found and closed the remaining implementation gaps in the §7.4 CLI, §16 manifest/config contracts, dashboard actions and settings, per-app sharing, live events/logs, and operator documentation. The CLI now covers status/open/apps/logs/restart/firewall/Tailscale/runtime/config operations through the local authenticated API; an isolated compiled-binary smoke served and listed a real Node app, reported its URL and status, and restarted it successfully.
+- The app manifest now implements the complete presentation, process, health, static, visibility, pinning, and tagging surface with malformed-file fallback and unknown-key warnings. The machine config implements roots, registered apps, dashboard presentation, discovery, PIN protection, lazy start, memory and port ranges, validation, atomic persistence, and safe live reload. Listener bind and HTTP/HTTPS port changes remain restart-applied and are explicitly documented; safe dashboard, discovery, PIN, app, and update settings reload live.
+- Dashboard preferences are durable, reconcile safely, and provide pin/hide/show-hidden/last-used ordering, tags search, Open folder, rescan, restart, logs/crash state, add-on help, and explicit per-app sharing controls. Mutations require same-origin CSRF; optional non-loopback access uses a six-digit PIN with a signed, HttpOnly, SameSite=Strict 30-day session cookie.
+- Add-on operations now queue without blocking the dashboard or CLI, expose progress and terminal errors, reject overlap, and close safely. The v1 PHP series is locked to official Windows NTS x64 PHP 8.3.33 with SHA-256 `534399107056313246f424adbbb7937337e40fbbf6aa7bc26287ba9cfd2e4a2a`; the real download/hash/unpack/two-worker GET/POST/upload/PATH_INFO/fatal-error smoke passed in 13.73 seconds.
+- Production command-app startup is asynchronous: a stable starting route and dashboard state appear immediately, then reconcile to ready or crashed without delaying Dropserve startup. The slow-start acceptance completed construction in under one second, served the starting page, and later served the live app; three race-detector repetitions passed.
+- Hardening now caps request bodies at 64 MiB, HTTP and HTTPS connections at 256 each, and SSE clients at 64 for both events and live logs. Long-lived streams clear ordinary response write deadlines. `SECURITY.md` and `docs/api.md` document the exposure model, PIN, CSRF, limits, trust, sharing, update behavior, and the complete read/mutation API surface.
+- Final local evidence: `make check` passes formatting, zero-issue golangci-lint, the complete race suite, version injection, zero-CGO Windows/Linux/macOS builds, tray build, and shipped-file scan; Playwright/axe passes all three light/dark WCAG and keyboard checks; gosec v2.29.0 reports zero issues across 78 files/14,256 lines with 57 justified suppressions; govulncheck v1.7.0 reports no vulnerabilities across 32 root packages and 20 modules; the real PHP and isolated real CLI smokes both pass.
+- Remaining acceptance requires external human state and cannot be fabricated: a signed-in real tailnet for the M7 Serve/unserve proof; one visible Windows root-trust confirmation for the M8 production install/uninstall proof; all seven golden paths walked by a human on real hardware; and the novice install plus phone-access trial. Tailscale is not installed or signed in on this host, and the current process is not elevated. Ordered milestone rules therefore prohibit tags M7–M11 until those proofs are recorded.
 
 ## M7 criteria (manual tailnet check pending)
 
@@ -92,7 +103,7 @@
 
 ### M9 completion audit (local acceptance closed; tag pending prerequisite manual checks)
 
-- [x] Deliverable: the platform manifest pins official PHP 8.5.10, MariaDB 11.8.9, and PostgreSQL 18.6 Windows/amd64 artifacts by exact URL, SHA-256, archive type, and executable path. The installer streams progress, rejects tampering and unsafe archive/executable paths, verifies the declared executable before atomic registration, and confines removal to one pack.
+- [x] Deliverable: the platform manifest pins official PHP 8.3.33, MariaDB 11.8.9, and PostgreSQL 18.6 Windows/amd64 artifacts by exact URL, SHA-256, archive type, and executable path. The installer streams progress, rejects tampering and unsafe archive/executable paths, verifies the declared executable before atomic registration, and confines removal to one pack.
 - [x] Deliverable: the production add-on manager discovers installed packs, starts an installed PHP pool, generates its managed `php.ini`, reconciles PHP apps after dashboard changes, and owns loopback MariaDB/PostgreSQL initialization, readiness, connection strings, Start/Stop, shutdown, and state-confined data removal.
 - [x] Deliverable: the CSRF-protected Add-ons dashboard makes every download explicit, reports installed/running/progress/error state, exposes database connection strings with copy actions, and names exactly what removal deletes and preserves.
 - [x] Deliverable: the SQLite browser discovers only app-local database files, renders a read-only first-100-row view, and closes its handle before returning.
@@ -400,7 +411,9 @@
 
 ## Open questions for the human
 
+- M7 manual tailnet proof: sign in to a real throwaway or existing tailnet, enable Serve once, verify the HTTPS URL, then disable it cleanly. Repeated certificate issuance is intentionally avoided.
 - M8 manual trust proof: when convenient, accept one visible Windows root-trust warning during an isolated check; Dropserve will immediately verify and remove that exact certificate. All automated trust invariants are already green.
+- Definition-of-done acceptance: have a human walk all seven golden paths on real hardware, then have a novice install Dropserve and open an app from a phone without coaching. Record the observed results in this ledger.
 
 ## Deviations from the spec
 
@@ -415,11 +428,14 @@
 - Build-loop process only: the M5 WebSocket assertion passed immediately because Go's standard reverse proxy already supported upgrades. The raw handshake and frame echo now guard that dependency behavior end to end.
 - Build-loop process only: the M3 rename assertion passed when first added because the preceding live-create slice deliberately reconciles the entire immutable scan and mount table, which already treats a filesystem rename as one removal plus one addition. The dedicated two-URL deadline test now locks that behavior.
 - Packaging: the handover simultaneously requires a no-admin Windows installer, guaranteed reachability from another LAN host, and an uninstaller that removes the inbound firewall rule. Microsoft documents Windows Firewall rule configuration as an administrator operation, and a real non-administrative install could not be reached from a separate WSL2 guest. The installer therefore requests elevation once, owns only the exact private-profile rule for its desktop binary, and removes it on uninstall. README and landing copy now state the prompt and reason; ADR-014 records the rejected alternatives.
+- Configuration: safe dashboard, discovery, PIN, app-registration, and update settings hot-reload, but listener bind and HTTP/HTTPS port changes take effect after a Dropserve restart. Rebinding live listeners without an availability gap would require a larger listener-ownership redesign; the restart requirement is validated and documented in the config reference.
 
 ## Verify on real hardware
 
 - M7: enable and disable `tailscale serve` once on a real signed-in tailnet and record the verified HTTPS URL.
 - M8: accept one Windows root-trust warning for an isolated CA, then verify production `trust --uninstall` returns its exact thumbprint count to zero. See `BLOCKED-m8-windows-trust-confirmation.md`.
+- Walk all seven handover golden paths end to end on real hardware and record each outcome.
+- Ask a novice to install Dropserve and reach one app from a phone without coaching; record where the flow succeeds or causes confusion.
 
 ## Dependency count
 

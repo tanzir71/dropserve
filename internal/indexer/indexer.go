@@ -6,6 +6,7 @@ import (
 	"hash/fnv"
 	"html"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,9 +29,12 @@ type Entry struct {
 	Name           string   `json:"name"`
 	Path           string   `json:"path"`
 	Description    string   `json:"description"`
+	Tags           []string `json:"tags,omitempty"`
+	Visibility     string   `json:"visibility"`
 	Title          string   `json:"title,omitempty"`
 	Heading        string   `json:"heading,omitempty"`
 	Type           string   `json:"type"`
+	Runtime        string   `json:"runtime,omitempty"`
 	Status         string   `json:"status"`
 	Detection      string   `json:"detection"`
 	URLs           URLs     `json:"urls"`
@@ -42,6 +46,9 @@ type Entry struct {
 	Port           int      `json:"port,omitempty"`
 	PrefersOwnPort bool     `json:"prefers_own_port,omitempty"`
 	Databases      []string `json:"databases,omitempty"`
+	Pinned         bool     `json:"pinned,omitempty"`
+	Hidden         bool     `json:"hidden,omitempty"`
+	LastUsed       int64    `json:"last_used,omitempty"`
 	fileNames      []string
 }
 
@@ -97,14 +104,21 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 		if application.Port != 0 {
 			urls.Own = "http://127.0.0.1:" + strconv.Itoa(application.Port) + "/"
 		}
+		description := application.Description
+		if description == "" {
+			description = readDescription(files, application.Path, application.LooseFile)
+		}
 		entry := Entry{
 			Slug:           application.Slug,
 			Name:           application.Name,
 			Path:           application.Path,
-			Description:    readDescription(files, application.Path, application.LooseFile),
+			Description:    description,
+			Tags:           append([]string(nil), application.Tags...),
+			Visibility:     application.Visibility,
 			Title:          title,
 			Heading:        heading,
 			Type:           string(application.Kind),
+			Runtime:        application.Runtime,
 			Status:         status,
 			Detection:      detectionReason(application),
 			URLs:           urls,
@@ -116,6 +130,8 @@ func BuildWithOptions(applications []app.App, options BuildOptions) []Entry {
 			Port:           application.Port,
 			PrefersOwnPort: application.PrefersOwnPort,
 			Databases:      append([]string(nil), application.Databases...),
+			Pinned:         application.Pinned,
+			Hidden:         application.Hidden,
 			fileNames:      indexFileNames(application.Path, application.LooseFile),
 		}
 		entries = append(entries, entry)
@@ -157,6 +173,12 @@ func Search(entries []Entry, query string) []Entry {
 		}
 		if fieldMatches(entry.Title, query) || fieldMatches(entry.Heading, query) {
 			score += 3
+		}
+		for _, tag := range entry.Tags {
+			if fieldMatches(tag, query) {
+				score += 3
+				break
+			}
 		}
 		for _, fileName := range entry.fileNames {
 			if fieldMatches(fileName, query) {
@@ -289,6 +311,17 @@ func appIcon(files FileAccess, application app.App) (string, string, string) {
 				return "/" + application.Slug + "/" + name, "image", ""
 			}
 		}
+	}
+	if application.Icon != "" {
+		manifestPath := filepath.Join(application.Path, filepath.FromSlash(application.Icon))
+		if info, readable := readableFile(files, manifestPath); readable && !info.IsDir() {
+			segments := strings.Split(filepath.ToSlash(application.Icon), "/")
+			for index := range segments {
+				segments[index] = url.PathEscape(segments[index])
+			}
+			return "/" + application.Slug + "/" + strings.Join(segments, "/"), "image", ""
+		}
+		return application.Icon, "monogram", monogramColor(application.Slug)
 	}
 	return monogram(application.Name), "monogram", monogramColor(application.Slug)
 }

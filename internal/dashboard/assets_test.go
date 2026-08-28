@@ -1,7 +1,10 @@
 package dashboard
 
 import (
+	"context"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -73,6 +76,24 @@ func TestDashboardInteractionSurfaceIsWired(t *testing.T) {
 	}
 }
 
+func TestDashboardTitleAndThemeAreConfiguredWithoutUnsafeMarkup(t *testing.T) {
+	httpHandler, err := NewWithOptions(nil, Options{Title: `<My & Apps>`, Theme: "dark"})
+	if err != nil {
+		t.Fatalf("create configured dashboard: %v", err)
+	}
+	response := httptest.NewRecorder()
+	httpHandler.ServeHTTP(response, httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://dropserve.test/_dropserve/", nil))
+	body := response.Body.String()
+	for _, marker := range []string{`<title>&lt;My &amp; Apps&gt;</title>`, `data-dropserve-theme="dark"`, `<strong>&lt;My &amp; Apps&gt;</strong>`} {
+		if !strings.Contains(body, marker) {
+			t.Fatalf("configured dashboard is missing %q: %s", marker, body)
+		}
+	}
+	if strings.Contains(body, `<My & Apps>`) {
+		t.Fatal("dashboard title was inserted as markup")
+	}
+}
+
 func TestSharingControlsAreWired(t *testing.T) {
 	t.Parallel()
 	index, err := assets.ReadFile("assets/index.html")
@@ -83,7 +104,7 @@ func TestSharingControlsAreWired(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read embedded dashboard JavaScript: %v", err)
 	}
-	for _, marker := range []string{`id="funnel-dialog"`, `id="funnel-confirmation"`, "public internet", "eight hours"} {
+	for _, marker := range []string{`id="funnel-dialog"`, `id="funnel-confirmation"`, `id="funnel-apps"`, "public internet", "eight hours"} {
 		if !strings.Contains(string(index), marker) {
 			t.Errorf("dashboard HTML does not contain sharing marker %q", marker)
 		}
@@ -92,9 +113,9 @@ func TestSharingControlsAreWired(t *testing.T) {
 		"/_dropserve/api/sharing/tailscale",
 		"/_dropserve/api/sharing/funnel/",
 		"Use HTTPS anywhere",
-		"Share publicly",
-		"Stop public sharing",
-		"Show public QR",
+		"renderFunnelApps",
+		"Share…",
+		"public link",
 		"https://tailscale.com/download",
 	} {
 		if !strings.Contains(string(script), marker) {

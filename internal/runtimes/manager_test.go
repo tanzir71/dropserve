@@ -13,7 +13,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+	"time"
 )
 
 type fakePHPRuntime struct {
@@ -109,6 +111,64 @@ func TestManagerInstallsStartsAndRemovesPHPWithoutAppWrites(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(state, "php")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("PHP managed settings remain after removal: %v", err)
+	}
+}
+
+func TestManagerQueuesAddonChangesAndPublishesTerminalStatus(t *testing.T) {
+	t.Parallel()
+	payload := runtimeZIP(t, "php-cgi.exe", "verified php")
+	downloadStarted := make(chan struct{})
+	releaseDownload := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		close(downloadStarted)
+		<-releaseDownload
+		_, _ = response.Write(payload)
+	}))
+	t.Cleanup(server.Close)
+	hash := sha256.Sum256(payload)
+	pack := Pack{
+		Name: "php", Version: "test", OS: runtime.GOOS, Arch: runtime.GOARCH,
+		URL: server.URL, SHA256: fmt.Sprintf("%x", hash), Format: FormatZIP, Executable: "php-cgi.exe",
+	}
+	manager, err := NewManager(ManagerOptions{
+		Context: context.Background(), StateDirectory: t.TempDir(), Packs: []Pack{pack},
+		PHPStarter: func(context.Context, string, string, io.Writer) (PHPRuntime, error) {
+			return &fakePHPRuntime{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("create add-on manager: %v", err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+
+	if err := manager.ChangeAsync(context.Background(), "php", "install"); err != nil {
+		t.Fatalf("queue PHP install: %v", err)
+	}
+	select {
+	case <-downloadStarted:
+	case <-time.After(time.Second):
+		t.Fatal("queued PHP install did not begin")
+	}
+	if status := manager.Statuses()[0]; !status.Busy || status.Installed {
+		t.Fatalf("working PHP status = %#v", status)
+	}
+	if err := manager.ChangeAsync(context.Background(), "php", "remove"); err == nil || !strings.Contains(err.Error(), "already changing") {
+		t.Fatalf("overlapping change error = %v", err)
+	}
+	close(releaseDownload)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status := manager.Statuses()[0]
+		if !status.Busy {
+			if !status.Installed || !status.Running || status.Progress != 100 || status.Message != "" {
+				t.Fatalf("completed PHP status = %#v", status)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("queued PHP install stayed busy: %#v", status)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

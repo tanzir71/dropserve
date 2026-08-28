@@ -39,6 +39,10 @@ const databaseDialog = document.querySelector('#database-dialog');
 const databaseTitle = document.querySelector('#database-title');
 const databaseState = document.querySelector('#database-state');
 const databaseContent = document.querySelector('#database-content');
+const openAppsFolder = document.querySelector('#open-apps-folder');
+const rescanApps = document.querySelector('#rescan-apps');
+const hiddenAppsToggle = document.querySelector('#hidden-apps-toggle');
+const funnelApps = document.querySelector('#funnel-apps');
 
 let apps = [];
 let visible = [];
@@ -49,6 +53,9 @@ let currentFunnelApp = null;
 let csrfToken = '';
 let activeFunnels = new Map();
 let dismissedWarningText = '';
+let showHidden = false;
+let addonsRefreshTimer = 0;
+let addonsWereBusy = false;
 
 const palette = ['#156b50', '#3d5d9a', '#9a5b3d', '#77519d', '#a06d18', '#327b82'];
 
@@ -60,6 +67,46 @@ function colour(slug) {
   let hash = 0;
   for (const letter of slug) hash = ((hash << 5) - hash + letter.charCodeAt(0)) | 0;
   return palette[Math.abs(hash) % palette.length];
+}
+
+function formatSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 1) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+}
+
+function formatModified(milliseconds) {
+  if (!milliseconds) return '';
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(milliseconds));
+}
+
+async function restartApp(item, button) {
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Restarting…';
+  }
+  try {
+    await postSharing(`/_dropserve/api/apps/${encodeURIComponent(item.slug)}/restart`, {});
+    await loadApps();
+  } catch (error) {
+    warningNotice.querySelector('p').textContent = error.message;
+    warningNotice.hidden = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Restart';
+    }
+  }
+}
+
+async function updateAppSettings(item, change) {
+  try {
+    await postSharing(`/_dropserve/api/apps/${encodeURIComponent(item.slug)}/settings`, change);
+    await loadApps();
+  } catch (error) {
+    warningNotice.querySelector('p').textContent = error.message;
+    warningNotice.hidden = false;
+  }
 }
 
 async function copyText(value, button) {
@@ -109,7 +156,8 @@ function addonCard(addon) {
   description.textContent = addon.description || 'Optional files Dropserve needs to run this kind of app.';
   const state = document.createElement('p');
   state.className = 'addon-state';
-  if (addon.busy) state.textContent = `Working… ${addon.progress || 0}%`;
+  if (addon.busy) state.textContent = addon.progress > 0 ? `Working… ${addon.progress}%` : 'Working…';
+  else if (addon.message) state.textContent = addon.message;
   else if (addon.running) state.textContent = 'Installed · running';
   else if (addon.installed) state.textContent = 'Installed · stopped';
   else state.textContent = addon.available ? 'Not installed' : (addon.message || 'Not available on this computer');
@@ -134,8 +182,6 @@ function addonCard(addon) {
       try {
         await postSharing(`/_dropserve/api/addons/${encodeURIComponent(addon.name)}`, { action });
         await refreshAddons();
-        await loadApps();
-        await loadStatus();
       } catch (error) {
         state.textContent = error.message;
         button.disabled = false;
@@ -160,6 +206,16 @@ async function refreshAddons() {
   if (!response.ok) throw new Error((await response.text()).trim() || 'Dropserve could not load add-ons. Try again.');
   const addons = await response.json();
   addonsList.replaceChildren(...addons.map(addonCard));
+  const busy = addons.some(addon => addon.busy);
+  if (addonsWereBusy && !busy) await Promise.all([loadApps(), loadStatus()]);
+  addonsWereBusy = busy;
+  window.clearTimeout(addonsRefreshTimer);
+  addonsRefreshTimer = 0;
+  if (busy && !addonsPanel.hidden) {
+    addonsRefreshTimer = window.setTimeout(() => {
+      refreshAddons().catch(() => { addonsList.textContent = 'Dropserve could not refresh add-on progress.'; });
+    }, 500);
+  }
 }
 
 function lastLogLines(logs, maximum = 50) {
@@ -259,10 +315,10 @@ function appCard(item, index) {
   article.className = 'app-card';
   article.dataset.selected = String(index === selected);
   article.dataset.status = item.status || 'ready';
+  article.dataset.hidden = String(Boolean(item.hidden));
   const pathURL = item.urls?.path || `/${encodeURIComponent(item.slug)}/`;
   const ownURL = item.urls?.own || '';
   const targetURL = item.prefers_own_port && ownURL ? ownURL : pathURL;
-  const publicShare = activeFunnels.get(item.slug);
   const link = document.createElement('a');
   link.href = targetURL;
   link.dataset.appLink = '';
@@ -282,13 +338,20 @@ function appCard(item, index) {
   name.textContent = item.name || item.slug;
   const description = document.createElement('p');
   if (item.status === 'crashed') description.textContent = 'This app stopped after five starts. Its latest output is below.';
-  else if (item.status === 'needs-runtime') description.textContent = 'This app needs its runtime installed before it can open.';
+  else if (item.status === 'needs-runtime') description.textContent = `This app needs ${item.runtime || 'its runtime'} installed before it can open.`;
   else if (item.status === 'stopped') description.textContent = 'This app starts when you open it.';
+  else if (item.status === 'starting') description.textContent = 'This app is starting…';
   else description.textContent = item.description || item.heading || 'Ready to open on this device.';
   const meta = document.createElement('div');
   meta.className = 'card-meta';
   meta.innerHTML = '<span class="online-dot"></span>';
-  meta.append(document.createTextNode(`${item.type || 'static'} · ${item.status || 'ready'}`));
+  meta.append(document.createTextNode([
+    item.type || 'static',
+    item.status || 'ready',
+    ...(item.tags || []),
+    formatSize(item.size),
+    formatModified(item.mtime),
+  ].filter(Boolean).join(' · ')));
   link.append(icon, name, description);
   if (item.prefers_own_port && ownURL) {
     const rescue = document.createElement('p');
@@ -321,19 +384,13 @@ function appCard(item, index) {
   if (ownURL && !item.prefers_own_port) menu.append(actionButton('Open on its own port', 'open-own'));
   if (item.prefers_own_port && ownURL) menu.append(actionButton('Use the short URL anyway', 'open-path'));
   menu.append(actionButton('Copy link', 'copy'), actionButton('Show QR', 'qr'));
-  if (publicShare) {
-    if (publicShare.url) {
-      menu.append(
-        actionButton('Open public link', 'open-public'),
-        actionButton('Copy public link', 'copy-public'),
-        actionButton('Show public QR', 'qr-public'),
-      );
-    }
-    menu.append(actionButton('Stop public sharing', 'funnel-stop'));
-  } else {
-    menu.append(actionButton('Share publicly…', 'funnel-start'));
+  menu.append(actionButton('Open folder', 'open-folder'));
+  menu.append(actionButton(item.pinned ? 'Unpin' : 'Pin to top', 'pin'));
+  menu.append(actionButton(item.hidden ? 'Unhide' : 'Hide from index', 'hide'));
+  if (item.type === 'command') {
+    menu.append(actionButton('View logs', 'logs'));
+    if (item.status !== 'starting') menu.append(actionButton('Restart', 'restart'));
   }
-  if (item.type === 'command') menu.append(actionButton('View logs', 'logs'));
   (item.databases || []).forEach(file => {
     const browse = actionButton(`Browse database · ${file}`, 'database');
     browse.dataset.file = file;
@@ -356,29 +413,55 @@ function appCard(item, index) {
     if (button.dataset.action === 'open-path') window.location.assign(new URL(pathURL, window.location.href).href);
     if (button.dataset.action === 'copy') copyText(absoluteURL, button);
     if (button.dataset.action === 'qr') showQR(absoluteURL, item.name || item.slug);
-    if (button.dataset.action === 'open-public' && publicShare?.url) window.location.assign(publicShare.url);
-    if (button.dataset.action === 'copy-public' && publicShare?.url) await copyText(publicShare.url, button);
-    if (button.dataset.action === 'qr-public' && publicShare?.url) showQR(publicShare.url, `${item.name || item.slug} public link`);
-    if (button.dataset.action === 'funnel-start') showFunnelConfirmation(item);
-    if (button.dataset.action === 'funnel-stop') await changeFunnel(item, false);
+    if (button.dataset.action === 'open-folder') await postSharing('/_dropserve/api/open-folder', { slug: item.slug });
+    if (button.dataset.action === 'pin') await updateAppSettings(item, { pinned: !item.pinned });
+    if (button.dataset.action === 'hide') {
+      const confirmed = item.hidden || window.confirm(`Hide ${item.name || item.slug} from the dashboard? You can show hidden apps again beside the app count.`);
+      if (confirmed) await updateAppSettings(item, { hidden: !item.hidden });
+    }
     if (button.dataset.action === 'logs') showLogs(item);
+    if (button.dataset.action === 'restart') await restartApp(item, button);
     if (button.dataset.action === 'database') showDatabase(item, button.dataset.file);
     menu.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
   });
-  article.append(link, toggle, menu);
+  article.append(link);
+  if (item.status === 'crashed') {
+    const restart = actionButton('Restart', 'restart-visible');
+    restart.className = 'card-restart';
+    restart.addEventListener('click', () => restartApp(item, restart));
+    article.append(restart);
+  }
+  if (item.status === 'needs-runtime') {
+    const runtime = (item.runtime || '').toLowerCase();
+    const install = actionButton(runtime === 'php' ? 'Install PHP from Add-ons' : `Get ${runtime || 'runtime'} install help`, 'runtime-help');
+    install.className = 'card-runtime';
+    install.addEventListener('click', () => {
+      if (runtime === 'php') setAddonsOpen(true);
+      else if (runtime === 'node') window.open('https://nodejs.org/en/download', '_blank', 'noopener');
+      else if (runtime === 'python') window.open('https://www.python.org/downloads/', '_blank', 'noopener');
+      else window.open('https://github.com/tanzir71/dropserve#command-apps', '_blank', 'noopener');
+    });
+    article.append(install);
+  }
+  article.append(toggle, menu);
   return article;
 }
 
 function render() {
   const query = search.value.trim().toLowerCase();
-  visible = apps.filter(item => !query || [item.name, item.description, item.title, item.heading, item.slug].some(value => value?.toLowerCase().includes(query)));
+  const hiddenCount = apps.filter(item => item.hidden).length;
+  visible = apps.filter(item => (showHidden || !item.hidden) && (!query || [item.name, item.description, item.title, item.heading, item.slug, ...(item.tags || [])].some(value => value?.toLowerCase().includes(query))));
   selected = Math.max(0, Math.min(selected, visible.length - 1));
   grid.replaceChildren(...visible.map(appCard));
   grid.setAttribute('aria-busy', 'false');
   empty.hidden = apps.length !== 0;
   errorState.hidden = true;
-  count.textContent = apps.length === 1 ? '1 app' : `${apps.length} apps`;
+  hiddenAppsToggle.hidden = hiddenCount === 0;
+  hiddenAppsToggle.textContent = showHidden ? 'Hide hidden apps' : `Show ${hiddenCount} hidden`;
+  hiddenAppsToggle.setAttribute('aria-pressed', String(showHidden));
+  const shownCount = apps.length - (showHidden ? 0 : hiddenCount);
+  count.textContent = shownCount === 1 ? '1 app' : `${shownCount} apps`;
 }
 
 function sharingRow(item) {
@@ -443,6 +526,47 @@ function sharingRow(item) {
     row.append(toggle);
   }
   return row;
+}
+
+function renderFunnelApps() {
+  if (!apps.length) {
+    funnelApps.textContent = 'Add an app before creating a public link.';
+    return;
+  }
+  const rows = apps.filter(item => !item.hidden || activeFunnels.has(item.slug)).map(item => {
+    const active = activeFunnels.get(item.slug);
+    const row = document.createElement('div');
+    row.className = 'funnel-app-row';
+    const details = document.createElement('div');
+    details.className = 'funnel-app-details';
+    const name = document.createElement('strong');
+    name.textContent = `${item.name || item.slug}${item.hidden ? ' (hidden)' : ''}`;
+    const state = document.createElement('span');
+    state.textContent = active?.url || 'Not public';
+    details.append(name, state);
+    const actions = document.createElement('div');
+    actions.className = 'funnel-app-actions';
+    if (active?.url) {
+      const copy = actionButton('Copy', 'copy-public');
+      copy.className = 'mini-button';
+      copy.addEventListener('click', () => copyText(active.url, copy));
+      const qr = actionButton('QR', 'qr-public');
+      qr.className = 'mini-button';
+      qr.addEventListener('click', () => showQR(active.url, `${item.name || item.slug} public link`));
+      const stop = actionButton('Stop', 'funnel-stop');
+      stop.className = 'mini-button';
+      stop.addEventListener('click', () => changeFunnel(item, false));
+      actions.append(copy, qr, stop);
+    } else {
+      const share = actionButton('Share…', 'funnel-start');
+      share.className = 'mini-button';
+      share.addEventListener('click', () => showFunnelConfirmation(item));
+      actions.append(share);
+    }
+    row.append(details, actions);
+    return row;
+  });
+  funnelApps.replaceChildren(...rows);
 }
 
 async function postSharing(path, payload) {
@@ -524,6 +648,10 @@ function setSharingOpen(open) {
 function setAddonsOpen(open) {
   addonsPanel.hidden = !open;
   addonsToggle.setAttribute('aria-expanded', String(open));
+  if (!open) {
+    window.clearTimeout(addonsRefreshTimer);
+    addonsRefreshTimer = 0;
+  }
   if (open) {
     setSharingOpen(false);
     refreshAddons().catch(() => { addonsList.textContent = 'Dropserve could not load add-ons.'; });
@@ -617,12 +745,12 @@ document.addEventListener('keydown', event => {
 });
 
 function loadApps() {
-  return fetch('/_dropserve/api/apps')
+  return fetch('/_dropserve/api/apps?include_hidden=1')
     .then(response => {
       if (!response.ok) throw new Error('Dropserve could not load your apps. Try again.');
       return response.json();
     })
-    .then(items => { apps = items; render(); })
+    .then(items => { apps = items; render(); renderFunnelApps(); })
     .catch(() => {
       grid.setAttribute('aria-busy', 'false');
       count.textContent = 'Unavailable';
@@ -630,6 +758,36 @@ function loadApps() {
       errorState.hidden = false;
     });
 }
+
+hiddenAppsToggle.addEventListener('click', () => {
+  showHidden = !showHidden;
+  selected = 0;
+  render();
+});
+
+openAppsFolder.addEventListener('click', async () => {
+  try {
+    await postSharing('/_dropserve/api/open-folder', {});
+  } catch (error) {
+    warningNotice.querySelector('p').textContent = error.message;
+    warningNotice.hidden = false;
+  }
+});
+
+rescanApps.addEventListener('click', async () => {
+  rescanApps.disabled = true;
+  rescanApps.textContent = 'Rescanning…';
+  try {
+    await postSharing('/_dropserve/api/rescan', {});
+    await loadApps();
+  } catch (error) {
+    warningNotice.querySelector('p').textContent = error.message;
+    warningNotice.hidden = false;
+  } finally {
+    rescanApps.disabled = false;
+    rescanApps.textContent = 'Rescan apps';
+  }
+});
 
 loadApps();
 if ('EventSource' in window) {
@@ -646,6 +804,7 @@ async function loadStatus() {
   const status = await response.json();
   csrfToken = status.csrf_token || csrfToken;
   activeFunnels = new Map((status.sharing?.public || []).map(entry => [entry.slug, entry]));
+  renderFunnelApps();
   renderLocalHTTPS(status.https);
   if (apps.length) render();
 

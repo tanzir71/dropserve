@@ -95,6 +95,9 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 
 	file, info, ok := openRegularFile(resolved)
 	if !ok {
+		if server.serveSPAFallback(response, request) {
+			return
+		}
 		serveNotFound(response, request)
 		return
 	}
@@ -121,6 +124,9 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 			if ok {
 				_ = file.Close()
 			}
+			if server.serveSPAFallback(response, request) {
+				return
+			}
 			serveNotFound(response, request)
 			return
 		}
@@ -129,6 +135,26 @@ func (server *handler) ServeHTTP(response http.ResponseWriter, request *http.Req
 		_ = file.Close()
 	}()
 	serveFile(response, request, info, file)
+}
+
+func (server *handler) serveSPAFallback(response http.ResponseWriter, request *http.Request) bool {
+	if !server.application.SPA || server.application.Index == "" {
+		return false
+	}
+	resolved, err := Resolve(server.application.Path, server.application.Index)
+	if err != nil {
+		return false
+	}
+	file, info, ok := openRegularFile(resolved)
+	if !ok || info.IsDir() {
+		if ok {
+			_ = file.Close()
+		}
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	serveFile(response, request, info, file)
+	return true
 }
 
 func (server *handler) serveLooseFile(response http.ResponseWriter, request *http.Request) {

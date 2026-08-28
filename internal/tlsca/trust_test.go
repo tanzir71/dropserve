@@ -40,3 +40,17 @@ func TestTrustInstallAndUninstallAreExplicitAndReversible(t *testing.T) {
 		t.Fatalf("uninstall calls = %v, want only %s", store.uninstalled, rootPath)
 	}
 }
+
+func TestTrustStatusReadsTheSystemWithoutInstalling(t *testing.T) {
+	authority, err := New(Options{Directory: filepath.Join(t.TempDir(), "ca"), Hostname: "trust-status-test"})
+	if err != nil {
+		t.Fatalf("create isolated authority: %v", err)
+	}
+	installed, err := IsTrusted(authority.RootCertificatePath())
+	if err != nil {
+		t.Fatalf("read system trust: %v", err)
+	}
+	if installed {
+		t.Fatal("fresh isolated Dropserve root unexpectedly appears in system trust")
+	}
+}

@@ -64,6 +64,32 @@ function Get-Text {
     }
 }
 
+function Wait-ForSubpathApp {
+    param(
+        [System.Net.Http.HttpClient]$Client,
+        [System.Diagnostics.Process]$Process,
+        [string]$Address
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(45)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        if ($Process.HasExited) {
+            throw "Dropserve exited while the subpath app was starting: $($Process.StandardError.ReadToEnd())"
+        }
+        $response = $Client.GetAsync("$Address/subpath/redirect").GetAwaiter().GetResult()
+        try {
+            if ([int]$response.StatusCode -eq 302) {
+                return
+            }
+        }
+        finally {
+            $response.Dispose()
+        }
+        Start-Sleep -Milliseconds 250
+    }
+    throw "Subpath app did not become ready within 45 seconds"
+}
+
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if ($Binary -eq "") {
     $Binary = Join-Path $repositoryRoot "bin\dropserve-cli.exe"
@@ -85,6 +111,7 @@ $run = $null
 try {
     $run = Start-Dropserve -BinaryPath $binaryPath -AppsRoot $appsRoot -StatePath $statePath
     $address = $run.Address
+    Wait-ForSubpathApp -Client $client -Process $run.Process -Address $address
 
     $redirect = $client.GetAsync("$address/subpath/redirect").GetAwaiter().GetResult()
     try {

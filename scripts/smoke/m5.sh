@@ -62,7 +62,26 @@ stop_dropserve() {
     process_id=""
 }
 
+wait_for_subpath_app() {
+    attempt=0
+    while [ "$attempt" -lt 180 ]; do
+        if ! kill -0 "$process_id" 2>/dev/null; then
+            printf 'Dropserve exited while the subpath app was starting:\n' >&2
+            cat "$error_path" >&2
+            exit 1
+        fi
+        status=$(curl -sS -o /dev/null -w '%{http_code}' "$address/subpath/redirect" || true)
+        if [ "$status" = "302" ]; then
+            return
+        fi
+        attempt=$((attempt + 1))
+        sleep 0.25
+    done
+    fail "subpath app did not become ready within 45 seconds"
+}
+
 start_dropserve
+wait_for_subpath_app
 
 redirect_headers="$work_directory/redirect.headers"
 redirect_status=$(curl -sS -D "$redirect_headers" -o "$work_directory/redirect.body" -w '%{http_code}' "$address/subpath/redirect")

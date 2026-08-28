@@ -3,6 +3,7 @@ package tlsca
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"net/netip"
 	"os"
 	"path/filepath"
@@ -10,6 +11,23 @@ import (
 	"testing"
 	"time"
 )
+
+func TestCertificateFilesystemOperationRetriesTransientFailure(t *testing.T) {
+	attempts := 0
+	err := retryCertificateFilesystem(func() error {
+		attempts++
+		if attempts < 3 {
+			return errors.New("temporary sharing violation")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("retry transient filesystem operation: %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("filesystem attempts = %d, want 3", attempts)
+	}
+}
 
 func TestGeneratedLeafValidatesForEveryLocalAddress(t *testing.T) {
 	now := time.Date(2026, time.August, 28, 2, 0, 0, 0, time.UTC)

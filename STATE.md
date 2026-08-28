@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** v1 completion audit — automated/local closure complete; human hardware acceptance pending
-**Last updated:** 2026-08-28T06:31:11Z
+**Last updated:** 2026-08-28T06:42:40Z
 **Gate status:** green
-**Iterations completed:** 161
+**Iterations completed:** 162
 
 ## Milestone progress
 
@@ -53,6 +53,7 @@
 - Production command-app startup is asynchronous: a stable starting route and dashboard state appear immediately, then reconcile to ready or crashed without delaying Dropserve startup. The slow-start acceptance completed construction in under one second, served the starting page, and later served the live app; three race-detector repetitions passed.
 - Hardening now caps request bodies at 64 MiB, HTTP and HTTPS connections at 256 each, and SSE clients at 64 for both events and live logs. Long-lived streams clear ordinary response write deadlines. `SECURITY.md` and `docs/api.md` document the exposure model, PIN, CSRF, limits, trust, sharing, update behavior, and the complete read/mutation API surface.
 - Final local evidence: `make check` passes formatting, zero-issue golangci-lint, the complete race suite, version injection, zero-CGO Windows/Linux/macOS builds, tray build, and shipped-file scan; Playwright/axe passes all three light/dark WCAG and keyboard checks; gosec v2.29.0 reports zero issues across 78 files/14,256 lines with 57 justified suppressions; govulncheck v1.7.0 reports no vulnerabilities across 32 root packages and 20 modules; the real PHP and isolated real CLI smokes both pass.
+- Hosted audit run [33148316675](https://github.com/tanzir71/dropserve/actions/runs/33148316675) found two timing assumptions after the completion commit. The Unix M5 smoke received the intentional HTTP 200 starting page before its command app was ready and now waits up to the existing 45-second process deadline for the expected terminal route; the Windows gate encountered a transient sharing violation while moving `leaf.pem`, so certificate publication now retries bounded filesystem operations for at most 100 ms while preserving atomic backup/restore behavior. Twenty race-detector repetitions of the CA/discovery packages, the updated Windows M5 smoke, and the full local gate pass.
 - Remaining acceptance requires external human state and cannot be fabricated: a signed-in real tailnet for the M7 Serve/unserve proof; one visible Windows root-trust confirmation for the M8 production install/uninstall proof; all seven golden paths walked by a human on real hardware; and the novice install plus phone-access trial. Tailscale is not installed or signed in on this host, and the current process is not elevated. Ordered milestone rules therefore prohibit tags M7–M11 until those proofs are recorded.
 
 ## M7 criteria (manual tailnet check pending)

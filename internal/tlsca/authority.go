@@ -23,7 +23,11 @@ import (
 	"time"
 )
 
-const certificateBackdate = 2 * time.Hour
+const (
+	certificateBackdate             = 2 * time.Hour
+	certificateFilesystemRetryDelay = 10 * time.Millisecond
+	certificateFilesystemRetryLimit = 100 * time.Millisecond
+)
 
 // Options describes the names and addresses covered by a local leaf.
 type Options struct {
@@ -275,21 +279,40 @@ func writeBytes(path string, mode os.FileMode, data []byte) error {
 		return fmt.Errorf("close certificate file: %w", err)
 	}
 	backup := path + ".bak"
-	_ = os.Remove(backup)
-	if err := os.Rename(path, backup); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := retryCertificateFilesystem(func() error { return os.Remove(backup) }); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove stale certificate backup: %w", err)
+	}
+	if err := retryCertificateFilesystem(func() error { return os.Rename(path, backup) }); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("back up certificate file: %w", err)
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		_ = os.Rename(backup, path)
+	if err := retryCertificateFilesystem(func() error { return os.Rename(temporaryPath, path) }); err != nil {
+		_ = retryCertificateFilesystem(func() error { return os.Rename(backup, path) })
 		return fmt.Errorf("replace certificate file: %w", err)
 	}
-	_ = os.Remove(backup)
+	_ = retryCertificateFilesystem(func() error { return os.Remove(backup) })
 	if private {
 		if err := protectPrivateFile(path); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func retryCertificateFilesystem(operation func() error) error {
+	deadline := time.Now().Add(certificateFilesystemRetryLimit)
+	for {
+		err := operation()
+		if err == nil {
+			return nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(certificateFilesystemRetryDelay)
+	}
 }
 
 func randomSerial() *big.Int {

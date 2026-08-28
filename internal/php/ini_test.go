@@ -15,7 +15,7 @@ func TestWriteINIRegeneratesExistingSettings(t *testing.T) {
 	if err := WriteINI(path, "Asia/Dhaka"); err != nil {
 		t.Fatalf("regenerate PHP settings: %v", err)
 	}
-	content, err := os.ReadFile(path)
+	content, err := os.ReadFile(path) // #nosec G304 -- path is inside this test's private temporary directory.
 	if err != nil {
 		t.Fatalf("read regenerated PHP settings: %v", err)
 	}

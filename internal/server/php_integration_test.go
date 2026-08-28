@@ -101,7 +101,7 @@ func assertPHPFixtureBehavior(t *testing.T, pool *phpfastcgi.Pool) {
 	server, err := dropserver.NewWithOptions(dropserver.Options{
 		Scanner: scanner.Options{Registered: []string{fixture}},
 		PHPHandler: func(application app.App) (http.Handler, error) {
-			return pool.Handler(application.Path), nil
+			return pool.Handler(application.Path, application.Slug), nil
 		},
 	})
 	if err != nil {

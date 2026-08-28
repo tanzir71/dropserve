@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T02:09:53Z
+**Last updated:** 2026-08-28T02:14:43Z
 **Gate status:** green
-**Iterations completed:** 128
+**Iterations completed:** 129
 
 ## Milestone progress
 
@@ -58,7 +58,7 @@
 
 - [x] Assert: pack integrity — a tampered download (wrong SHA-256) is rejected, deleted, and reported clearly.
 - [x] Assert: with the PHP pack installed, `testdata/fixtures/php/index.php` returns the expected output through `GET /php/`, including `$_GET`, `$_POST`, a file upload, and `PATH_INFO`.
-- [ ] Assert: the FastCGI request parameters are correct — `SCRIPT_FILENAME`, `DOCUMENT_ROOT`, `REQUEST_URI`, `SCRIPT_NAME` reflect the app root and the `/slug/` prefix.
+- [x] Assert: the FastCGI request parameters are correct — `SCRIPT_FILENAME`, `DOCUMENT_ROOT`, `REQUEST_URI`, `SCRIPT_NAME` reflect the app root and the `/slug/` prefix.
 - [ ] Assert: a PHP fatal error produces a readable error page and does not take down the pool.
 - [ ] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
 - [ ] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
@@ -318,6 +318,8 @@
 - `TestTamperedPackIsRejectedDeletedAndReportedClearly` failed first with no `runtimes` package, then served bytes different from the pinned SHA-256 through a real loopback HTTP server. The streaming installer reports the pack name plus expected/actual hash, deletes its entire private staging directory, and leaves the runtime root empty. Verified ZIP, tar.gz, and standalone-file payloads unpack through traversal-checked paths and atomically register only under `<state>/runtimes/<name>/<version>/<os>-<arch>`; no app path is accepted by this boundary. Three focused runs and the full race/lint/cross-build gate pass.
 - `TestPHPFixtureSupportsGetPostUploadAndPathInfo` failed first because PHP detection, the FastCGI handler, and the optional worker-pool boundary did not exist, then exposed missing `PATH_INFO` behavior before passing three consecutive runs. Rule 5 now detects `index.php` (or PHP without an HTML index), a missing pack mounts a friendly `needs-runtime` page, and an installed pack is served by two to four hidden loopback workers through the handover-prescribed `github.com/yookoala/gofast` client. The fixture verifies `$_GET`, URL-encoded `$_POST`, multipart filename/content, and `/extra/path` through the complete scanner → router → FastCGI path.
 - The opt-in `TestRealOfficialPHPPackFixture` downloaded the official PHP 8.5.10 Windows NTS x64 ZIP from php.net, verified pinned SHA-256 `22ec430195984d233eb9e62c637a945bbcda06efca2f392d9d96d62c6acd34f8`, unpacked it beneath an isolated runtime root, generated Dropserve's development `php.ini`, launched two actual `php-cgi.exe` processes, and passed the same GET/POST/upload/PATH_INFO acceptance in 13.73 seconds. Production startup discovers that exact manifest location under the state directory and leaves the base install pack-free. The full lint/race/three-target zero-CGO/tray/shipped-file gate is green.
+- `TestFastCGIParametersKeepDropservePrefix` failed first with no explicit Dropserve-aware session mapper. The mapper now separates the router-stripped local script/path-info pair from the preserved public request: `/php/index.php/extra/path?name=dropserve` becomes `SCRIPT_FILENAME=<app-root>/index.php`, `DOCUMENT_ROOT=<app-root>`, `REQUEST_URI=/php/index.php/extra/path?name=dropserve`, `SCRIPT_NAME=/php/index.php`, and `PATH_INFO=/extra/path`, with a confinement check before any FastCGI request is sent. Three focused runs, the real official PHP smoke, and the full gate pass.
+- That full race run also exposed an unrelated nondeterministic test-only race: the HTTPS-degradation test read a `bytes.Buffer` while the best-effort mDNS startup path could still log to it. Its test writer is now synchronized; the formerly racy case passed ten race-detector runs before the full green gate.
 
 ## Decisions made this build (beyond the spec)
 

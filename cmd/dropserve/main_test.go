@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -26,6 +27,23 @@ import (
 	"github.com/tanzir71/dropserve/internal/state"
 	staticserver "github.com/tanzir71/dropserve/internal/static"
 )
+
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (buffer *lockedBuffer) Write(content []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.Write(content)
+}
+
+func (buffer *lockedBuffer) String() string {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	return buffer.buffer.String()
+}
 
 func TestCompletedFirstRunSuppliesEditedAppsRootToDesktopMode(t *testing.T) {
 	defaultRoot := filepath.Join("default", "Apps")
@@ -95,8 +113,8 @@ func TestHTTPSListenerFailureDegradesToHTTPOnly(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
+	var stdout lockedBuffer
+	var stderr lockedBuffer
 	ready := make(chan string, 1)
 	done := make(chan int, 1)
 	go func() {

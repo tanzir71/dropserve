@@ -445,7 +445,7 @@ func serveCommandContextWithReady(
 	var phpHandler func(app.App) (http.Handler, error)
 	if phpPool != nil {
 		phpHandler = func(application app.App) (http.Handler, error) {
-			return phpPool.Handler(application.Path), nil
+			return phpPool.Handler(application.Path, application.Slug), nil
 		}
 	}
 	discoveryManager := discovery.NewManager(discovery.ManagerOptions{

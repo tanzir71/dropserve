@@ -137,12 +137,12 @@ func waitForWorker(current *worker, timeout time.Duration) error {
 }
 
 // Handler returns an app-specific FastCGI handler balanced across the pool.
-func (pool *Pool) Handler(documentRoot string) http.Handler {
+func (pool *Pool) Handler(documentRoot, slug string) http.Handler {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 	handlers := make([]http.Handler, 0, len(pool.workers))
 	for _, current := range pool.workers {
-		handlers = append(handlers, New(documentRoot, "tcp", current.address))
+		handlers = append(handlers, New(documentRoot, slug, "tcp", current.address))
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if len(handlers) == 0 {

@@ -57,14 +57,14 @@ func Scan(options Options) (Result, error) {
 	for _, configuredRoot := range options.Roots {
 		root, err := filepath.Abs(configuredRoot)
 		if err != nil {
-			return Result{}, fmt.Errorf("resolve Apps root %q: %w", configuredRoot, err)
+			return Result{}, fmt.Errorf("resolve Apps folder %q: %w", configuredRoot, err)
 		}
 		if provider := syncProvider(root); provider != "" {
 			collector.result.Warnings = append(collector.result.Warnings, Warning{
 				Code: "sync_root",
 				Path: root,
 				Message: fmt.Sprintf(
-					"Apps root %s is inside %s; use %%USERPROFILE%%\\Dropserve for the most reliable file updates",
+					"Apps folder %s is inside %s; use %%USERPROFILE%%\\Dropserve for the most reliable file updates",
 					root,
 					provider,
 				),
@@ -75,12 +75,12 @@ func Scan(options Options) (Result, error) {
 			collector.result.Warnings = append(collector.result.Warnings, Warning{
 				Code:    "root_missing",
 				Path:    root,
-				Message: fmt.Sprintf("Create the Apps root at %s and Dropserve will pick it up automatically", root),
+				Message: fmt.Sprintf("Create the Apps folder at %s and Dropserve will pick it up automatically", root),
 			})
 			continue
 		}
 		if err != nil {
-			return Result{}, fmt.Errorf("read Apps root %q: %w", root, err)
+			return Result{}, fmt.Errorf("read Apps folder %q: %w", root, err)
 		}
 		for _, entry := range entries {
 			if err := collector.add(root, entry); err != nil {
@@ -155,7 +155,7 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		collector.result.Warnings = append(collector.result.Warnings, Warning{
 			Code:    "invalid_slug",
 			Path:    fullPath,
-			Message: fmt.Sprintf("%q does not have a URL-safe name and was not mounted", entry.Name()),
+			Message: fmt.Sprintf("Rename %q using letters or numbers before Dropserve can serve it", entry.Name()),
 		})
 		return nil
 	}
@@ -163,7 +163,7 @@ func (collector *collector) add(root string, entry fs.DirEntry) error {
 		collector.result.Warnings = append(collector.result.Warnings, Warning{
 			Code:    "reserved_slug",
 			Path:    fullPath,
-			Message: fmt.Sprintf("%q is reserved by Dropserve and was not mounted", baseSlug),
+			Message: fmt.Sprintf("Rename %q because Dropserve reserves that address for its own features", baseSlug),
 		})
 		return nil
 	}

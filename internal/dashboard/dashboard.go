@@ -413,16 +413,16 @@ func (dashboard *handler) serveFunnelChange(response http.ResponseWriter, reques
 	}
 	decoder := json.NewDecoder(request.Body)
 	if err := decoder.Decode(&payload); err != nil && !errors.Is(err, io.EOF) {
-		http.Error(response, "Type the app slug exactly to confirm public sharing.", http.StatusBadRequest)
+		http.Error(response, "Type the app name shown in the confirmation box exactly.", http.StatusBadRequest)
 		return
 	}
 	if dashboard.funnel == nil {
-		http.Error(response, "Tailscale Funnel is not available.", http.StatusServiceUnavailable)
+		http.Error(response, "Public sharing is not available. Check that Tailscale is running and Funnel is enabled for your tailnet.", http.StatusServiceUnavailable)
 		return
 	}
 	if payload.Enabled != nil && !*payload.Enabled {
 		if err := dashboard.funnel.Disable(request.Context(), slug); err != nil {
-			http.Error(response, "Dropserve could not disable Tailscale Funnel.", http.StatusBadGateway)
+			http.Error(response, "Dropserve could not stop public sharing. Try again.", http.StatusBadGateway)
 			return
 		}
 		response.WriteHeader(http.StatusNoContent)
@@ -433,7 +433,7 @@ func (dashboard *handler) serveFunnelChange(response http.ResponseWriter, reques
 			http.Error(response, err.Error(), http.StatusBadRequest)
 			return
 		}
-		http.Error(response, "Dropserve could not enable Tailscale Funnel.", http.StatusBadGateway)
+		http.Error(response, "Dropserve could not start public sharing. Check Tailscale and try again.", http.StatusBadGateway)
 		return
 	}
 	response.WriteHeader(http.StatusNoContent)
@@ -453,7 +453,7 @@ func (dashboard *handler) serveTailscaleServeChange(response http.ResponseWriter
 		return
 	}
 	if dashboard.setTailscaleServe == nil {
-		http.Error(response, "Tailscale Serve is not available.", http.StatusServiceUnavailable)
+		http.Error(response, "Tailnet HTTPS is not available.", http.StatusServiceUnavailable)
 		return
 	}
 	if err := dashboard.setTailscaleServe(request.Context(), *payload.Enabled); err != nil {

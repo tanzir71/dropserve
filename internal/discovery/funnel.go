@@ -15,7 +15,7 @@ const defaultFunnelLifetime = 8 * time.Hour
 
 // ErrFunnelConfirmation means the typed confirmation did not exactly match
 // the app slug.
-var ErrFunnelConfirmation = errors.New("type the app slug exactly to confirm public sharing")
+var ErrFunnelConfirmation = errors.New("type the app name shown in the confirmation box exactly")
 
 // FunnelAction describes one requested Tailscale CLI transition.
 type FunnelAction struct {

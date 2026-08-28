@@ -196,7 +196,7 @@ func (pool *Pool) Handler(documentRoot, slug string) http.Handler {
 	}
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if len(handlers) == 0 {
-			http.Error(response, "The PHP runtime is not running.", http.StatusBadGateway)
+			http.Error(response, "Start PHP in Dropserve Add-ons, then try again.", http.StatusBadGateway)
 			return
 		}
 		index := (pool.next.Add(1) - 1) % uint64(len(handlers))

@@ -127,14 +127,14 @@ func (report Report) RequiredFailure() bool {
 // Write renders one plain-language diagnostic per line.
 func (report Report) Write(output io.Writer) error {
 	for _, item := range report.checks {
-		icon := "✅"
+		status := "[OK]"
 		switch item.severity {
 		case severityWarning:
-			icon = "⚠️"
+			status = "[WARN]"
 		case severityFailure:
-			icon = "❌"
+			status = "[FAIL]"
 		}
-		if _, err := fmt.Fprintf(output, "%s %s: %s\n", icon, item.label, item.detail); err != nil {
+		if _, err := fmt.Fprintf(output, "%s %s: %s\n", status, item.label, item.detail); err != nil {
 			return err
 		}
 	}
@@ -219,13 +219,13 @@ func addWindowsChecks(report *Report, probes Probes) {
 
 func addRootChecks(report *Report, configuration config.Config) {
 	if len(configuration.Server.AppsRoots) == 0 {
-		report.add(severityFailure, "Apps root", "no Apps root is configured", true)
+		report.add(severityFailure, "Apps folder", "no Apps folder is configured", true)
 	}
 	for _, root := range configuration.Server.AppsRoots {
 		if err := readableDirectory(root); err != nil {
-			report.add(severityFailure, "Apps root", fmt.Sprintf("%s — %v", root, err), true)
+			report.add(severityFailure, "Apps folder", fmt.Sprintf("%s — %v", root, err), true)
 		} else {
-			report.add(severityOK, "Apps root", root+" — readable", false)
+			report.add(severityOK, "Apps folder", root+" — readable", false)
 		}
 	}
 	for _, registered := range configuration.Server.RegisteredApps {

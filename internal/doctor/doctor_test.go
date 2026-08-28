@@ -76,7 +76,7 @@ func TestHealthyReportContainsEverySupportCheck(t *testing.T) {
 		"HTTP port:",
 		"Windows excluded TCP port ranges:",
 		"Windows firewall rule:",
-		"Apps root:",
+		"Apps folder:",
 		"App status-page:",
 		"App warnings:",
 		"Runtime node:",
@@ -122,13 +122,13 @@ func TestUnreadableRequiredRootFailsReport(t *testing.T) {
 		AutostartEnabled: func() (bool, error) { return false, nil },
 	})
 	if !report.RequiredFailure() {
-		t.Fatal("missing required Apps root did not fail the report")
+		t.Fatal("missing required Apps folder did not fail the report")
 	}
 	var output bytes.Buffer
 	if err := report.Write(&output); err != nil {
 		t.Fatalf("write report: %v", err)
 	}
-	if text := output.String(); !strings.Contains(text, "❌ Apps root:") || !strings.Contains(text, "missing-root") {
+	if text := output.String(); !strings.Contains(text, "[FAIL] Apps folder:") || !strings.Contains(text, "missing-root") {
 		t.Fatalf("missing root is not explained:\n%s", text)
 	}
 }

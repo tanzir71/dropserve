@@ -396,12 +396,12 @@ func addonTitle(name string) string {
 func addonDescription(name string) string {
 	switch name {
 	case "php":
-		return "Runs PHP apps through a small local FastCGI worker pool."
+		return "Adds the PHP files Dropserve needs to run PHP apps."
 	case "mariadb":
 		return "Optional local MariaDB server with data stored by Dropserve."
 	case "postgres":
 		return "Optional local PostgreSQL server with data stored by Dropserve."
 	default:
-		return "Optional Dropserve runtime."
+		return "Optional files Dropserve needs to run this kind of app."
 	}
 }

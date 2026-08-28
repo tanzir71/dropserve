@@ -82,7 +82,7 @@ func (controller *localHTTPSController) enableLocked(ctx context.Context) error 
 		return nil
 	}
 	if controller.options.StateDirectory == "" {
-		return controller.failLocked(errors.New("a state path is required to store the local certificate authority"))
+		return controller.failLocked(errors.New("a state path is required to store local HTTPS certificates"))
 	}
 	if controller.options.Handler == nil || controller.options.Handler() == nil {
 		return controller.failLocked(errors.New("the Dropserve handler is not ready"))
@@ -255,24 +255,24 @@ func trustCommandWithStore(
 	}
 	rootPath := filepath.Join(filepath.Dir(statePath), "ca", "root.pem")
 	if _, err := os.Stat(rootPath); err != nil {
-		_, _ = fmt.Fprintln(stderr, "Enable local HTTPS before changing trust; its local certificate authority does not exist yet.")
+		_, _ = fmt.Fprintln(stderr, "Enable local HTTPS before changing trust; its certificate files do not exist yet.")
 		return 1
 	}
 	controller := tlsca.NewTrustController(rootPath, store)
 	switch arguments[0] {
 	case "--install", "install":
 		if err := controller.Install(); err != nil {
-			_, _ = fmt.Fprintf(stderr, "Dropserve could not trust its local certificate authority: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not add its local HTTPS certificate to this computer: %v\n", err)
 			return 1
 		}
-		_, _ = fmt.Fprintln(stdout, "This computer now trusts Dropserve's local HTTPS certificate authority. It only affects this machine; run 'dropserve trust --uninstall' to remove it.")
+		_, _ = fmt.Fprintln(stdout, "This computer now trusts Dropserve's local HTTPS certificate. This affects only this computer; run 'dropserve trust --uninstall' to stop trusting it.")
 		return 0
 	case "--uninstall", "uninstall":
 		if err := controller.Uninstall(); err != nil {
-			_, _ = fmt.Fprintf(stderr, "Dropserve could not remove its local certificate authority: %v\n", err)
+			_, _ = fmt.Fprintf(stderr, "Dropserve could not stop this computer from trusting its local HTTPS certificate: %v\n", err)
 			return 1
 		}
-		_, _ = fmt.Fprintln(stdout, "Removed Dropserve's local certificate authority from this computer's trust store.")
+		_, _ = fmt.Fprintln(stdout, "This computer no longer trusts Dropserve's local HTTPS certificate. Dropserve's certificate files and your apps are unchanged.")
 		return 0
 	default:
 		_, _ = fmt.Fprintln(stderr, "Choose a trust action: dropserve trust --install or dropserve trust --uninstall")

@@ -25,6 +25,8 @@ const funnelConfirmation = document.querySelector('#funnel-confirmation');
 const funnelConfirm = document.querySelector('#funnel-confirm');
 const funnelState = document.querySelector('#funnel-state');
 const warningNotice = document.querySelector('#port-warning');
+const warningDiagnose = document.querySelector('#warning-diagnose');
+const warningDismiss = document.querySelector('#warning-dismiss');
 const updateNotice = document.querySelector('#update-notice');
 const publicSharingWarning = document.querySelector('#public-sharing-warning');
 const addressChangeWarning = document.querySelector('#address-change-warning');
@@ -46,6 +48,7 @@ let currentLogApp = null;
 let currentFunnelApp = null;
 let csrfToken = '';
 let activeFunnels = new Map();
+let dismissedWarningText = '';
 
 const palette = ['#156b50', '#3d5d9a', '#9a5b3d', '#77519d', '#a06d18', '#327b82'];
 
@@ -103,13 +106,13 @@ function addonCard(addon) {
   const heading = document.createElement('h3');
   heading.textContent = `${addon.title} ${addon.version || ''}`.trim();
   const description = document.createElement('p');
-  description.textContent = addon.description || 'Optional Dropserve runtime.';
+  description.textContent = addon.description || 'Optional files Dropserve needs to run this kind of app.';
   const state = document.createElement('p');
   state.className = 'addon-state';
   if (addon.busy) state.textContent = `Working… ${addon.progress || 0}%`;
   else if (addon.running) state.textContent = 'Installed · running';
   else if (addon.installed) state.textContent = 'Installed · stopped';
-  else state.textContent = addon.available ? 'Not installed' : (addon.message || 'Not available on this platform');
+  else state.textContent = addon.available ? 'Not installed' : (addon.message || 'Not available on this computer');
   const actions = document.createElement('div');
   actions.className = 'addon-actions';
   if (addon.available && !addon.installed) actions.append(actionButton('Install', 'install-addon'));
@@ -143,7 +146,7 @@ function addonCard(addon) {
     const connection = document.createElement('code');
     connection.className = 'addon-connection';
     connection.textContent = addon.connection;
-    connection.title = 'Click to copy connection string';
+    connection.title = 'Click to copy the address apps use to connect';
     connection.addEventListener('click', () => copyText(addon.connection, connection));
     card.append(heading, description, state, connection, actions);
   } else {
@@ -154,7 +157,7 @@ function addonCard(addon) {
 
 async function refreshAddons() {
   const response = await fetch('/_dropserve/api/addons');
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw new Error((await response.text()).trim() || 'Dropserve could not load add-ons. Try again.');
   const addons = await response.json();
   addonsList.replaceChildren(...addons.map(addonCard));
 }
@@ -166,7 +169,7 @@ function lastLogLines(logs, maximum = 50) {
 function fetchLogs(item) {
   return fetch(`/_dropserve/api/logs/${encodeURIComponent(item.slug)}`)
     .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error('Dropserve could not load these logs. Try again.');
       return response.json();
     });
 }
@@ -210,7 +213,7 @@ async function showDatabase(item, file) {
   else databaseDialog.setAttribute('open', '');
   try {
     const response = await fetch(`/_dropserve/api/databases/${encodeURIComponent(item.slug)}?file=${encodeURIComponent(file)}`);
-    if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+    if (!response.ok) throw new Error((await response.text()).trim() || 'Dropserve could not read this database. Try again.');
     const snapshot = await response.json();
     const tables = snapshot.tables || [];
     databaseState.textContent = tables.length ? `${tables.length} ${tables.length === 1 ? 'table' : 'tables'} · read-only` : 'This database has no user tables.';
@@ -455,7 +458,7 @@ async function postSharing(path, payload) {
   });
   if (!response.ok) {
     const detail = (await response.text()).trim();
-    throw new Error(detail || `HTTP ${response.status}`);
+    throw new Error(detail || 'Dropserve could not change this setting. Try again.');
   }
 }
 
@@ -479,6 +482,7 @@ async function changeFunnel(item, enabled, confirmation = '') {
   } catch (error) {
     if (enabled) funnelState.textContent = error.message;
     else {
+      dismissedWarningText = '';
       warningNotice.querySelector('p').textContent = error.message;
       warningNotice.hidden = false;
     }
@@ -487,7 +491,7 @@ async function changeFunnel(item, enabled, confirmation = '') {
 
 async function refreshSharing() {
   const response = await fetch('/_dropserve/api/urls');
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw new Error('Dropserve could not load sharing addresses. Try again.');
   const items = await response.json();
   sharingURLs.replaceChildren(...items.map(sharingRow));
 }
@@ -531,6 +535,11 @@ sharingToggle.addEventListener('click', () => setSharingOpen(sharingPanel.hidden
 sharingClose.addEventListener('click', () => setSharingOpen(false));
 addonsToggle.addEventListener('click', () => setAddonsOpen(addonsPanel.hidden));
 addonsClose.addEventListener('click', () => setAddonsOpen(false));
+warningDiagnose.addEventListener('click', () => window.location.assign('/_dropserve/api/status'));
+warningDismiss.addEventListener('click', () => {
+  dismissedWarningText = warningNotice.querySelector('p').textContent;
+  warningNotice.hidden = true;
+});
 qrCopy.addEventListener('click', () => copyText(currentQRURL, qrCopy));
 logRefresh.addEventListener('click', refreshLogs);
 localHTTPSToggle.addEventListener('click', async () => {
@@ -545,6 +554,11 @@ localHTTPSToggle.addEventListener('click', async () => {
   }
 });
 localTrustToggle.addEventListener('click', async () => {
+  const removingTrust = localTrustToggle.dataset.installed === 'true';
+  if (removingTrust) {
+    const confirmed = window.confirm("Stopping trust makes browsers on this computer warn about Dropserve again. Local HTTPS, Dropserve's certificate files, and your apps are unchanged.");
+    if (!confirmed) return;
+  }
   localTrustToggle.disabled = true;
   try {
     await postSharing('/_dropserve/api/trust', { installed: localTrustToggle.dataset.installed !== 'true' });
@@ -605,7 +619,7 @@ document.addEventListener('keydown', event => {
 function loadApps() {
   return fetch('/_dropserve/api/apps')
     .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) throw new Error('Dropserve could not load your apps. Try again.');
       return response.json();
     })
     .then(items => { apps = items; render(); })
@@ -628,7 +642,7 @@ if ('EventSource' in window) {
 
 async function loadStatus() {
   const response = await fetch('/_dropserve/api/status');
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  if (!response.ok) throw new Error('Dropserve could not load its status. Try again.');
   const status = await response.json();
   csrfToken = status.csrf_token || csrfToken;
   activeFunnels = new Map((status.sharing?.public || []).map(entry => [entry.slug, entry]));
@@ -658,14 +672,13 @@ async function loadStatus() {
   if (publicWarnings.length) {
     publicSharingWarning.querySelector('p').textContent = publicWarnings.map(warning => warning.replace('public_sharing_active:', 'Public sharing is active.')).join(' ');
   }
-  warningNotice.hidden = otherWarnings.length === 0;
   if (otherWarnings.length) {
-    warningNotice.querySelector('p').textContent = otherWarnings.join(' ');
-    const diagnose = warningNotice.querySelector('button');
-    if (!diagnose.dataset.bound) {
-      diagnose.dataset.bound = 'true';
-      diagnose.addEventListener('click', () => window.location.assign('/_dropserve/api/status'));
-    }
+    const warningText = otherWarnings.join(' ');
+    warningNotice.querySelector('p').textContent = warningText;
+    warningNotice.hidden = warningText === dismissedWarningText;
+  } else {
+    warningNotice.hidden = true;
+    dismissedWarningText = '';
   }
   if (status.update?.available) {
     updateNotice.querySelector('p').textContent = `Dropserve ${status.update.version} is available. Nothing is downloaded automatically.`;

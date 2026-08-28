@@ -116,8 +116,8 @@ func TestLocalHTTPSExplanationAndControlsAreWired(t *testing.T) {
 	for _, marker := range []string{
 		`id="local-https"`,
 		"Prefer Tailscale",
-		"This adds a certificate authority created on this computer to this computer's trust store",
-		"It only affects this machine. You can remove it any time.",
+		"This adds a security certificate created on this computer to the list your browsers trust",
+		"It affects only this computer. You can remove that trust any time.",
 		"/_dropserve/api/https/root.pem",
 	} {
 		if !strings.Contains(string(index), marker) {
@@ -234,7 +234,7 @@ func TestDashboardAddonSurfaceExplainsOptionalAndDestructiveActions(t *testing.T
 			t.Errorf("dashboard HTML does not contain add-on marker %q", marker)
 		}
 	}
-	for _, marker := range []string{"/_dropserve/api/addons/", "Removing the PHP pack deletes the downloaded PHP files. Your apps and their files are untouched.", "Dropserve-managed database data", "Downloading and verifying", "connection string"} {
+	for _, marker := range []string{"/_dropserve/api/addons/", "Removing the PHP pack deletes the downloaded PHP files. Your apps and their files are untouched.", "Dropserve-managed database data", "Downloading and verifying", "address apps use to connect"} {
 		if !strings.Contains(string(script), marker) {
 			t.Errorf("dashboard JavaScript does not contain add-on marker %q", marker)
 		}

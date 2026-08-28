@@ -337,7 +337,7 @@ func serveCommandContextWithReady(
 	statePath := flags.String("state", "", "runtime state file")
 	openDashboard := flags.Bool("open", false, "open the dashboard after startup")
 	var roots rootFlags
-	flags.Var(&roots, "root", "Apps root; repeat to use more than one")
+	flags.Var(&roots, "root", "Apps folder; repeat to use more than one")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
 	}

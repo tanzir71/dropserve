@@ -389,7 +389,7 @@ func TestDoctorExitCodesAndCoversSupportSurface(t *testing.T) {
 	}
 	for _, label := range []string{
 		"Version:", "HTTP port:", "Windows excluded TCP port ranges:", "Windows firewall rule:",
-		"Apps root:", "App sample:", "App warnings:", "Runtime node:", "Runtime python:",
+		"Apps folder:", "App sample:", "App warnings:", "Runtime node:", "Runtime python:",
 		"Runtime php:", "mDNS bind:", "Tailscale:", "Autostart:", "Error logs:",
 	} {
 		if !strings.Contains(stdout.String(), label) {

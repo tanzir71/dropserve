@@ -41,7 +41,7 @@
       <section id="local-https" class="local-https" aria-labelledby="local-https-title">
         <h3 id="local-https-title">Local HTTPS</h3>
         <p><strong>Prefer Tailscale</strong> for private HTTPS when you can. It needs no certificate changes on your other devices.</p>
-        <p>This adds a certificate authority created on this computer to this computer's trust store, so browsers here stop warning about Dropserve's HTTPS. It only affects this machine. You can remove it any time.</p>
+        <p>This adds a security certificate created on this computer to the list your browsers trust, so they stop warning about Dropserve's HTTPS. It affects only this computer. You can remove that trust any time.</p>
         <p id="local-https-state" class="local-https-state" aria-live="polite">Checking local HTTPS…</p>
         <div class="local-https-actions">
           <button id="local-https-toggle" class="mini-button" type="button">Enable local HTTPS</button>
@@ -65,7 +65,8 @@
     <aside id="port-warning" class="notice" hidden>
       <span aria-hidden="true">!</span>
       <p></p>
-      <button type="button">Diagnose</button>
+      <button id="warning-diagnose" type="button">Diagnose</button>
+      <button id="warning-dismiss" type="button">Dismiss</button>
     </aside>
 
     <aside id="update-notice" class="notice" hidden>

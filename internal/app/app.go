@@ -9,6 +9,8 @@ const (
 	KindStatic Kind = "static"
 	// KindCommand runs a supervised loopback HTTP process.
 	KindCommand Kind = "command"
+	// KindPHP serves PHP scripts through an optional FastCGI runtime pack.
+	KindPHP Kind = "php"
 )
 
 // App is the read-only result of scanning one app folder or loose HTML file.

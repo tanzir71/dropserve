@@ -19,13 +19,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/tanzir71/dropserve/internal/app"
 	"github.com/tanzir71/dropserve/internal/autostart"
 	"github.com/tanzir71/dropserve/internal/config"
 	"github.com/tanzir71/dropserve/internal/discovery"
 	"github.com/tanzir71/dropserve/internal/doctor"
 	"github.com/tanzir71/dropserve/internal/firstrun"
 	"github.com/tanzir71/dropserve/internal/launch"
+	phpfastcgi "github.com/tanzir71/dropserve/internal/php"
 	"github.com/tanzir71/dropserve/internal/ports"
+	"github.com/tanzir71/dropserve/internal/runtimes"
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 	"github.com/tanzir71/dropserve/internal/state"
@@ -412,6 +415,39 @@ func serveCommandContextWithReady(
 		_, _ = fmt.Fprintf(stderr, "Dropserve could not select a LAN address; loopback remains available: %v\n", probeErr)
 	}
 	var runtimeWarnings []string
+	var phpPool *phpfastcgi.Pool
+	if stateDirectory != "" {
+		phpPack, packErr := runtimes.CurrentPHPPack()
+		if packErr == nil {
+			executable, installed, inspectErr := runtimes.InstalledExecutable(filepath.Join(stateDirectory, "runtimes"), phpPack)
+			if inspectErr != nil {
+				runtimeWarnings = append(runtimeWarnings, inspectErr.Error())
+			} else if installed {
+				iniPath := filepath.Join(stateDirectory, "php", "php.ini")
+				if iniErr := phpfastcgi.WriteINI(iniPath, time.Now().Location().String()); iniErr != nil {
+					runtimeWarnings = append(runtimeWarnings, iniErr.Error())
+				} else {
+					phpPool, packErr = phpfastcgi.StartPool(ctx, phpfastcgi.PoolOptions{
+						Executable: executable,
+						INIPath:    iniPath,
+						Output:     stderr,
+					})
+					if packErr != nil {
+						runtimeWarnings = append(runtimeWarnings, "Dropserve could not start the PHP pack: "+packErr.Error())
+					}
+				}
+			}
+		}
+	}
+	if phpPool != nil {
+		defer func() { _ = phpPool.Close() }()
+	}
+	var phpHandler func(app.App) (http.Handler, error)
+	if phpPool != nil {
+		phpHandler = func(application app.App) (http.Handler, error) {
+			return phpPool.Handler(application.Path), nil
+		}
+	}
 	discoveryManager := discovery.NewManager(discovery.ManagerOptions{
 		LANIP:      lanIP,
 		HTTPPort:   mainPort,
@@ -511,6 +547,7 @@ func serveCommandContextWithReady(
 		SetLocalTrust:        httpsController.SetTrust,
 		RootCertificate:      httpsController.RootCertificate,
 		DismissNetworkChange: discoveryManager.DismissNetworkChange,
+		PHPHandler:           phpHandler,
 	})
 	if err != nil {
 		_ = listener.Close()

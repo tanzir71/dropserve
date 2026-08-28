@@ -69,6 +69,18 @@ func Detect(root string) (Detection, error) {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return Detection{}, fmt.Errorf("read %q: %w", packagePath, err)
 	}
+	php, err := detectPHP(root)
+	if err != nil {
+		return Detection{}, err
+	}
+	if php {
+		return withManifestSettings(Detection{
+			Kind:      KindPHP,
+			Runtime:   "php",
+			Reason:    "PHP app from PHP entry file",
+			Autostart: true,
+		}, settings), nil
+	}
 	for _, candidate := range []string{"app.py", "main.py", "server.py", "wsgi.py"} {
 		info, statErr := os.Stat(filepath.Join(root, candidate))
 		if statErr == nil && info.Mode().IsRegular() {
@@ -96,6 +108,31 @@ func Detect(root string) (Detection, error) {
 	}
 
 	return withManifestSettings(Detection{Kind: KindStatic, Autostart: true}, settings), nil
+}
+
+func detectPHP(root string) (bool, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return false, fmt.Errorf("inspect PHP app %q: %w", root, err)
+	}
+	hasPHP := false
+	hasHTMLIndex := false
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := strings.ToLower(entry.Name())
+		if name == "index.php" {
+			return true, nil
+		}
+		if name == "index.html" || name == "index.htm" {
+			hasHTMLIndex = true
+		}
+		if filepath.Ext(name) == ".php" {
+			hasPHP = true
+		}
+	}
+	return hasPHP && !hasHTMLIndex, nil
 }
 
 func detectProcfile(root string) (Detection, bool, error) {

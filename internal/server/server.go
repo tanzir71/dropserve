@@ -54,6 +54,7 @@ type Options struct {
 	SetLocalTrust        func(bool) error
 	RootCertificate      func() ([]byte, error)
 	DismissNetworkChange func() error
+	PHPHandler           func(app.App) (http.Handler, error)
 }
 
 // New scans the configured roots and registered apps, then mounts every app.
@@ -173,6 +174,14 @@ func (server *Server) reconcile() error {
 				result.Apps[applicationIndex].Port = commandState.Port
 				result.Apps[applicationIndex].PrefersOwnPort = commandState.PrefersOwnPort
 			}
+		case app.KindPHP:
+			if server.options.PHPHandler == nil {
+				application.Status = "needs-runtime"
+				result.Apps[applicationIndex].Status = application.Status
+				applicationHandler = needsPHPRuntimeHandler()
+			} else {
+				applicationHandler, err = server.options.PHPHandler(application)
+			}
 		default:
 			applicationHandler = staticserver.New(application)
 		}
@@ -214,6 +223,13 @@ func (server *Server) reconcile() error {
 	server.rebuilds.Add(1)
 	server.events.publish()
 	return nil
+}
+
+func needsPHPRuntimeHandler() http.Handler {
+	return http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = response.Write([]byte(`<!doctype html><html lang="en"><meta charset="utf-8"><title>PHP needed · Dropserve</title><body><main><h1>This app needs PHP.</h1><p>Install the optional PHP pack from Dropserve Add-ons, then try again.</p></main></body></html>`))
+	})
 }
 
 func (server *Server) serveCommandLogs(response http.ResponseWriter, request *http.Request) {

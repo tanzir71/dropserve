@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
-**Last updated:** 2026-08-28T01:58:38Z
+**Last updated:** 2026-08-28T02:09:53Z
 **Gate status:** green
-**Iterations completed:** 127
+**Iterations completed:** 128
 
 ## Milestone progress
 
@@ -57,7 +57,7 @@
 ## M9 criteria (active)
 
 - [x] Assert: pack integrity — a tampered download (wrong SHA-256) is rejected, deleted, and reported clearly.
-- [ ] Assert: with the PHP pack installed, `testdata/fixtures/php/index.php` returns the expected output through `GET /php/`, including `$_GET`, `$_POST`, a file upload, and `PATH_INFO`.
+- [x] Assert: with the PHP pack installed, `testdata/fixtures/php/index.php` returns the expected output through `GET /php/`, including `$_GET`, `$_POST`, a file upload, and `PATH_INFO`.
 - [ ] Assert: the FastCGI request parameters are correct — `SCRIPT_FILENAME`, `DOCUMENT_ROOT`, `REQUEST_URI`, `SCRIPT_NAME` reflect the app root and the `/slug/` prefix.
 - [ ] Assert: a PHP fatal error produces a readable error page and does not take down the pool.
 - [ ] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
@@ -316,6 +316,8 @@
 ### M9 evidence
 
 - `TestTamperedPackIsRejectedDeletedAndReportedClearly` failed first with no `runtimes` package, then served bytes different from the pinned SHA-256 through a real loopback HTTP server. The streaming installer reports the pack name plus expected/actual hash, deletes its entire private staging directory, and leaves the runtime root empty. Verified ZIP, tar.gz, and standalone-file payloads unpack through traversal-checked paths and atomically register only under `<state>/runtimes/<name>/<version>/<os>-<arch>`; no app path is accepted by this boundary. Three focused runs and the full race/lint/cross-build gate pass.
+- `TestPHPFixtureSupportsGetPostUploadAndPathInfo` failed first because PHP detection, the FastCGI handler, and the optional worker-pool boundary did not exist, then exposed missing `PATH_INFO` behavior before passing three consecutive runs. Rule 5 now detects `index.php` (or PHP without an HTML index), a missing pack mounts a friendly `needs-runtime` page, and an installed pack is served by two to four hidden loopback workers through the handover-prescribed `github.com/yookoala/gofast` client. The fixture verifies `$_GET`, URL-encoded `$_POST`, multipart filename/content, and `/extra/path` through the complete scanner → router → FastCGI path.
+- The opt-in `TestRealOfficialPHPPackFixture` downloaded the official PHP 8.5.10 Windows NTS x64 ZIP from php.net, verified pinned SHA-256 `22ec430195984d233eb9e62c637a945bbcda06efca2f392d9d96d62c6acd34f8`, unpacked it beneath an isolated runtime root, generated Dropserve's development `php.ini`, launched two actual `php-cgi.exe` processes, and passed the same GET/POST/upload/PATH_INFO acceptance in 13.73 seconds. Production startup discovers that exact manifest location under the state directory and leaves the base install pack-free. The full lint/race/three-target zero-CGO/tray/shipped-file gate is green.
 
 ## Decisions made this build (beyond the spec)
 
@@ -348,4 +350,4 @@
 
 ## Dependency count
 
-7 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, and local-CA trust-store adapter); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 35 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, and every zero-CGO target remains green.
+8 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, local-CA trust-store adapter, and pure-Go FastCGI client); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 45 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, runtime packs remain external downloads, and every zero-CGO target remains green.

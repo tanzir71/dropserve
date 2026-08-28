@@ -58,6 +58,7 @@ type Options struct {
 	PHPHandler           func(app.App) (http.Handler, error)
 	Addons               func() []dashboard.AddonStatus
 	ChangeAddon          func(context.Context, string, string) error
+	Update               func() dashboard.UpdateNotice
 }
 
 // New scans the configured roots and registered apps, then mounts every app.
@@ -235,6 +236,7 @@ func (server *Server) reconcile() error {
 		DismissNetworkChange: server.options.DismissNetworkChange,
 		Addons:               server.options.Addons,
 		ChangeAddon:          server.options.ChangeAddon,
+		Update:               server.options.Update,
 		BrowseDatabase: func(ctx context.Context, slug, file string) (sqlitebrowser.Snapshot, error) {
 			files, found := databasePaths[slug]
 			if !found {

@@ -1,7 +1,10 @@
 // Package traymenu defines Dropserve's optional system-tray presentation.
 package traymenu
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"strings"
+)
 
 // State is a visible tray-icon state.
 type State uint8
@@ -28,6 +31,15 @@ func Labels() []string {
 		"Run Doctor",
 		"Quit",
 	}
+}
+
+// UpdateLabel returns the conditional release-link label.
+func UpdateLabel(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return "View latest Dropserve release"
+	}
+	return "View Dropserve " + version + " release"
 }
 
 // Icon creates a small self-contained Windows ICO for state. Other tray

@@ -127,6 +127,7 @@ func TestHTTPSListenerFailureDegradesToHTTPOnly(t *testing.T) {
 			"",
 			func(address string) { ready <- address },
 			nil,
+			nil,
 		)
 	}()
 
@@ -203,6 +204,7 @@ func TestServeWithNoPacksKeepsBaseBinaryOperational(t *testing.T) {
 			&stderr,
 			"",
 			func(address string) { ready <- address },
+			nil,
 			nil,
 		)
 	}()

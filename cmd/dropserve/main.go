@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -32,6 +33,7 @@ import (
 	"github.com/tanzir71/dropserve/internal/scanner"
 	dropserver "github.com/tanzir71/dropserve/internal/server"
 	"github.com/tanzir71/dropserve/internal/state"
+	"github.com/tanzir71/dropserve/internal/updatecheck"
 	"github.com/tanzir71/dropserve/internal/version"
 )
 
@@ -314,7 +316,7 @@ func serveCommandContext(
 	stderr io.Writer,
 	injectedConfigPath string,
 ) int {
-	return serveCommandContextWithReady(ctx, arguments, stdout, stderr, injectedConfigPath, nil, nil)
+	return serveCommandContextWithReady(ctx, arguments, stdout, stderr, injectedConfigPath, nil, nil, nil)
 }
 
 func serveCommandContextWithReady(
@@ -325,6 +327,7 @@ func serveCommandContextWithReady(
 	injectedConfigPath string,
 	ready func(string),
 	publicSharingChanged func(bool),
+	updateChanged func(dashboard.UpdateNotice),
 ) int {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -419,6 +422,7 @@ func serveCommandContextWithReady(
 	}
 	var runtimeWarnings []string
 	var handler *dropserver.Server
+	var updateNotice atomic.Pointer[dashboard.UpdateNotice]
 	var addonManager *runtimes.Manager
 	if stateDirectory != "" {
 		addonManager, err = runtimes.NewManager(runtimes.ManagerOptions{
@@ -563,6 +567,13 @@ func serveCommandContextWithReady(
 		PHPHandler:           phpHandler,
 		Addons:               addons,
 		ChangeAddon:          changeAddon,
+		Update: func() dashboard.UpdateNotice {
+			current := updateNotice.Load()
+			if current == nil {
+				return dashboard.UpdateNotice{}
+			}
+			return *current
+		},
 	})
 	if err != nil {
 		_ = listener.Close()
@@ -572,6 +583,9 @@ func serveCommandContextWithReady(
 		return 1
 	}
 	defer func() { _ = handler.Close() }()
+	if configuration.Updates.Check && !strings.HasPrefix(version.Version, "0.0.0-") {
+		go monitorUpdates(ctx, version.Version, &updateNotice, updateChanged, handler.Reconcile)
+	}
 
 	listenerRuntime := dropserver.NewListenerRuntime(handler.Handler())
 	listenerRuntime.Start(listener)
@@ -641,6 +655,42 @@ func serveCommandContextWithReady(
 		return 1
 	}
 	return 0
+}
+
+func monitorUpdates(
+	ctx context.Context,
+	currentVersion string,
+	notice *atomic.Pointer[dashboard.UpdateNotice],
+	notify func(dashboard.UpdateNotice),
+	onChange func() error,
+) {
+	check := func() {
+		checkContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		latest, err := updatecheck.Check(checkContext, updatecheck.Options{CurrentVersion: currentVersion})
+		if err != nil {
+			return
+		}
+		current := dashboard.UpdateNotice{Available: latest.Available, Version: latest.Version, URL: latest.URL}
+		notice.Store(&current)
+		if notify != nil {
+			notify(current)
+		}
+		if onChange != nil {
+			_ = onChange()
+		}
+	}
+	check()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
 }
 
 func acquireMainListener(

@@ -15,6 +15,7 @@ import (
 
 	"github.com/getlantern/systray"
 	"github.com/tanzir71/dropserve/internal/autostart"
+	"github.com/tanzir71/dropserve/internal/dashboard"
 	"github.com/tanzir71/dropserve/internal/launch"
 	"github.com/tanzir71/dropserve/internal/traymenu"
 )
@@ -35,6 +36,8 @@ type trayServer struct {
 	lastCode      int
 	trayReady     bool
 	publicSharing bool
+	updateNotice  dashboard.UpdateNotice
+	updateItem    *systray.MenuItem
 }
 
 func runDefaultMode(ctx context.Context, options defaultModeOptions) int {
@@ -90,6 +93,7 @@ func (server *trayServer) start() (string, error) {
 			"",
 			func(address string) { ready <- address },
 			server.setPublicSharing,
+			server.setUpdateNotice,
 		)
 		close(run.done)
 	}()
@@ -178,6 +182,40 @@ func (server *trayServer) setPublicSharing(active bool) {
 	}
 }
 
+func (server *trayServer) setUpdateNotice(notice dashboard.UpdateNotice) {
+	server.mu.Lock()
+	server.updateNotice = notice
+	item := server.updateItem
+	server.mu.Unlock()
+	refreshUpdateItem(item, notice)
+}
+
+func (server *trayServer) attachUpdateItem(item *systray.MenuItem) {
+	server.mu.Lock()
+	server.updateItem = item
+	notice := server.updateNotice
+	server.mu.Unlock()
+	refreshUpdateItem(item, notice)
+}
+
+func (server *trayServer) currentUpdateURL() string {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+	return server.updateNotice.URL
+}
+
+func refreshUpdateItem(item *systray.MenuItem, notice dashboard.UpdateNotice) {
+	if item == nil {
+		return
+	}
+	if !notice.Available || notice.URL == "" {
+		item.Hide()
+		return
+	}
+	item.SetTitle(traymenu.UpdateLabel(notice.Version))
+	item.Show()
+}
+
 func (server *trayServer) refreshIcon() {
 	server.mu.Lock()
 	ready := server.trayReady
@@ -212,6 +250,9 @@ func configureTray(ctx context.Context, server *trayServer) {
 	systray.SetTitle("Dropserve")
 	systray.SetTooltip("Dropserve is serving your local apps")
 	openDashboard := systray.AddMenuItem(labels[0], "Open the Dropserve dashboard")
+	viewUpdate := systray.AddMenuItem(traymenu.UpdateLabel(""), "Open the available Dropserve release page")
+	viewUpdate.Hide()
+	server.attachUpdateItem(viewUpdate)
 	openApps := systray.AddMenuItem(labels[1], "Open your Apps folder")
 	copyLink := systray.AddMenuItem(labels[2], "Copy this computer's Dropserve address")
 	systray.AddSeparator()
@@ -227,6 +268,10 @@ func configureTray(ctx context.Context, server *trayServer) {
 			select {
 			case <-openDashboard.ClickedCh:
 				_ = launch.OpenURL(server.currentAddress())
+			case <-viewUpdate.ClickedCh:
+				if releaseURL := server.currentUpdateURL(); releaseURL != "" {
+					_ = launch.OpenURL(releaseURL)
+				}
 			case <-openApps.ClickedCh:
 				_ = launch.OpenPath(server.options.AppsRoot)
 			case <-copyLink.ClickedCh:

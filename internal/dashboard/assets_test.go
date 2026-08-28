@@ -240,3 +240,19 @@ func TestDashboardAddonSurfaceExplainsOptionalAndDestructiveActions(t *testing.T
 		}
 	}
 }
+
+func TestDashboardUpdateSurfaceIsNotificationOnly(t *testing.T) {
+	t.Parallel()
+	index, _ := assets.ReadFile("assets/index.html")
+	script, _ := assets.ReadFile("assets/app.js")
+	for _, marker := range []string{`id="update-notice"`, `target="_blank"`, "Nothing is downloaded automatically", "status.update.url"} {
+		if !strings.Contains(string(index)+string(script), marker) {
+			t.Errorf("dashboard does not contain update marker %q", marker)
+		}
+	}
+	for _, forbidden := range []string{"downloadUpdate", "installUpdate", "executeUpdate"} {
+		if strings.Contains(string(script), forbidden) {
+			t.Errorf("dashboard contains forbidden update action %q", forbidden)
+		}
+	}
+}

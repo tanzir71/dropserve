@@ -14,7 +14,13 @@ import (
 
 // Config is the complete user-editable configuration.
 type Config struct {
-	Server Server `toml:"server"`
+	Server  Server  `toml:"server"`
+	Updates Updates `toml:"updates"`
+}
+
+// Updates controls the metadata-only GitHub release check.
+type Updates struct {
+	Check bool `toml:"check"`
 }
 
 // Server contains app discovery and listener settings.
@@ -31,6 +37,7 @@ type Server struct {
 func Default() Config {
 	home, _ := os.UserHomeDir()
 	return Config{
+		Updates: Updates{Check: true},
 		Server: Server{
 			AppsRoots:    []string{filepath.Join(home, "Dropserve", "Apps")},
 			Bind:         "0.0.0.0",

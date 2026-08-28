@@ -20,6 +20,12 @@ func TestMenuContractMatchesHandover(t *testing.T) {
 	}
 }
 
+func TestUpdateLabelNamesTheAvailableVersion(t *testing.T) {
+	if got := UpdateLabel("1.4.0"); got != "View Dropserve 1.4.0 release" {
+		t.Fatalf("UpdateLabel() = %q", got)
+	}
+}
+
 func TestEveryTrayStateHasAWindowsIcon(t *testing.T) {
 	for _, state := range []State{Running, Warning, Sharing, Paused} {
 		icon := Icon(state)

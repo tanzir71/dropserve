@@ -48,6 +48,7 @@ type handler struct {
 	browseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
 	addons               func() []AddonStatus
 	changeAddon          func(context.Context, string, string) error
+	update               func() UpdateNotice
 }
 
 // LocalHTTPSStatus is the live opt-in local TLS and trust state.
@@ -74,6 +75,13 @@ type AddonStatus struct {
 	Message     string `json:"message,omitempty"`
 }
 
+// UpdateNotice is a metadata-only link to a newer release.
+type UpdateNotice struct {
+	Available bool   `json:"available"`
+	Version   string `json:"version,omitempty"`
+	URL       string `json:"url,omitempty"`
+}
+
 // Options supplies runtime information displayed by the dashboard.
 type Options struct {
 	Warnings             []string
@@ -88,6 +96,7 @@ type Options struct {
 	BrowseDatabase       func(context.Context, string, string) (sqlitebrowser.Snapshot, error)
 	Addons               func() []AddonStatus
 	ChangeAddon          func(context.Context, string, string) error
+	Update               func() UpdateNotice
 }
 
 // New returns the embedded dashboard handler.
@@ -125,6 +134,7 @@ func NewWithOptions(applications []indexer.Entry, options Options) (http.Handler
 		browseDatabase:       options.BrowseDatabase,
 		addons:               options.Addons,
 		changeAddon:          options.ChangeAddon,
+		update:               options.Update,
 	}, nil
 }
 
@@ -542,6 +552,7 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		HTTPS         LocalHTTPSStatus `json:"https"`
 		Warnings      []string         `json:"warnings"`
 		CSRFToken     string           `json:"csrf_token"`
+		Update        UpdateNotice     `json:"update"`
 	}{
 		Version:       version.Version,
 		Commit:        version.Commit,
@@ -552,6 +563,9 @@ func (dashboard *handler) serveStatus(response http.ResponseWriter, request *htt
 		HTTPS:         httpsStatus,
 		Warnings:      warnings,
 		CSRFToken:     dashboard.csrfToken,
+	}
+	if dashboard.update != nil {
+		payload.Update = dashboard.update()
 	}
 	dashboard.serveJSON(response, request, payload)
 }

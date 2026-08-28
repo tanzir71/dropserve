@@ -78,6 +78,7 @@ func TestStateFileAloneControlsFirstRunAndExampleCopy(t *testing.T) {
 		`checked`,
 		`type="submit"`,
 		`>Start</button>`,
+		`checks once a day whether a new release is available; it never installs updates by itself`,
 	} {
 		if !strings.Contains(page, required) {
 			t.Errorf("first-run screen does not contain %q", required)

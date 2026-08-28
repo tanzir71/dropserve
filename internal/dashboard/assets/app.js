@@ -25,6 +25,7 @@ const funnelConfirmation = document.querySelector('#funnel-confirmation');
 const funnelConfirm = document.querySelector('#funnel-confirm');
 const funnelState = document.querySelector('#funnel-state');
 const warningNotice = document.querySelector('#port-warning');
+const updateNotice = document.querySelector('#update-notice');
 const publicSharingWarning = document.querySelector('#public-sharing-warning');
 const addressChangeWarning = document.querySelector('#address-change-warning');
 const logDialog = document.querySelector('#log-dialog');
@@ -619,7 +620,10 @@ function loadApps() {
 loadApps();
 if ('EventSource' in window) {
   const appEvents = new EventSource('/_dropserve/api/events');
-  appEvents.addEventListener('apps-changed', loadApps);
+  appEvents.addEventListener('apps-changed', () => {
+    loadApps();
+    loadStatus().catch(() => {});
+  });
 }
 
 async function loadStatus() {
@@ -662,6 +666,13 @@ async function loadStatus() {
       diagnose.dataset.bound = 'true';
       diagnose.addEventListener('click', () => window.location.assign('/_dropserve/api/status'));
     }
+  }
+  if (status.update?.available) {
+    updateNotice.querySelector('p').textContent = `Dropserve ${status.update.version} is available. Nothing is downloaded automatically.`;
+    updateNotice.querySelector('a').href = status.update.url;
+    updateNotice.hidden = false;
+  } else {
+    updateNotice.hidden = true;
   }
   return status;
 }

@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M10 — Shippable (M7/M8 manual checks pending; M9 tag withheld until prerequisites close)
-**Last updated:** 2026-08-28T03:24:14Z
+**Last updated:** 2026-08-28T03:34:56Z
 **Gate status:** green
-**Iterations completed:** 140
+**Iterations completed:** 141
 
 ## Milestone progress
 
@@ -80,7 +80,7 @@
 - [ ] Script: the Windows installer installs silently (`/VERYSILENT`), the binary runs, `dropserve healthz` returns ok, the uninstaller runs silently, and afterwards no scheduled task, install directory, or firewall rule remains. Run this in Windows CI.
 - [ ] Script: `signtool verify /pa dropserve.exe` succeeds against the self-signed certificate.
 - [ ] Script: the landing page is valid HTML in CI and contains no external resource references.
-- [ ] Assert: the update check hits the GitHub releases API, compares semver, and never downloads or executes anything; it only surfaces a notification with a link.
+- [x] Assert: the update check hits the GitHub releases API, compares semver, and never downloads or executes anything; it only surfaces a notification with a link.
 - [ ] Script: fresh-machine test — clean Windows VM/container, install, drop a folder, reach it from another host on the network, and record the transcript.
 
 ### M10 evidence
@@ -93,6 +93,7 @@
 - The release signing scripts generate a 3072-bit RSA code-signing identity, Authenticode-sign each Windows binary and installer with SHA-256, confirm the embedded certificate, produce post-signing SHA-256 sidecars, and require `signtool verify /pa` after temporarily trusting the exact self-signed certificate on the elevated hosted runner. A local non-trusting smoke embedded and independently read the expected certificate on both binaries and the installer; the test certificate, two interrupted-run certificates, and all temporary PFX files were removed and cannot be recovered. The persistent PFX/password now exist only as GitHub encrypted secrets under certificate `4371F601B0D864E9343FE9474552474F4CD90057`; no private signing material is present in the repository or local certificate store.
 - The tag-only release workflow runs the six-target GoReleaser build, builds and verifies the signed Inno installer from signed binaries, repeats the destructive-lifecycle smoke, extends `checksums.txt` after signing, uploads the installer and checksum sidecar to the same draft release, and uses `actions/attest-build-provenance` for the archives, installer, and final checksum file. `actionlint` 1.7.12 reports no workflow errors. A real semver tag will exercise publication and Sigstore-backed attestations; no test release was published in this iteration.
 - The pre-implementation `html-validate` 11.10.0 run found a lowercase doctype and six inline-style violations. The landing page now uses a standards doctype and named responsive classes, passes the validator with zero findings, and `TestLandingPageHasNoExternalResourceReferences` rejects external script/media/frame sources, external stylesheet links in either attribute order, and every CSS `url(` reference while still allowing ordinary GitHub anchors. A pinned validator job is present in CI; its first hosted result is pending, so the criterion remains open.
+- `TestCheckUsesOnlyLatestReleaseAPIAndReturnsLink` failed first with no update-check package, then proved one bounded request to the repository's GitHub latest-release API while an asset URL in the response remained untouched. The checker uses semantic ordering, rejects non-release or non-GitHub links, performs no file/process action, and runs on startup then at most once per 24 hours. Existing config files inherit the on-by-default setting and `[updates] check = false` disables the network path entirely; development builds skip it. A validated newer version appears only as a release-page link in dashboard status, the dashboard notice, and a conditional tray item. The first-run screen explicitly says the daily check never installs updates. Focused tests passed three times and the full race/lint/cross-build/tray gate is green.
 
 ### M6 completion audit (closed)
 
@@ -393,4 +394,4 @@
 
 ## Dependency count
 
-9 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, local-CA trust-store adapter, pure-Go FastCGI client, and pure-Go SQLite driver); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 67 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, runtime packs remain external downloads, and every zero-CGO target remains green.
+10 direct external dependencies (the handover-approved TOML parser, pure-Go QR encoder, fsnotify, Windows syscall bridge, build-tagged tray library, selected mDNS responder, local-CA trust-store adapter, pure-Go FastCGI client, pure-Go SQLite driver, and the official Go semantic-version helper already present in the module graph); M0 baseline: 0 direct / 1 total module. Current `go list -m all`: 67 modules including the main module. The tray dependency and its transitive graph are excluded from the headless binary by the `tray` build tag, runtime packs remain external downloads, and every zero-CGO target remains green.

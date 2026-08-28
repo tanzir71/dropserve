@@ -51,7 +51,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
   box-shadow: 0 8px 20px rgba(21, 107, 80, .24);
 }
 
-.sharing-button, .empty-state button, .notice button {
+.sharing-button, .empty-state button, .notice button, .notice a {
   border: 1px solid var(--line);
   border-radius: 999px;
   color: var(--ink);
@@ -121,7 +121,7 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 7p
 .notice { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; padding: 14px; border: 1px solid #e7c975; border-radius: 14px; background: #fff8dc; }
 .notice > span { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 50%; background: #f1ce64; font-weight: 800; }
 .notice p { flex: 1; margin: 0; font-size: 13px; }
-.notice button { padding: 7px 12px; background: white; }
+.notice button, .notice a { padding: 7px 12px; background: white; text-decoration: none; }
 .public-warning { border-color: #df6f6f; background: #fff0f0; }
 .help-page { max-width: 720px; margin: 8vh auto; }
 .help-page h1 { max-width: 650px; }
@@ -229,7 +229,7 @@ footer a { color: var(--muted); }
   .search-shell { border-color: #3b4d46; background: rgba(26, 36, 32, .95); }
   kbd { background: #1b2521; }
   .notice { color: #f1e6bd; background: #392f13; border-color: #6e5a1e; }
-  .notice button { background: #211d12; }
+  .notice button, .notice a { background: #211d12; }
   .public-warning { color: #ffd7d7; background: #421d1d; border-color: #9d5050; }
   .count-pill, .sharing-row { background: rgba(255,255,255,.045); }
   .app-card[data-status="crashed"] { background: #352913; }

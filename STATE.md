@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** M8 — HTTPS (M7 real-tailnet check pending)
-**Last updated:** 2026-08-28T01:47:47Z
+**Last updated:** 2026-08-28T01:56:00Z
 **Gate status:** green
-**Iterations completed:** 125
+**Iterations completed:** 126
 
 ## Milestone progress
 
@@ -298,6 +298,8 @@
 - Hosted CI run 33133243044 exposed a test-only Windows SDDL portability error: GitHub's Administrator SID was canonically rendered as the well-known `LA` alias, so the string assertion could not find the numeric SID even though the protected DACL contained the correct sole grant. `TestWindowsRootKeyACLGrantsOnlyCurrentUser` now reads the actual ACE, compares its binary trustee SID to the process user, and verifies an allow/full-file-control grant; three local Windows runs and the full gate pass.
 - `TestServerLifecycleNeverInstallsTrustWithoutExplicitAction` drives construction, initial scan, a served dashboard request, reconciliation, and shutdown with a fake trust boundary and observes zero calls. `TestLocalHTTPSAndTrustActionsRequireExplicitCSRFRequests` refuses an unauthenticated trust POST, then records only the requested enable/install/remove/disable transitions. `TestTrustCommandIsExplicitAndReversible` locks the prescribed `dropserve trust --install` and `--uninstall` forms to one matching root path each.
 - The production `localHTTPSController` is inert until called, persists its listener setting before activation, rolls back a failed persistence attempt, serves the same live handler without removing HTTP, retains a downloadable public root, and owns dashboard status, enable/disable, and trust callbacks. `TestEnabledLocalHTTPSIsAdvertisedAlongsideHTTP` requires verified HTTP and local-HTTPS LAN/mDNS links simultaneously and exposes the HTTPS port in status. The UI gives the exact trust explanation, recommends Tailscale first, and supplies separate reversible listener/trust controls.
+- Hosted CI runs [33133669967](https://github.com/tanzir71/dropserve/actions/runs/33133669967) and [33134012517](https://github.com/tanzir71/dropserve/actions/runs/33134012517) passed both operating-system gates, golangci-lint, secret scanning, and every native smoke after the SID assertion fix and explicit HTTPS/trust controller landed.
+- The real Windows trust check generated a unique isolated CA and invoked the production CLI. Windows paused on its root-trust security confirmation before adding thumbprint `F7FD64231ECEA916749608DA0AD105817E732209`; store queries before and after cancellation both returned zero, and the generated CA/key files were removed. UI automation is prohibited from accepting Windows security prompts, while Microsoft's non-UI alternatives would bypass the required `smallstep/truststore` path. `BLOCKED-m8-windows-trust-confirmation.md` records all three approaches; one user-accepted warning remains for the manual install/remove proof.
 
 ## Decisions made this build (beyond the spec)
 
@@ -308,7 +310,7 @@
 
 ## Open questions for the human
 
-- None.
+- M8 manual trust proof: when convenient, accept one visible Windows root-trust warning during an isolated check; Dropserve will immediately verify and remove that exact certificate. All automated trust invariants are already green.
 
 ## Deviations from the spec
 
@@ -325,7 +327,8 @@
 
 ## Verify on real hardware
 
-- None currently listed for M4.
+- M7: enable and disable `tailscale serve` once on a real signed-in tailnet and record the verified HTTPS URL.
+- M8: accept one Windows root-trust warning for an isolated CA, then verify production `trust --uninstall` returns its exact thumbprint count to zero. See `BLOCKED-m8-windows-trust-confirmation.md`.
 
 ## Dependency count
 

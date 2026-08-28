@@ -152,6 +152,15 @@ func assertPHPFixtureBehavior(t *testing.T, pool *phpfastcgi.Pool) {
 	if pathInfo.PathInfo != "/extra/path" {
 		t.Fatalf("PATH_INFO = %q, want /extra/path", pathInfo.PathInfo)
 	}
+
+	fatalStatus, fatalBody := requestPHPFixtureRaw(t, httpServer.Client(), http.MethodGet, httpServer.URL+"/php/fatal.php", "", nil)
+	if fatalStatus != http.StatusInternalServerError || !strings.Contains(fatalBody, "Fatal error") || !strings.Contains(fatalBody, "undefined_dropserve_function") {
+		t.Fatalf("fatal PHP response = %d %q, want readable 500 page", fatalStatus, fatalBody)
+	}
+	afterFatal := requestPHPFixture(t, httpServer.Client(), http.MethodGet, httpServer.URL+"/php/?name=pool-alive", "", nil)
+	if afterFatal.Get != "pool-alive" {
+		t.Fatalf("PHP pool after fatal error returned %#v", afterFatal)
+	}
 }
 
 func TestPHPWorkerProcess(t *testing.T) {
@@ -178,6 +187,11 @@ func TestPHPWorkerProcess(t *testing.T) {
 }
 
 func servePHPFixture(response http.ResponseWriter, request *http.Request) {
+	if request.URL.Path == "/php/fatal.php" {
+		response.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(response, "<b>Fatal error</b>: Uncaught Error: Call to undefined function undefined_dropserve_function()\nStack trace:\n#0 {main}")
+		return
+	}
 	pathInfo := strings.TrimPrefix(request.URL.Path, "/php/index.php")
 	if pathInfo == request.URL.Path {
 		pathInfo = ""
@@ -208,6 +222,19 @@ func servePHPFixture(response http.ResponseWriter, request *http.Request) {
 
 func requestPHPFixture(t *testing.T, client *http.Client, method, requestURL, contentType string, body io.Reader) phpFixtureResponse {
 	t.Helper()
+	status, contents := requestPHPFixtureRaw(t, client, method, requestURL, contentType, body)
+	if status != http.StatusOK {
+		t.Fatalf("PHP response = %d, want 200; body=%s", status, contents)
+	}
+	var result phpFixtureResponse
+	if err := json.Unmarshal([]byte(contents), &result); err != nil {
+		t.Fatalf("decode PHP response %q: %v", contents, err)
+	}
+	return result
+}
+
+func requestPHPFixtureRaw(t *testing.T, client *http.Client, method, requestURL, contentType string, body io.Reader) (int, string) {
+	t.Helper()
 	request, err := http.NewRequestWithContext(context.Background(), method, requestURL, body)
 	if err != nil {
 		t.Fatalf("create PHP request: %v", err)
@@ -226,14 +253,7 @@ func requestPHPFixture(t *testing.T, client *http.Client, method, requestURL, co
 	if err != nil {
 		t.Fatalf("read PHP response: %v", err)
 	}
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("PHP response = %d, want 200; body=%s", response.StatusCode, contents)
-	}
-	var result phpFixtureResponse
-	if err := json.Unmarshal(contents, &result); err != nil {
-		t.Fatalf("decode PHP response %q: %v", contents, err)
-	}
-	return result
+	return response.StatusCode, string(contents)
 }
 
 func phpFixtureRoot(t *testing.T) string {

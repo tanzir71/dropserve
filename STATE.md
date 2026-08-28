@@ -1,9 +1,9 @@
 # Build State
 
-**Current milestone:** M8 — HTTPS (M7 real-tailnet check pending)
-**Last updated:** 2026-08-28T01:56:00Z
+**Current milestone:** M9 — PHP and add-ons (M7/M8 manual checks pending)
+**Last updated:** 2026-08-28T01:58:38Z
 **Gate status:** green
-**Iterations completed:** 126
+**Iterations completed:** 127
 
 ## Milestone progress
 
@@ -53,6 +53,18 @@
 - [x] Assert: HTTP → HTTPS redirect is **off** by default and the HTTP listener still serves everything when HTTPS is enabled.
 - [x] Assert (**hazard 13**): an issued leaf's `NotBefore` is at least one hour in the past, so a machine with a slightly wrong clock still accepts a freshly-issued certificate. Verify with an injected clock skewed 30 minutes fast and 30 minutes slow — the certificate validates in both cases.
 - [x] Assert: HTTPS listener failure (port taken) degrades to HTTP-only with a warning and does not prevent startup.
+
+## M9 criteria (active)
+
+- [x] Assert: pack integrity — a tampered download (wrong SHA-256) is rejected, deleted, and reported clearly.
+- [ ] Assert: with the PHP pack installed, `testdata/fixtures/php/index.php` returns the expected output through `GET /php/`, including `$_GET`, `$_POST`, a file upload, and `PATH_INFO`.
+- [ ] Assert: the FastCGI request parameters are correct — `SCRIPT_FILENAME`, `DOCUMENT_ROOT`, `REQUEST_URI`, `SCRIPT_NAME` reflect the app root and the `/slug/` prefix.
+- [ ] Assert: a PHP fatal error produces a readable error page and does not take down the pool.
+- [ ] Assert: killing a `php-cgi` worker externally causes the pool to recover within 5 seconds.
+- [ ] Assert: removing the PHP pack deletes the runtime directory and leaves the app fixtures byte-identical (**I2** again).
+- [ ] Assert: the SQLite browser lists tables and the first 100 rows of a fixture `.db` without holding a write lock on it.
+- [ ] Assert: MariaDB/Postgres data directories are created under the state dir, never under an Apps root.
+- [ ] Assert: with no packs installed, the binary and all tests still pass — packs are genuinely optional.
 
 ### M6 completion audit (closed)
 
@@ -300,6 +312,10 @@
 - The production `localHTTPSController` is inert until called, persists its listener setting before activation, rolls back a failed persistence attempt, serves the same live handler without removing HTTP, retains a downloadable public root, and owns dashboard status, enable/disable, and trust callbacks. `TestEnabledLocalHTTPSIsAdvertisedAlongsideHTTP` requires verified HTTP and local-HTTPS LAN/mDNS links simultaneously and exposes the HTTPS port in status. The UI gives the exact trust explanation, recommends Tailscale first, and supplies separate reversible listener/trust controls.
 - Hosted CI runs [33133669967](https://github.com/tanzir71/dropserve/actions/runs/33133669967) and [33134012517](https://github.com/tanzir71/dropserve/actions/runs/33134012517) passed both operating-system gates, golangci-lint, secret scanning, and every native smoke after the SID assertion fix and explicit HTTPS/trust controller landed.
 - The real Windows trust check generated a unique isolated CA and invoked the production CLI. Windows paused on its root-trust security confirmation before adding thumbprint `F7FD64231ECEA916749608DA0AD105817E732209`; store queries before and after cancellation both returned zero, and the generated CA/key files were removed. UI automation is prohibited from accepting Windows security prompts, while Microsoft's non-UI alternatives would bypass the required `smallstep/truststore` path. `BLOCKED-m8-windows-trust-confirmation.md` records all three approaches; one user-accepted warning remains for the manual install/remove proof.
+
+### M9 evidence
+
+- `TestTamperedPackIsRejectedDeletedAndReportedClearly` failed first with no `runtimes` package, then served bytes different from the pinned SHA-256 through a real loopback HTTP server. The streaming installer reports the pack name plus expected/actual hash, deletes its entire private staging directory, and leaves the runtime root empty. Verified ZIP, tar.gz, and standalone-file payloads unpack through traversal-checked paths and atomically register only under `<state>/runtimes/<name>/<version>/<os>-<arch>`; no app path is accepted by this boundary. Three focused runs and the full race/lint/cross-build gate pass.
 
 ## Decisions made this build (beyond the spec)
 

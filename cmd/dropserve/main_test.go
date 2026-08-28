@@ -57,9 +57,10 @@ func TestUpdateMonitorCanBeEnabledByAHotConfigReload(t *testing.T) {
 			func(notice dashboard.UpdateNotice) { notices <- notice },
 			nil,
 			func() bool {
+				current := enabled.Load()
 				enabledReads.Add(1)
 				initialOnce.Do(func() { close(initialRead) })
-				return enabled.Load()
+				return current
 			},
 			trigger,
 			func(_ context.Context, options updatecheck.Options) (updatecheck.Notification, error) {

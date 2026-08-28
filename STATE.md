@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** v1 completion audit — automated/local closure complete; human hardware acceptance pending
-**Last updated:** 2026-08-28T07:01:18Z
+**Last updated:** 2026-08-28T07:08:42Z
 **Gate status:** green
-**Iterations completed:** 163
+**Iterations completed:** 164
 
 ## Milestone progress
 
@@ -56,6 +56,7 @@
 - Hosted audit run [33148316675](https://github.com/tanzir71/dropserve/actions/runs/33148316675) found two timing assumptions after the completion commit. The Unix M5 smoke received the intentional HTTP 200 starting page before its command app was ready and now waits up to the existing 45-second process deadline for the expected terminal route; the Windows gate encountered a transient sharing violation while moving `leaf.pem`, so certificate publication now retries bounded filesystem operations for at most 100 ms while preserving atomic backup/restore behavior. Twenty race-detector repetitions of the CA/discovery packages, the updated Windows M5 smoke, and the full local gate pass.
 - Replacement hosted CI [33148871366](https://github.com/tanzir71/dropserve/actions/runs/33148871366) passed both full operating-system gates, corrected Unix and Windows M5 smokes, lint, govulncheck, gosec, secret scanning, performance, landing validation, and the complete signed installer/fresh-VM lifecycle. Companion Pages run [33148871013](https://github.com/tanzir71/dropserve/actions/runs/33148871013) built and deployed successfully.
 - A compiled-binary Chromium audit at a 390×844 phone viewport replayed the machine-observable portions of GP-2 through GP-6. It first exposed an open action menu rendering beneath the following card and then closing during a live card refresh; a failing rendered test now covers both conditions, the open card owns a higher stacking context, and its menu state survives DOM reconciliation. The same audit found the search field's computed accessible name was `/` instead of “Search your apps”; an exact failing assertion now locks the corrected name. The final replay returned dashboard HTTP 200, discovered a newly copied static app live in 546 ms without refresh, opened it with HTTP 200, showed the Node app ready with logs, reached the automatic own-port rescue at `http://127.0.0.1:7400/`, returned a local QR PNG, rendered the missing-Tailscale explanation/link, and reported zero browser errors. This strengthens automated evidence but does not replace §17's required human real-hardware walks.
+- Hosted audit CI [33150041617](https://github.com/tanzir71/dropserve/actions/runs/33150041617) passed Windows, the signed installer/fresh-VM lifecycle, lint, security, performance, landing, and secret jobs, but exposed a scheduler race in `TestUpdateMonitorCanBeEnabledByAHotConfigReload` on Ubuntu. The fake `enabled` callback closed its “initial read” channel before sampling the atomic flag, allowing the test goroutine to enable checks between those operations and incorrectly count an initial check plus the explicit trigger. The callback now samples before signaling, preserving the production contract while making the test's disabled observation deterministic; 100 focused race-detector repetitions pass.
 - Remaining acceptance requires external human state and cannot be fabricated: a signed-in real tailnet for the M7 Serve/unserve proof; one visible Windows root-trust confirmation for the M8 production install/uninstall proof; all seven golden paths walked by a human on real hardware; and the novice install plus phone-access trial. Tailscale is not installed or signed in on this host, and the current process is not elevated. Ordered milestone rules therefore prohibit tags M7–M11 until those proofs are recorded.
 
 ## M7 criteria (manual tailnet check pending)

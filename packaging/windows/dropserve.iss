@@ -62,3 +62,9 @@ Filename: "{sys}\taskkill.exe"; Parameters: "/IM dropserve-cli.exe /T /F"; Flags
 Filename: "{app}\dropserve-cli.exe"; Parameters: "autostart disable"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveAutostart"
 Filename: "{app}\dropserve-cli.exe"; Parameters: "trust --uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveTrust"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Dropserve"""; Flags: runhidden waituntilterminated; RunOnceId: "RemoveFirewall"
+
+[UninstallDelete]
+; Dropserve owns these two per-user directories. The user's
+; {userprofile}\Dropserve\Apps directory is intentionally outside this list.
+Type: filesandordirs; Name: "{localappdata}\Dropserve"
+Type: filesandordirs; Name: "{userappdata}\Dropserve"

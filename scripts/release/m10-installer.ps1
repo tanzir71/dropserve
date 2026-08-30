@@ -11,6 +11,19 @@ $installDirectory = Join-Path $sandbox 'installed'
 $appsDirectory = Join-Path $sandbox 'Apps'
 $statePath = Join-Path $sandbox 'state\state.json'
 $server = $null
+$ownedLocalDataDirectory = Join-Path $env:LOCALAPPDATA 'Dropserve'
+$ownedRoamingDataDirectory = Join-Path $env:APPDATA 'Dropserve'
+$defaultAppsContainer = Join-Path $env:USERPROFILE 'Dropserve'
+$defaultAppsDirectory = Join-Path $defaultAppsContainer 'Apps'
+$preservedAppMarker = Join-Path $defaultAppsDirectory 'uninstall-preservation-proof.txt'
+$ownedDataPrepared = $false
+$defaultAppsPrepared = $false
+
+foreach ($path in @($ownedLocalDataDirectory, $ownedRoamingDataDirectory, $defaultAppsContainer)) {
+    if (Test-Path -LiteralPath $path) {
+        throw "installer smoke requires a clean runner; refusing to touch pre-existing path $path"
+    }
+}
 
 New-Item -ItemType Directory -Force -Path $appsDirectory | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $appsDirectory 'hello') | Out-Null
@@ -66,6 +79,15 @@ try {
         throw "installed Dropserve could not create its autostart task: $($autostart.ExitCode)"
     }
 
+    New-Item -ItemType Directory -Force -Path $ownedLocalDataDirectory,$ownedRoamingDataDirectory | Out-Null
+    Set-Content -LiteralPath (Join-Path $ownedLocalDataDirectory 'uninstall-proof.txt') -Value 'Dropserve-owned local data' -Encoding utf8NoBOM
+    Set-Content -LiteralPath (Join-Path $ownedRoamingDataDirectory 'uninstall-proof.txt') -Value 'Dropserve-owned configuration data' -Encoding utf8NoBOM
+    $ownedDataPrepared = $true
+
+    New-Item -ItemType Directory -Force -Path $defaultAppsDirectory | Out-Null
+    Set-Content -LiteralPath $preservedAppMarker -Value 'user-owned app data' -Encoding utf8NoBOM
+    $defaultAppsPrepared = $true
+
     $uninstaller = Join-Path $installDirectory 'unins000.exe'
     if (!(Test-Path -LiteralPath $uninstaller -PathType Leaf)) {
         throw 'installer did not create its uninstaller'
@@ -95,8 +117,16 @@ try {
     if ($firewallAfter -match 'Rule Name:\s+Dropserve') {
         throw "uninstaller left the Dropserve firewall rule: $firewallAfter"
     }
+    foreach ($path in @($ownedLocalDataDirectory, $ownedRoamingDataDirectory)) {
+        if (Test-Path -LiteralPath $path) {
+            throw "uninstaller left Dropserve-owned data: $path"
+        }
+    }
+    if (!(Test-Path -LiteralPath $preservedAppMarker -PathType Leaf)) {
+        throw "uninstaller removed the user's Apps folder or its contents: $preservedAppMarker"
+    }
 
-    Write-Output 'M10 installer smoke passed: silent install, healthz, autostart cleanup, firewall cleanup, and silent uninstall.'
+    Write-Output 'M10 installer smoke passed: silent install, healthz, complete owned-data cleanup, user Apps preservation, and silent uninstall.'
 }
 finally {
     if ($null -ne $server -and !$server.HasExited) {
@@ -108,6 +138,18 @@ finally {
         if (Test-Path -LiteralPath $uninstaller -PathType Leaf) {
             Start-Process -FilePath $uninstaller -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -WindowStyle Hidden | Out-Null
         }
+    }
+    if ($ownedDataPrepared) {
+        foreach ($path in @($ownedLocalDataDirectory, $ownedRoamingDataDirectory)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    if ($defaultAppsPrepared -and (Test-Path -LiteralPath $preservedAppMarker -PathType Leaf)) {
+        Remove-Item -LiteralPath $preservedAppMarker -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $defaultAppsDirectory -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $defaultAppsContainer -Force -ErrorAction SilentlyContinue
     }
     $temporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
     $resolvedSandbox = [System.IO.Path]::GetFullPath($sandbox)

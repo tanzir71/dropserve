@@ -1,9 +1,9 @@
 # Build State
 
 **Current milestone:** v1 completion audit — automated/local closure complete; human hardware acceptance pending
-**Last updated:** 2026-08-28T07:08:42Z
+**Last updated:** 2026-08-30T09:05:00Z
 **Gate status:** green
-**Iterations completed:** 164
+**Iterations completed:** 165
 
 ## Milestone progress
 
@@ -57,7 +57,10 @@
 - Replacement hosted CI [33148871366](https://github.com/tanzir71/dropserve/actions/runs/33148871366) passed both full operating-system gates, corrected Unix and Windows M5 smokes, lint, govulncheck, gosec, secret scanning, performance, landing validation, and the complete signed installer/fresh-VM lifecycle. Companion Pages run [33148871013](https://github.com/tanzir71/dropserve/actions/runs/33148871013) built and deployed successfully.
 - A compiled-binary Chromium audit at a 390×844 phone viewport replayed the machine-observable portions of GP-2 through GP-6. It first exposed an open action menu rendering beneath the following card and then closing during a live card refresh; a failing rendered test now covers both conditions, the open card owns a higher stacking context, and its menu state survives DOM reconciliation. The same audit found the search field's computed accessible name was `/` instead of “Search your apps”; an exact failing assertion now locks the corrected name. The final replay returned dashboard HTTP 200, discovered a newly copied static app live in 546 ms without refresh, opened it with HTTP 200, showed the Node app ready with logs, reached the automatic own-port rescue at `http://127.0.0.1:7400/`, returned a local QR PNG, rendered the missing-Tailscale explanation/link, and reported zero browser errors. This strengthens automated evidence but does not replace §17's required human real-hardware walks.
 - Hosted audit CI [33150041617](https://github.com/tanzir71/dropserve/actions/runs/33150041617) passed Windows, the signed installer/fresh-VM lifecycle, lint, security, performance, landing, and secret jobs, but exposed a scheduler race in `TestUpdateMonitorCanBeEnabledByAHotConfigReload` on Ubuntu. The fake `enabled` callback closed its “initial read” channel before sampling the atomic flag, allowing the test goroutine to enable checks between those operations and incorrectly count an initial check plus the explicit trigger. The callback now samples before signaling, preserving the production contract while making the test's disabled observation deterministic; 100 focused race-detector repetitions pass.
-- Remaining acceptance requires external human state and cannot be fabricated: a signed-in real tailnet for the M7 Serve/unserve proof; one visible Windows root-trust confirmation for the M8 production install/uninstall proof; all seven golden paths walked by a human on real hardware; and the novice install plus phone-access trial. Tailscale is not installed or signed in on this host, and the current process is not elevated. Ordered milestone rules therefore prohibit tags M7–M11 until those proofs are recorded.
+- Replacement hosted CI [33150468273](https://github.com/tanzir71/dropserve/actions/runs/33150468273) passed both operating-system gates, every native smoke, the signed installer/fresh-VM lifecycle, lint, security, performance, landing, and secret scanning after the scheduler-test fix. Companion Pages run [33150466932](https://github.com/tanzir71/dropserve/actions/runs/33150466932) also deployed successfully.
+- `TestWindowsHumanAcceptanceHarnessPreservesExplicitConsentAndExternalState` failed first because no real-hardware harness existed. `scripts/acceptance/windows-human.ps1` now runs M7 and M8 against the production CLI in an isolated profile, refuses any pre-existing Tailscale Serve configuration, requires an interactive confirmation immediately before each external change, verifies the tailnet and locally trusted HTTPS endpoints, removes only the Serve mapping and certificate it enabled, and emits a local evidence transcript with the tailnet hostname hashed. Its contract, PowerShell parser check, guarded failure path, and the full authoritative gate pass.
+- Tailscale 1.102.3 is now installed, signed in, and running on this real Windows host with a MagicDNS name and two Tailscale addresses. Its Serve configuration was empty before the one permitted production attempt. `dropserve tailscale serve` reached the real client but returned HTTP 502 because the tailnet-level Serve feature is disabled; Tailscale supplied a node-specific account enablement page. The attempt created no Web or TCP Serve entry, the harness removed its isolated server/workspace, and the local transcript containing that private page URL was moved to the Windows Recycle Bin. Enabling the tailnet setting is paused for action-time confirmation because it changes VPN/account state and transmits the node identifier to Tailscale.
+- Remaining acceptance requires external human state and cannot be fabricated: confirmation to enable Serve for the current real tailnet, one visible Windows root-trust confirmation for the M8 production install/uninstall proof, all seven golden paths walked by a human on real hardware, and the novice install plus phone-access trial. The current process is not elevated. Ordered milestone rules therefore prohibit tags M7–M11 until those proofs are recorded.
 
 ## M7 criteria (manual tailnet check pending)
 
@@ -415,7 +418,7 @@
 
 ## Open questions for the human
 
-- M7 manual tailnet proof: sign in to a real throwaway or existing tailnet, enable Serve once, verify the HTTPS URL, then disable it cleanly. Repeated certificate issuance is intentionally avoided.
+- M7 manual tailnet proof: Tailscale is installed and signed in, but its tailnet-level Serve feature is disabled. Confirm the one-time account setting change; the guarded harness will then enable Serve once, verify the HTTPS URL, and disable it cleanly without recording the private hostname.
 - M8 manual trust proof: when convenient, accept one visible Windows root-trust warning during an isolated check; Dropserve will immediately verify and remove that exact certificate. All automated trust invariants are already green.
 - Definition-of-done acceptance: have a human walk all seven golden paths on real hardware, then have a novice install Dropserve and open an app from a phone without coaching. Record the observed results in this ledger.
 
